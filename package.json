@@ -1,0 +1,39 @@
+{
+  "name": "freres-lumieres-parents",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.19.0",
+  "engines": {
+    "node": ">=22.13.0 <23"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @flp/mobile --filter @flp/admin dev",
+    "lint": "eslint . --max-warnings=0",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit && pnpm -r --if-present typecheck",
+    "test": "pnpm test:unit",
+    "test:unit": "vitest run --exclude tests/rules/**",
+    "test:rules": "vitest run tests/rules",
+    "test:rules:emulated": "firebase emulators:exec --project demo-freres-lumieres --only firestore,storage \"pnpm test:rules\"",
+    "build": "pnpm -r --if-present build",
+    "emulators": "firebase emulators:start --project demo-freres-lumieres --export-on-exit=.firebase/emulator-data",
+    "seed:demo": "firebase emulators:exec --project demo-freres-lumieres --only auth,firestore \"pnpm --filter @flp/functions seed:demo\"",
+    "expo:check": "pnpm --filter @flp/mobile run expo:check",
+    "expo:config": "pnpm --filter @flp/mobile run expo:config"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@firebase/rules-unit-testing": "5.0.2",
+    "@types/node": "24.10.1",
+    "eslint": "10.10.0",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "firebase": "12.19.0",
+    "firebase-tools": "15.30.1",
+    "prettier": "3.9.6",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.70.0",
+    "vitest": "5.0.1"
+  }
+}

@@ -1,0 +1,58 @@
+# Dependencies and generated output
+node_modules/
+work/
+outputs/
+.pnpm-store/
+.expo/
+.next/
+dist/
+lib/
+coverage/
+*.tsbuildinfo
+apps/mobile/ios/
+apps/mobile/android/
+apps/mobile/expo-env.d.ts
+
+# Firebase local state
+.firebase/
+firebase-debug.log*
+firestore-debug.log*
+ui-debug.log*
+
+# Environment and secrets (keep examples)
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.local
+*service-account*.json
+*serviceAccount*.json
+firebase-adminsdk*.json
+google-services.json
+GoogleService-Info.plist
+credentials.json
+secrets/
+
+# Signing material
+*.p12
+*.p8
+*.cer
+*.mobileprovision
+*.jks
+*.keystore
+
+# Builds and archives
+*.ipa
+*.apk
+*.aab
+*.xcarchive
+Payload/
+
+# Editors and operating systems
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.tmp
+*.log

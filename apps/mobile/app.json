@@ -1,0 +1,30 @@
+{
+  "expo": {
+    "name": "Parents Frères Lumières",
+    "slug": "parents-freres-lumieres",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "parentsfrereslumieres",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "fr.fcpe.frereslumieres.parents",
+      "buildNumber": "1"
+    },
+    "android": {
+      "package": "fr.fcpe.frereslumieres.parents",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "backgroundColor": "#F6F1E8"
+      }
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "plugins": ["expo-router"],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

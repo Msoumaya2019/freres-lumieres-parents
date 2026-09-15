@@ -1,0 +1,63 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() { return request.auth != null; }
+    function claim(name, fallback) { return request.auth.token.get(name, fallback); }
+    function role() { return claim('role', ''); }
+    function active() { return signedIn() && claim('status', '') == 'active'; }
+    function privileged() { return active() && role() in ['moderator', 'admin']; }
+    function validImage() { return request.resource.size <= 5 * 1024 * 1024 && request.resource.contentType.matches('image/(jpeg|png|webp)'); }
+    function validDocument() { return request.resource.size <= 10 * 1024 * 1024 && (request.resource.contentType == 'application/pdf' || request.resource.contentType.matches('image/(jpeg|png|webp)')); }
+    function sameOrganization(data) { return data != null && data.organizationId == claim('organizationId', ''); }
+    function audienceAllowed(data) {
+      return active() && sameOrganization(data) && (
+        data.audience.type == 'all' ||
+        (data.audience.type == 'fcpe' && role() in ['fcpe', 'moderator', 'admin']) ||
+        (data.audience.type == 'school' && data.audience.ids.hasAny(claim('schoolIds', []))) ||
+        (data.audience.type == 'level' && data.audience.ids.hasAny(claim('levelIds', []))) ||
+        (data.audience.type == 'class' && data.audience.ids.hasAny(claim('classIds', [])))
+      );
+    }
+    function canReadReport(userId, reportId) {
+      let reportPath = /databases/(default)/documents/reports/$(reportId);
+      let report = firestore.get(reportPath).data;
+      return firestore.exists(reportPath) && active() && sameOrganization(report) && report.authorId == userId && (
+        request.auth.uid == userId ||
+        role() in ['moderator', 'admin'] ||
+        (role() == 'fcpe' && report.visibility == 'fcpe')
+      );
+    }
+    function canWriteReport(userId, reportId) {
+      let reportPath = /databases/(default)/documents/reports/$(reportId);
+      let report = firestore.get(reportPath).data;
+      return firestore.exists(reportPath) && active() && request.auth.uid == userId && sameOrganization(report)
+        && report.authorId == userId && validImage();
+    }
+
+    match /users/{userId}/avatars/{fileName} {
+      allow read: if active() && request.auth.uid == userId;
+      allow write: if active() && request.auth.uid == userId && validImage();
+    }
+    match /posts/{postId}/{fileName} {
+      allow read: if audienceAllowed(firestore.get(/databases/(default)/documents/posts/$(postId)).data);
+      allow write: if active() && role() == 'admin'
+        && sameOrganization(firestore.get(/databases/(default)/documents/posts/$(postId)).data)
+        && validDocument();
+    }
+    match /reports/{userId}/{reportId}/{fileName} {
+      allow read: if canReadReport(userId, reportId);
+      allow write: if canWriteReport(userId, reportId);
+    }
+    match /documents/{documentId}/{fileName} {
+      allow read: if audienceAllowed(firestore.get(/databases/(default)/documents/documents/$(documentId)).data);
+      allow write: if active() && role() == 'admin'
+        && sameOrganization(firestore.get(/databases/(default)/documents/documents/$(documentId)).data)
+        && validDocument();
+    }
+    match /fcpe/{organizationId}/{fileName} {
+      allow read: if active() && role() in ['fcpe', 'moderator', 'admin'] && organizationId == claim('organizationId', '');
+      allow write: if privileged() && organizationId == claim('organizationId', '') && validDocument();
+    }
+    match /{allPaths=**} { allow read, write: if false; }
+  }
+}

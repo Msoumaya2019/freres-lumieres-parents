@@ -1,0 +1,14 @@
+.expo
+.firebase
+.next
+coverage
+dist
+lib
+node_modules
+work
+outputs
+apps/mobile/ios
+apps/mobile/android
+apps/admin/next-env.d.ts
+apps/mobile/expo-env.d.ts
+pnpm-lock.yaml
