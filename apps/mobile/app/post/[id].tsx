@@ -115,6 +115,8 @@ export default function PostDetailScreen(): React.JSX.Element {
               comment={item}
               depth={item.parentId ? 1 : 0}
               onReply={item.parentId ? undefined : handleReply}
+              myReaction={detail.myReactions.get(item.id)}
+              onReact={(emoji) => detail.toggleReaction(item.id, emoji)}
             />
           )}
           ItemSeparatorComponent={() => <View style={{ height: theme.spacing.lg }} />}
@@ -133,6 +135,17 @@ export default function PostDetailScreen(): React.JSX.Element {
                   ? pluralize(post.stats.commentCount, 'commentaire')
                   : 'Commentaires'}
               </AppText>
+
+              {detail.reactionError ? (
+                <AppText
+                  variant="caption"
+                  color="danger"
+                  style={{ marginBottom: theme.spacing.md }}
+                  accessibilityRole="alert"
+                >
+                  {appErrorMessage(detail.reactionError)}
+                </AppText>
+              ) : null}
             </>
           }
           ListEmptyComponent={

@@ -244,18 +244,19 @@ vitest. Il pointe maintenant sur un `tsconfig.test.json`, comme `@fl/shared`.
       Les pièces jointes s'ouvrent via une URL de téléchargement demandée **au
       moment du toucher** et jamais stockée (voir `docs/04-security.md`). Seuls
       les liens `http`/`https` sont ouverts, même si le schéma les valide déjà.
-- [ ] Commentaires, réponses à un commentaire, réactions
-      _(modèle, règles et compteurs faits ; lecture **et écriture** faites :
-      liste paginée, réponses indentées, saisie d'un commentaire ou d'une
-      réponse ; restent les réactions)_
-      Limite assumée : les réponses sont indentées dans la liste chronologique
-      au lieu d'être rattachées à leur parent, ce qui demanderait de charger le
-      parent — absent de la page une fois sur deux.
-      Fermer les commentaires est désormais **une règle**, pas un simple
-      masquage du champ de saisie : la règle de création lit la publication
-      parente et exige qu'elle soit publiée et ouverte aux commentaires. Le
-      test correspondant existe, et un test vérifie qu'une publication sans
-      cette décision est refusée à la création.
+- [x] Commentaires, réponses à un commentaire, réactions
+      Lecture, écriture et réactions. Limite assumée : les réponses sont
+      indentées dans la liste chronologique au lieu d'être rattachées à leur
+      parent — la page ne contient pas forcément le parent, et l'afficher sans
+      lui serait pire. La constitution de fils viendra avec le chargement des
+      réponses.
+      Fermer les commentaires est **une règle**, pas un masquage du champ de
+      saisie : la règle de création lit la publication parente et exige qu'elle
+      soit publiée et ouverte aux commentaires. Un test vérifie aussi qu'une
+      publication sans cette décision est refusée à la création.
+      Le décompte des réactions est tenu par une Cloud Function ; l'application
+      l'estime localement le temps de la réponse, puis le remplace au
+      rechargement suivant — sans quoi le bouton semblerait ne rien faire.
 - [ ] Compression des images avant upload
 - [ ] Écran admin : créer, modifier, épingler une publication
       **Trou connu dans les règles :** `allow update` sur `posts/{postId}` exige
@@ -274,6 +275,12 @@ vitest. Il pointe maintenant sur un `tsconfig.test.json`, comme `@fl/shared`.
       n'est modifiable que par la FCPE, donc l'écriture d'un parent était
       refusée juste après un commentaire pourtant créé — l'interface annonçait un
       échec pour une action réussie.
+      **Deux champs déclarés et jamais alimentés**, à trancher :
+      `PostStats.reactionCount` (les réactions vivent sur les commentaires, il
+      n'existe aucune sous-collection de réactions sur une publication) et
+      `Comment.replyCount` (les réponses existent, mais aucun écran ne les
+      compte). Tous deux sont écrits à zéro et lus par personne — les retirer ou
+      les tenir est une décision de modèle, pas un oubli de plomberie.
 - [ ] Tests : création de publication, ciblage d'audience, lecture filtrée
 
 **Critère de sortie :** le fil se charge en une requête ; un parent ne voit

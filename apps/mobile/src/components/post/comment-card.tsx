@@ -1,14 +1,15 @@
 /**
  * Commentaire d'une publication, ou réponse à un commentaire.
  *
- * ## Les réactions affichées sont celles qui existent
+ * ## Les cinq émoticônes sont toujours affichées, même à zéro
  *
- * `comment.reactions` est un dictionnaire maintenu par une Cloud Function. Seuls
- * les émoticônes réellement posés sont affichés, dans l'ordre de
- * `REACTION_EMOJIS` : afficher les cinq avec « 0 » donnerait l'impression que
- * personne n'a réagi, alors que c'est l'émoticône qui n'est pas utilisée qui
- * occupe la place. L'ordre, lui, reste stable d'un commentaire à l'autre — un
- * décompte qui change de position à chaque ligne est illisible.
+ * C'était l'inverse tant que les réactions étaient en lecture seule : afficher
+ * « 0 » partout donnait l'impression que personne n'avait réagi. Dès lors
+ * qu'elles sont actionnables, l'inverse est vrai — on ne peut pas toucher ce
+ * qui n'est pas affiché, et un bouton qui n'apparaît qu'après la première
+ * réaction ne serait jamais découvert. L'ordre est celui de `REACTION_EMOJIS`,
+ * donc stable d'un commentaire à l'autre : un bouton qui change de place à
+ * chaque ligne ne s'apprend pas.
  *
  * ## Les réponses sont indentées, pas imbriquées
  *
@@ -19,7 +20,14 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, View } from 'react-native';
 
-import { BADGE_COLORS, REACTION_EMOJIS, USER_ROLE_LABELS, formatRelative } from '@fl/shared';
+import {
+  BADGE_COLORS,
+  REACTION_EMOJIS,
+  REACTION_LABELS,
+  USER_ROLE_LABELS,
+  formatRelative,
+  type ReactionEmoji,
+} from '@fl/shared';
 import type { Comment } from '@fl/types';
 
 import { AppText, Badge } from '@/components/ui';
@@ -37,9 +45,18 @@ export interface CommentCardProps {
    * produirait une structure que l'écran ne sait pas représenter.
    */
   onReply?: ((comment: Comment) => void) | undefined;
+  /** Réaction que j'ai posée sur ce commentaire, s'il y en a une. */
+  myReaction?: ReactionEmoji | undefined;
+  onReact?: ((emoji: ReactionEmoji) => void) | undefined;
 }
 
-export function CommentCard({ comment, depth = 0, onReply }: CommentCardProps): React.JSX.Element {
+export function CommentCard({
+  comment,
+  depth = 0,
+  onReply,
+  myReaction,
+  onReact,
+}: CommentCardProps): React.JSX.Element {
   const { theme } = useTheme();
 
   const relativeDate = formatRelative(comment.createdAt);
@@ -53,7 +70,7 @@ export function CommentCard({ comment, depth = 0, onReply }: CommentCardProps): 
     comment.body,
     reactions.length > 0
       ? reactions
-          .map((emoji) => `${comment.reactions[emoji] ?? 0} ${reactionName(emoji)}`)
+          .map((emoji) => `${comment.reactions[emoji] ?? 0} ${REACTION_LABELS[emoji]}`)
           .join(', ')
       : null,
   ]
@@ -92,15 +109,61 @@ export function CommentCard({ comment, depth = 0, onReply }: CommentCardProps): 
         {comment.body}
       </AppText>
 
-      {reactions.length > 0 ? (
+      {onReact ? (
         <View
-          style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.sm, marginTop: 2 }}
+          style={{
+            flexDirection: 'row',
+            flexWrap: 'wrap',
+            gap: theme.spacing.sm,
+            marginTop: theme.spacing.xs,
+          }}
         >
-          {reactions.map((emoji) => (
-            <AppText key={emoji} variant="caption" color="muted">
-              {emoji} {comment.reactions[emoji] ?? 0}
-            </AppText>
-          ))}
+          {REACTION_EMOJIS.map((emoji) => {
+            const count = comment.reactions[emoji] ?? 0;
+            const mine = myReaction === emoji;
+
+            return (
+              <Pressable
+                key={emoji}
+                onPress={() => onReact(emoji)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: mine }}
+                accessibilityLabel={
+                  count > 0
+                    ? `${REACTION_LABELS[emoji]}, ${count}${mine ? ', la vôtre' : ''}`
+                    : REACTION_LABELS[emoji]
+                }
+                // La puce est plus petite que la cible tactile recommandée :
+                // cinq pastilles de 48 points par commentaire rendraient la
+                // conversation illisible. `hitSlop` rattrape la différence sans
+                // occuper d'espace.
+                hitSlop={theme.spacing.sm}
+                style={({ pressed }) => [
+                  styles.reaction,
+                  {
+                    minHeight: theme.touchTarget * 0.75,
+                    paddingHorizontal: theme.spacing.sm,
+                    gap: theme.spacing.xs,
+                    borderRadius: theme.radii.pill,
+                    borderWidth: StyleSheet.hairlineWidth,
+                    borderColor: mine ? theme.colors.primary : theme.colors.border,
+                    backgroundColor: mine ? theme.colors.primarySoft : theme.colors.surfaceMuted,
+                    opacity: pressed ? 0.75 : 1,
+                  },
+                ]}
+              >
+                <AppText variant="caption">{emoji}</AppText>
+                {count > 0 ? (
+                  <AppText
+                    variant="caption"
+                    style={{ color: mine ? theme.colors.primary : theme.colors.textMuted }}
+                  >
+                    {count}
+                  </AppText>
+                ) : null}
+              </Pressable>
+            );
+          })}
         </View>
       ) : null}
 
@@ -129,26 +192,12 @@ export function CommentCard({ comment, depth = 0, onReply }: CommentCardProps): 
   );
 }
 
-/**
- * Nom lisible d'une émoticône, pour les lecteurs d'écran.
- *
- * Sans cette traduction, VoiceOver énonce « pouce vers le haut, 3 » — ce qui
- * passe encore — mais aussi « visage avec des étoiles, 2 », incompréhensible
- * hors contexte visuel.
- */
-function reactionName(emoji: string): string {
-  const names: Record<string, string> = {
-    '👍': 'approbation',
-    '🎉': 'bravo',
-    '🙏': 'merci',
-    '😮': 'surprise',
-    '😍': 'soutien',
-  };
-  return names[emoji] ?? 'réaction';
-}
-
 const styles = StyleSheet.create({
   reply: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  reaction: {
     flexDirection: 'row',
     alignItems: 'center',
   },

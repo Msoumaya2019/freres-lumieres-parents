@@ -8,6 +8,7 @@
 
 export * from './constants.js';
 export * from './labels.js';
+export * from './reactions.js';
 export * from './audience.js';
 export * from './permissions.js';
 export * from './validation.js';

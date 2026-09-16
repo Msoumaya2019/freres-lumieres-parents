@@ -120,6 +120,22 @@ export function isReactionEmoji(value: string): value is ReactionEmoji {
   return (REACTION_EMOJIS as readonly string[]).includes(value);
 }
 
+/**
+ * Nom lisible d'une réaction, destiné aux lecteurs d'écran.
+ *
+ * Sans cette traduction, VoiceOver énonce « visage avec des étoiles, 2 » —
+ * incompréhensible hors contexte visuel. Le libellé vit à côté de la liste des
+ * émoticônes, et son type est `Record<ReactionEmoji, string>` : ajouter une
+ * émoticône sans lui donner de nom ne compile pas.
+ */
+export const REACTION_LABELS: Record<ReactionEmoji, string> = {
+  '👍': 'approbation',
+  '🎉': 'bravo',
+  '🙏': 'merci',
+  '😮': 'surprise',
+  '😍': 'soutien',
+};
+
 export const CONTENT_STATUSES = [
   'draft',
   'published',
