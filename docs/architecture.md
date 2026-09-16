@@ -1,72 +1,33 @@
-# Architecture — Phase 2
+# Architecture de référence — Phase 1 révisée
 
-## Décision
-
-Le produit est un monorepo pnpm composé de deux clients, de quatre packages partagés et d’un backend Firebase :
+Le produit conserve le monorepo pnpm, Expo SDK 57, Expo Router, Next.js 16, Firebase et les workflows GitHub existants. Il n’existe plus de compte public : le mobile ouvre directement `Accueil / Agenda / Cantine / Contact / Plus`. Firebase Authentication est réservé aux rôles `fcpe`, `moderator` et `admin`.
 
 ```text
-apps/mobile       Expo SDK 57 + React Native + Expo Router
-apps/admin        Next.js 16 App Router
-packages/types    contrats TypeScript
-packages/validation schémas Zod
-packages/shared   permissions et logique pure partagée
-packages/firebase-config initialisation modulaire du SDK client
-functions         Cloud Functions Node.js 22
-firebase          règles et index
+apps/mobile              client public immédiat + futur espace membre
+apps/admin               administration Next.js
+packages/types           contrats partagés sans profil parent
+packages/validation      validation Zod des entrées
+packages/shared          permissions membres et topics publics
+packages/firebase-config SDK client modulaire
+functions                frontières serveur privilégiées
+firebase                 Rules et index
 ```
 
-Les besoins fonctionnels du cahier des charges sont conservés. La Phase 2 rend opérationnels l’authentification, l’inscription et le cycle de validation sans remplacer les fondations de sécurité.
+## Décisions
 
-## Parcours d’identité
+- Les contenus explicitement publiés et d’audience non `fcpe` sont lisibles sans Auth. École, niveau et classe servent au classement/ciblage, pas à identifier une famille.
+- Les profils authentifiés sont des `memberProfiles`. Le rôle par défaut d’une demande membre est `fcpe/pending`; seul un admin peut changer rôle ou statut via Function et Custom Claims.
+- Les commentaires publics, profils enfants, forums parent-parent, votes liés à un UID et signalements propriétaires sont supprimés.
+- Les conversations sans compte ne sont jamais accessibles directement via Firestore ou Storage, même à un client admin. Une couche Functions dédiée sera la seule frontière d’accès.
+- Le design system existant (crème, vert profond, couleurs sémantiques) est conservé et appliqué aux nouveaux placeholders.
+- CNG reste utilisé : `ios/` et `android/` sont générés, pas versionnés.
 
-1. Firebase Auth crée l’identité email/mot de passe.
-2. La Function `registerParentProfile` valide les options d’inscription et crée atomiquement le profil parent `pending` et les rattachements enfants minimaux.
-3. Le client persiste la session dans AsyncStorage, observe le profil et dirige l’utilisateur vers les onglets ou l’écran de statut.
-4. Un administrateur actif approuve, suspend, refuse ou réactive le compte via une Function callable.
-5. La Function met à jour le document, reconstruit les Custom Claims depuis Firestore et journalise l’action.
+## Chat sans compte préparé pour la Phase 6
 
-Une nouvelle invocation d’inscription pour un profil existant reprend les données serveur pour les claims : les audiences fournies par le client ne peuvent pas écraser un profil existant. Toute classe optionnelle est vérifiée côté serveur contre son organisation, son école et son niveau.
+`createContactConversation` générera un `conversationId` opaque et un secret aléatoire d’au moins 256 bits. Le secret brut sera retourné une seule fois, conservé par `expo-secure-store` sur le téléphone, jamais journalisé ni placé dans une URL. Firestore ne conservera qu’un hash avec sel/pepper serveur. `sendContactMessage`, `getContactConversation` et `getContactMessages` exigeront le couple identifiant/secret, App Check, validation Zod, statut compatible et limites anti-abus.
 
-## Design system mobile
+Les pièces jointes utiliseront une autorisation serveur et une URL signée courte; `contact/**` est fermé par Storage Rules. Les `contactInternalNotes` seront servies par un endpoint membre séparé et ne pourront jamais être incluses dans une réponse publique. Les données privées seront paginées et les conversations fermées auront un `retentionUntil`.
 
-La direction graphique est centralisée dans `apps/mobile/constants/theme.ts`. Les écrans de Phase 2 utilisent les mêmes tokens de couleurs, espacements, rayons, typographie, ombres et états sémantiques. Cette évolution reste strictement présentative : les règles métier, les routes protégées et les contrôles serveur sont indépendants du thème.
+## Coûts et builds
 
-## Choix majeurs et impacts
-
-| Sujet         | Décision                                                                    | Pourquoi / avantages                                                   | Inconvénients                                                 | Coûts                                     | Maintenance                         | Builds mobiles                                     |
-| ------------- | --------------------------------------------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------- | ----------------------------------------- | ----------------------------------- | -------------------------------------------------- |
-| Mobile        | Expo SDK 57.0.23, React Native 0.86.3, Expo Router                          | Une base iOS/Android, CNG, écosystème stable                           | Les personnalisations natives doivent être des config plugins | Aucun coût Expo obligatoire               | Mises à niveau SDK planifiées       | `prebuild` génère iOS/Android, EAS reste optionnel |
-| Backend       | Firebase modulaire, émulateurs par défaut                                   | Auth, règles, stockage et Functions cohérents, faible exploitation     | Verrouillage fournisseur et modélisation NoSQL                | Quotas gratuits puis paiement à l’usage   | Peu d’infrastructure                | Le SDK JS ne bloque ni Xcode ni Gradle             |
-| Admin         | Next.js 16 sans Firebase Admin dans le navigateur                           | UI moderne, hébergement flexible, privilèges uniquement dans Functions | Une Function est nécessaire pour les mutations sensibles      | Statique/Node selon hébergeur             | App Router documenté et courant     | Aucun impact sur le natif                          |
-| Monorepo      | pnpm workspaces, sans Turborepo                                             | Suffisant pour 2 apps, moins de configuration                          | Pas de cache distribué                                        | Gratuit                                   | Scripts explicites et simples       | Le workspace mobile est compilable isolément       |
-| Autorisation  | Custom Claims + document utilisateur minimal                                | Les règles voient rôle, statut et audiences sans lecture additionnelle | Rafraîchissement du token après changement                    | Réduit les lectures de règles             | Synchronisation des claims à tester | Indépendant de la plateforme                       |
-| Notifications | Topics non sensibles, ciblage serveur pour audiences privées                | Évite un document par utilisateur et protège FCPE/classes              | Gestion des tokens plus élaborée                              | FCM sans coût direct, Functions à l’usage | Nettoyage des tokens nécessaire     | Configuration native ajoutée en Phase 5            |
-| Données       | Collections racines, audience embarquée, IDs de participation déterministes | Pagination globale et anti-doublon simples                             | Dénormalisation contrôlée                                     | Lectures prévisibles                      | Index et migrations documentés      | Aucun impact                                       |
-| iOS unsigned  | CNG, `macos-26`, Xcode 26.4.1, CocoaPods 1.17.0                             | Versions réellement présentes et compatibles Expo 57                   | Image à mettre à jour lorsqu’elle sera retirée                | Runner public GitHub hébergé              | Workflow autonome et vérifiable     | Produit un bundle `iphoneos` ARM64 non signé       |
-
-Les versions Node, pnpm et les actions GitHub sont également épinglées. Le tag de runner GitHub est nécessairement une image roulante ; les assertions sur le chemin et la version de Xcode, CocoaPods et l’architecture transforment toute dérive incompatible en échec lisible.
-
-## Frontières de confiance
-
-1. Les clients sont hostiles par principe.
-2. `hasPermission` sert uniquement à adapter l’interface.
-3. Firestore Rules et Storage Rules contrôlent chaque accès direct.
-4. Les changements de rôle/statut, notifications et suppressions sensibles passent par Functions.
-5. Les Functions reconstruisent les Custom Claims depuis le profil Firestore ; elles n’acceptent jamais les claims fournis par le client.
-6. Aucun secret serveur n’est requis dans les apps.
-
-## Environnements
-
-- `demo-freres-lumieres` : identifiant réservé aux émulateurs.
-- `freres-lumieres-dev` : futur projet Firebase de développement.
-- `freres-lumieres-prod` : futur projet Firebase de production.
-
-Le seed exige simultanément `FIREBASE_AUTH_EMULATOR_HOST`, `FIRESTORE_EMULATOR_HOST` et un project ID commençant par `demo-`. Ces barrières empêchent toute écriture accidentelle dans Auth ou Firestore de production.
-
-## Continuous Native Generation
-
-`apps/mobile/ios` et `apps/mobile/android` sont ignorés par Git. Le code natif est généré à partir de `app.json` et des config plugins. Ce choix évite les diffs natifs obsolètes et garantit que GitHub Actions teste la génération réelle. Une personnalisation native future devra être déclarative ; si cela devient impraticable, une ADR pourra décider de versionner les dossiers.
-
-## Évolutivité
-
-Chaque ressource métier porte `organizationId`. Les audiences portent un type et une liste d’identifiants. La première organisation peut donc accueillir d’autres écoles, puis d’autres organisations, sans dupliquer les collections. Les listes présentes dans les Custom Claims doivent rester petites ; si le produit dépasse cette hypothèse, elles seront remplacées par des documents de membership et des Functions de lecture dédiées.
+Les lectures publiques utilisent des requêtes bornées et paginées. Les topics FCM évitent une écriture par destinataire. Aucune vidéo n’est prévue. Le workflow iOS reste sur `macos-26`, Xcode 26.4.1, CocoaPods 1.17.0, Expo 57.0.23 et produit une IPA `iphoneos` ARM64 non signée. Le modèle sans compte ne modifie ni le prebuild iOS ni Android.

@@ -8,13 +8,16 @@ import { useAdminAuth } from './auth-provider';
 const navigation = [
   ['/dashboard', 'Tableau de bord'],
   ['/publications', 'Publications'],
-  ['/users', 'Utilisateurs'],
-  ['/moderation', 'Modération'],
-  ['/reports', 'Signalements'],
+  ['/notifications', 'Notifications'],
+  ['/contact', 'Demandes parents'],
+  ['/members', 'Membres FCPE'],
+  ['/fcpe', 'Espace FCPE'],
   ['/polls', 'Sondages'],
   ['/events', 'Événements'],
+  ['/canteen', 'Cantine'],
   ['/documents', 'Documents'],
   ['/school-councils', 'Conseils d’école'],
+  ['/logs', 'Journaux'],
   ['/settings', 'Paramètres'],
 ] as const;
 

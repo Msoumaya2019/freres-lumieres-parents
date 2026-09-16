@@ -8,54 +8,44 @@ import { setGlobalOptions } from 'firebase-functions/v2/options';
 initializeApp();
 setGlobalOptions({ region: 'europe-west1', maxInstances: 5 });
 
-const roles = ['parent', 'fcpe', 'moderator', 'admin'] as const;
+const roles = ['fcpe', 'moderator', 'admin'] as const;
 const statuses = ['pending', 'active', 'suspended', 'rejected'] as const;
+const publicTopics = [
+  'all_public',
+  'school_maternelle',
+  'school_elementaire',
+  'canteen',
+  'events',
+  'school_councils',
+] as const;
 type Role = (typeof roles)[number];
 type Status = (typeof statuses)[number];
 
-function asRecord(value: unknown): Record<string, unknown> {
+function record(value: unknown): Record<string, unknown> {
   return typeof value === 'object' && value !== null
     ? (value as Record<string, unknown>)
     : {};
 }
-
-function stringField(data: Record<string, unknown>, key: string): string {
+function text(data: Record<string, unknown>, key: string): string {
   const value = data[key];
   return typeof value === 'string' ? value : '';
 }
-
-function stringArrayField(
-  data: Record<string, unknown>,
-  key: string,
-): string[] {
-  const value = data[key];
-  return Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === 'string')
-    : [];
-}
-
 function requiredText(
   data: Record<string, unknown>,
   key: string,
-  maxLength: number,
+  max: number,
 ): string {
-  const value = stringField(data, key).trim();
-  if (!value || value.length > maxLength)
+  const value = text(data, key).trim();
+  if (!value || value.length > max)
     throw new HttpsError('invalid-argument', `${key} est invalide.`);
   return value;
 }
-
 function requiredId(data: Record<string, unknown>, key: string): string {
   const value = requiredText(data, key, 128);
   if (!/^[A-Za-z0-9_-]+$/.test(value))
     throw new HttpsError('invalid-argument', `${key} est invalide.`);
   return value;
 }
-
-function unique(values: string[]): string[] {
-  return [...new Set(values)];
-}
-
 function requireActiveRole(
   auth: { token: Record<string, unknown>; uid: string } | undefined,
   allowed: Role[],
@@ -65,414 +55,37 @@ function requireActiveRole(
   if (
     auth.token.status !== 'active' ||
     !allowed.includes(auth.token.role as Role)
-  ) {
+  )
     throw new HttpsError('permission-denied', 'Permission insuffisante.');
-  }
   return auth;
 }
-
-function actorOrganizationId(auth: { token: Record<string, unknown> }): string {
-  const organizationId = stringField(auth.token, 'organizationId');
-  if (!organizationId)
-    throw new HttpsError(
-      'permission-denied',
-      'Organisation administrateur manquante.',
-    );
-  return organizationId;
+function organizationOf(auth: { token: Record<string, unknown> }): string {
+  const id = text(auth.token, 'organizationId');
+  if (!id) throw new HttpsError('permission-denied', 'Organisation manquante.');
+  return id;
 }
 
-async function requireTargetInOrganization(
-  collection: string,
-  targetId: string,
-  organizationId: string,
-) {
-  const ref = getFirestore().doc(`${collection}/${targetId}`);
+async function targetMember(uid: string, organizationId: string) {
+  const ref = getFirestore().doc(`memberProfiles/${uid}`);
   const snapshot = await ref.get();
-  if (!snapshot.exists) throw new HttpsError('not-found', 'Cible introuvable.');
-  const target = asRecord(snapshot.data());
-  if (stringField(target, 'organizationId') !== organizationId)
-    throw new HttpsError('permission-denied', 'Organisation différente.');
-  return { ref, target };
-}
-
-function assertRole(value: unknown): asserts value is Role {
-  if (typeof value !== 'string' || !roles.includes(value as Role))
-    throw new HttpsError('invalid-argument', 'Rôle invalide.');
-}
-
-async function claimsForUser(uid: string, role: Role, status: Status) {
-  const snapshot = await getFirestore().doc(`users/${uid}`).get();
   if (!snapshot.exists)
-    throw new HttpsError('not-found', 'Profil utilisateur introuvable.');
-  const profile = asRecord(snapshot.data());
+    throw new HttpsError('not-found', 'Membre introuvable.');
+  const data = record(snapshot.data());
+  if (text(data, 'organizationId') !== organizationId)
+    throw new HttpsError('permission-denied', 'Organisation différente.');
+  return { ref, data };
+}
+async function memberClaims(uid: string, role: Role, status: Status) {
+  const snapshot = await getFirestore().doc(`memberProfiles/${uid}`).get();
+  if (!snapshot.exists)
+    throw new HttpsError('not-found', 'Profil membre introuvable.');
   return {
     role,
     status,
-    organizationId: stringField(profile, 'organizationId'),
-    schoolIds: stringArrayField(profile, 'schoolIds'),
-    levelIds: stringArrayField(profile, 'levelIds'),
-    classIds: stringArrayField(profile, 'classIds'),
+    organizationId: text(record(snapshot.data()), 'organizationId'),
   };
 }
-
-export const registerParentProfile = onCall<Record<string, unknown>>(
-  async (request) => {
-    if (!request.auth)
-      throw new HttpsError('unauthenticated', 'Authentification requise.');
-
-    const uid = request.auth.uid;
-    const authUser = await getAuth().getUser(uid);
-    const email = authUser.email;
-    if (!email)
-      throw new HttpsError('failed-precondition', 'Adresse email manquante.');
-
-    const data = asRecord(request.data);
-    const firstName = requiredText(data, 'firstName', 80);
-    const lastName = requiredText(data, 'lastName', 80);
-    const organizationId = requiredId(data, 'organizationId');
-    const rawChildren = data.children;
-    if (
-      !Array.isArray(rawChildren) ||
-      rawChildren.length < 1 ||
-      rawChildren.length > 5
-    )
-      throw new HttpsError(
-        'invalid-argument',
-        'Entre un et cinq enfants sont requis.',
-      );
-
-    const children = rawChildren.map((rawChild) => {
-      const child = asRecord(rawChild);
-      const rawClassId = stringField(child, 'classId').trim();
-      return {
-        schoolId: requiredId(child, 'schoolId'),
-        levelId: requiredId(child, 'levelId'),
-        classId: rawClassId ? requiredId(child, 'classId') : undefined,
-      };
-    });
-
-    const db = getFirestore();
-    const userRef = db.doc(`users/${uid}`);
-    const claims = await db.runTransaction(async (transaction) => {
-      const existing = await transaction.get(userRef);
-      if (existing.exists) {
-        const profile = asRecord(existing.data());
-        const rawRole = stringField(profile, 'role');
-        const rawStatus = stringField(profile, 'status');
-        return {
-          role: roles.includes(rawRole as Role) ? (rawRole as Role) : 'parent',
-          status: statuses.includes(rawStatus as Status)
-            ? (rawStatus as Status)
-            : 'pending',
-          organizationId: stringField(profile, 'organizationId'),
-          schoolIds: stringArrayField(profile, 'schoolIds'),
-          levelIds: stringArrayField(profile, 'levelIds'),
-          classIds: stringArrayField(profile, 'classIds'),
-        };
-      }
-
-      const optionsRef = db.doc(`registrationOptions/${organizationId}`);
-      const optionsSnapshot = await transaction.get(optionsRef);
-      const options = asRecord(optionsSnapshot.data());
-      if (!optionsSnapshot.exists || options.active !== true)
-        throw new HttpsError(
-          'failed-precondition',
-          'Inscriptions indisponibles.',
-        );
-
-      const schools = Array.isArray(options.schools) ? options.schools : [];
-      for (const child of children) {
-        const school = schools
-          .map(asRecord)
-          .find((entry) => stringField(entry, 'id') === child.schoolId);
-        const levels =
-          school && Array.isArray(school.levels) ? school.levels : [];
-        if (
-          !school ||
-          !levels
-            .map(asRecord)
-            .some((entry) => stringField(entry, 'id') === child.levelId)
-        ) {
-          throw new HttpsError(
-            'invalid-argument',
-            'Établissement ou niveau invalide.',
-          );
-        }
-      }
-
-      for (const child of children) {
-        if (!child.classId) continue;
-        const classSnapshot = await transaction.get(
-          db.doc(`classes/${child.classId}`),
-        );
-        const classData = asRecord(classSnapshot.data());
-        if (
-          !classSnapshot.exists ||
-          classData.active !== true ||
-          stringField(classData, 'organizationId') !== organizationId ||
-          stringField(classData, 'schoolId') !== child.schoolId ||
-          stringField(classData, 'levelId') !== child.levelId
-        ) {
-          throw new HttpsError('invalid-argument', 'Classe invalide.');
-        }
-      }
-
-      const now = FieldValue.serverTimestamp();
-      const schoolIds = unique(children.map((child) => child.schoolId));
-      const levelIds = unique(children.map((child) => child.levelId));
-      const classIds = unique(
-        children.flatMap((child) => (child.classId ? [child.classId] : [])),
-      );
-      transaction.create(userRef, {
-        id: uid,
-        firstName,
-        lastName,
-        email: email.toLowerCase(),
-        role: 'parent',
-        status: 'pending',
-        organizationId,
-        schoolIds,
-        levelIds,
-        classIds,
-        notificationPreferences: {},
-        createdAt: now,
-        updatedAt: now,
-      });
-      for (const child of children) {
-        const childRef = db.collection('childProfiles').doc();
-        transaction.create(childRef, {
-          id: childRef.id,
-          parentUserId: uid,
-          organizationId,
-          schoolId: child.schoolId,
-          levelId: child.levelId,
-          ...(child.classId ? { classId: child.classId } : {}),
-          createdAt: now,
-        });
-      }
-      return {
-        role: 'parent' as const,
-        status: 'pending' as const,
-        organizationId,
-        schoolIds,
-        levelIds,
-        classIds,
-      };
-    });
-
-    await getAuth().setCustomUserClaims(uid, claims);
-    return { ok: true, status: claims.status };
-  },
-);
-
-async function changeUserStatus(
-  actor: { token: Record<string, unknown>; uid: string },
-  uid: string,
-  status: Status,
-) {
-  if (uid === actor.uid)
-    throw new HttpsError(
-      'invalid-argument',
-      'Vous ne pouvez pas modifier votre propre statut.',
-    );
-  const organizationId = actorOrganizationId(actor);
-  const { ref, target } = await requireTargetInOrganization(
-    'users',
-    uid,
-    organizationId,
-  );
-  const rawRole = target.role;
-  const role: Role =
-    typeof rawRole === 'string' && roles.includes(rawRole as Role)
-      ? (rawRole as Role)
-      : 'parent';
-  await ref.update({ status, updatedAt: FieldValue.serverTimestamp() });
-  await getAuth().setCustomUserClaims(
-    uid,
-    await claimsForUser(uid, role, status),
-  );
-  const actions: Record<Status, string> = {
-    pending: 'USER_SET_PENDING',
-    active:
-      target.status === 'suspended' ? 'USER_REACTIVATED' : 'USER_APPROVED',
-    suspended: 'USER_SUSPENDED',
-    rejected: 'USER_REJECTED',
-  };
-  await logAdminAction(
-    actor.uid,
-    organizationId,
-    actions[status],
-    'user',
-    uid,
-    {
-      previousStatus: target.status,
-      status,
-    },
-  );
-}
-
-export const approveUser = onCall<Record<string, unknown>>(async (request) => {
-  const actor = requireActiveRole(request.auth, ['admin']);
-  const data = asRecord(request.data);
-  const uid = stringField(data, 'uid');
-  if (!uid)
-    throw new HttpsError('invalid-argument', 'Identifiant utilisateur requis.');
-  await changeUserStatus(actor, uid, 'active');
-  return { ok: true };
-});
-
-export const setUserStatus = onCall<Record<string, unknown>>(
-  async (request) => {
-    const actor = requireActiveRole(request.auth, ['admin']);
-    const data = asRecord(request.data);
-    const uid = stringField(data, 'uid');
-    const status = data.status;
-    if (
-      !uid ||
-      typeof status !== 'string' ||
-      !statuses.includes(status as Status)
-    ) {
-      throw new HttpsError('invalid-argument', 'Statut utilisateur invalide.');
-    }
-    await changeUserStatus(actor, uid, status as Status);
-    return { ok: true };
-  },
-);
-
-export const setUserRole = onCall<Record<string, unknown>>(async (request) => {
-  const actor = requireActiveRole(request.auth, ['admin']);
-  const organizationId = actorOrganizationId(actor);
-  const data = asRecord(request.data);
-  const uid = stringField(data, 'uid');
-  const role: unknown = data.role;
-  if (!uid || uid === actor.uid)
-    throw new HttpsError('invalid-argument', 'Cible invalide.');
-  assertRole(role);
-  const { ref, target: profile } = await requireTargetInOrganization(
-    'users',
-    uid,
-    organizationId,
-  );
-  const rawStatus = profile.status;
-  const status: Status =
-    typeof rawStatus === 'string' && statuses.includes(rawStatus as Status)
-      ? (rawStatus as Status)
-      : 'pending';
-  await ref.update({ role, updatedAt: FieldValue.serverTimestamp() });
-  await getAuth().setCustomUserClaims(
-    uid,
-    await claimsForUser(uid, role, status),
-  );
-  await logAdminAction(actor.uid, organizationId, 'ROLE_CHANGED', 'user', uid, {
-    role,
-  });
-  return { ok: true };
-});
-
-export const sendPushNotification = onCall<Record<string, unknown>>(
-  async (request) => {
-    requireActiveRole(request.auth, ['admin']);
-    const data = asRecord(request.data);
-    const topic = stringField(data, 'topic');
-    const title = stringField(data, 'title').trim();
-    const body = stringField(data, 'body').trim();
-    if (
-      !/^(organization|school|level)_[A-Za-z0-9-]{1,80}$/.test(topic) ||
-      !title ||
-      !body
-    ) {
-      throw new HttpsError('invalid-argument', 'Notification invalide.');
-    }
-    const messageId = await getMessaging().send({
-      topic,
-      notification: { title: title.slice(0, 120), body: body.slice(0, 500) },
-    });
-    return { ok: true, messageId };
-  },
-);
-
-export const createPostNotification = onCall<Record<string, unknown>>(
-  (request) => {
-    requireActiveRole(request.auth, ['admin']);
-    throw new HttpsError(
-      'failed-precondition',
-      'La diffusion automatique sera activée en Phase 5.',
-    );
-  },
-);
-
-export const moderateContent = onCall<Record<string, unknown>>(
-  async (request) => {
-    const actor = requireActiveRole(request.auth, ['moderator', 'admin']);
-    const organizationId = actorOrganizationId(actor);
-    const data = asRecord(request.data);
-    const targetType = stringField(data, 'targetType');
-    const targetId = stringField(data, 'targetId');
-    const collections: Record<string, string> = {
-      post: 'posts',
-      comment: 'comments',
-      message: 'messages',
-    };
-    const collection = collections[targetType];
-    if (!collection || !targetId)
-      throw new HttpsError('invalid-argument', 'Cible de modération invalide.');
-    const { ref } = await requireTargetInOrganization(
-      collection,
-      targetId,
-      organizationId,
-    );
-    await ref.update({
-      status: 'hidden',
-      moderatedAt: FieldValue.serverTimestamp(),
-      moderatedBy: actor.uid,
-    });
-    const action =
-      targetType === 'comment'
-        ? 'COMMENT_HIDDEN'
-        : targetType === 'message'
-          ? 'MESSAGE_HIDDEN'
-          : 'POST_HIDDEN';
-    await logAdminAction(
-      actor.uid,
-      organizationId,
-      action,
-      targetType,
-      targetId,
-    );
-    return { ok: true };
-  },
-);
-
-export const deleteUserData = onCall<Record<string, unknown>>(
-  async (request) => {
-    if (!request.auth)
-      throw new HttpsError('unauthenticated', 'Authentification requise.');
-    const data = asRecord(request.data);
-    const requestedUid = stringField(data, 'uid') || request.auth.uid;
-    if (requestedUid !== request.auth.uid) {
-      const actor = requireActiveRole(request.auth, ['admin']);
-      await requireTargetInOrganization(
-        'users',
-        requestedUid,
-        actorOrganizationId(actor),
-      );
-    }
-
-    const db = getFirestore();
-    const children = await db
-      .collection('childProfiles')
-      .where('parentUserId', '==', requestedUid)
-      .get();
-    const batch = db.batch();
-    for (const child of children.docs) batch.delete(child.ref);
-    batch.delete(db.doc(`users/${requestedUid}`));
-    await batch.commit();
-    await getAuth().deleteUser(requestedUid);
-    return { ok: true, publicContentAnonymizationPending: true };
-  },
-);
-
-async function logAdminAction(
+async function log(
   actorUserId: string,
   organizationId: string,
   action: string,
@@ -490,3 +103,156 @@ async function logAdminAction(
     createdAt: FieldValue.serverTimestamp(),
   });
 }
+
+// Ce callable ne concerne que les membres FCPE. Aucun compte public n'est créé.
+export const registerMemberProfile = onCall<Record<string, unknown>>(
+  async (request) => {
+    if (!request.auth)
+      throw new HttpsError('unauthenticated', 'Authentification requise.');
+    const authUser = await getAuth().getUser(request.auth.uid);
+    if (!authUser.email)
+      throw new HttpsError('failed-precondition', 'Adresse email manquante.');
+    const data = record(request.data);
+    const organizationId = requiredId(data, 'organizationId');
+    const profile = {
+      id: request.auth.uid,
+      firstName: requiredText(data, 'firstName', 80),
+      lastName: requiredText(data, 'lastName', 80),
+      email: authUser.email.toLowerCase(),
+      role: 'fcpe' as const,
+      status: 'pending' as const,
+      organizationId,
+      ...(text(data, 'declaredFunction').trim()
+        ? {
+            declaredFunction: text(data, 'declaredFunction')
+              .trim()
+              .slice(0, 120),
+          }
+        : {}),
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    };
+    const ref = getFirestore().doc(`memberProfiles/${request.auth.uid}`);
+    if ((await ref.get()).exists)
+      throw new HttpsError('already-exists', 'Une demande existe déjà.');
+    await ref.create(profile);
+    await getAuth().setCustomUserClaims(request.auth.uid, {
+      role: 'fcpe',
+      status: 'pending',
+      organizationId,
+    });
+    return { ok: true, status: 'pending' };
+  },
+);
+
+async function changeMemberStatus(
+  actor: { token: Record<string, unknown>; uid: string },
+  uid: string,
+  status: Status,
+) {
+  if (uid === actor.uid)
+    throw new HttpsError(
+      'invalid-argument',
+      'Vous ne pouvez pas modifier votre propre statut.',
+    );
+  const organizationId = organizationOf(actor);
+  const { ref, data } = await targetMember(uid, organizationId);
+  const role = roles.includes(data.role as Role) ? (data.role as Role) : 'fcpe';
+  await ref.update({ status, updatedAt: FieldValue.serverTimestamp() });
+  await getAuth().setCustomUserClaims(
+    uid,
+    await memberClaims(uid, role, status),
+  );
+  const action =
+    status === 'active'
+      ? data.status === 'suspended'
+        ? 'MEMBER_REACTIVATED'
+        : 'MEMBER_APPROVED'
+      : status === 'suspended'
+        ? 'MEMBER_SUSPENDED'
+        : status === 'rejected'
+          ? 'MEMBER_REJECTED'
+          : 'MEMBER_SET_PENDING';
+  await log(actor.uid, organizationId, action, 'member', uid, {
+    previousStatus: data.status,
+    status,
+  });
+}
+export const approveMember = onCall<Record<string, unknown>>(
+  async (request) => {
+    const actor = requireActiveRole(request.auth, ['admin']);
+    const uid = requiredId(record(request.data), 'uid');
+    await changeMemberStatus(actor, uid, 'active');
+    return { ok: true };
+  },
+);
+export const setMemberStatus = onCall<Record<string, unknown>>(
+  async (request) => {
+    const actor = requireActiveRole(request.auth, ['admin']);
+    const data = record(request.data);
+    const uid = requiredId(data, 'uid');
+    const status = text(data, 'status') as Status;
+    if (!statuses.includes(status))
+      throw new HttpsError('invalid-argument', 'Statut invalide.');
+    await changeMemberStatus(actor, uid, status);
+    return { ok: true };
+  },
+);
+export const setMemberRole = onCall<Record<string, unknown>>(
+  async (request) => {
+    const actor = requireActiveRole(request.auth, ['admin']);
+    const organizationId = organizationOf(actor);
+    const data = record(request.data);
+    const uid = requiredId(data, 'uid');
+    const role = text(data, 'role') as Role;
+    if (uid === actor.uid || !roles.includes(role))
+      throw new HttpsError('invalid-argument', 'Rôle invalide.');
+    const { ref, data: profile } = await targetMember(uid, organizationId);
+    const status = statuses.includes(profile.status as Status)
+      ? (profile.status as Status)
+      : 'pending';
+    await ref.update({ role, updatedAt: FieldValue.serverTimestamp() });
+    await getAuth().setCustomUserClaims(
+      uid,
+      await memberClaims(uid, role, status),
+    );
+    await log(actor.uid, organizationId, 'ROLE_CHANGED', 'member', uid, {
+      role,
+    });
+    return { ok: true };
+  },
+);
+
+export const sendPushNotification = onCall<Record<string, unknown>>(
+  async (request) => {
+    const actor = requireActiveRole(request.auth, ['admin']);
+    const data = record(request.data);
+    const topic = text(data, 'topic') as (typeof publicTopics)[number];
+    const title = requiredText(data, 'title', 120);
+    const body = requiredText(data, 'body', 500);
+    if (!publicTopics.includes(topic))
+      throw new HttpsError('invalid-argument', 'Audience invalide.');
+    const messageId = await getMessaging().send({
+      topic,
+      notification: { title, body },
+    });
+    await log(
+      actor.uid,
+      organizationOf(actor),
+      'NOTIFICATION_SENT',
+      'topic',
+      topic,
+      { messageId },
+    );
+    return { ok: true, messageId };
+  },
+);
+
+// Les endpoints du chat public seront implémentés en Phase 6. Ils devront imposer
+// App Check, secret fort haché, rate limiting et ne retourner aucune note interne.
+export const contactApiNotEnabled = onCall(() => {
+  throw new HttpsError(
+    'failed-precondition',
+    'Le contact privé sera activé en Phase 6.',
+  );
+});

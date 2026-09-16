@@ -29,20 +29,20 @@ export default function TabsLayout() {
         options={{ title: 'Accueil', tabBarIcon: icon('⌂') }}
       />
       <Tabs.Screen
-        name="discussions"
-        options={{ title: 'Discussions', tabBarIcon: icon('◌') }}
-      />
-      <Tabs.Screen
-        name="create"
-        options={{ title: 'Créer', tabBarIcon: icon('＋') }}
-      />
-      <Tabs.Screen
         name="agenda"
         options={{ title: 'Agenda', tabBarIcon: icon('□') }}
       />
       <Tabs.Screen
-        name="profile"
-        options={{ title: 'Profil', tabBarIcon: icon('○') }}
+        name="canteen"
+        options={{ title: 'Cantine', tabBarIcon: icon('♨') }}
+      />
+      <Tabs.Screen
+        name="contact"
+        options={{ title: 'Contact', tabBarIcon: icon('✉') }}
+      />
+      <Tabs.Screen
+        name="more"
+        options={{ title: 'Plus', tabBarIcon: icon('•••') }}
       />
     </Tabs>
   );

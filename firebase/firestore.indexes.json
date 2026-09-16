@@ -10,7 +10,7 @@
       ]
     },
     {
-      "collectionGroup": "messages",
+      "collectionGroup": "fcpeMessages",
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "channelId", "order": "ASCENDING" },
@@ -18,7 +18,7 @@
       ]
     },
     {
-      "collectionGroup": "reports",
+      "collectionGroup": "contactConversations",
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "organizationId", "order": "ASCENDING" },

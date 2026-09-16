@@ -1,91 +1,28 @@
-import type { RegistrationConfig } from '@flp/types';
-import { registrationSchema } from '@flp/validation';
-import { Link } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import {
-  Button,
-  Card,
-  ErrorState,
-  Input,
-  LoadingState,
-  Screen,
-} from '../../components/ui';
+import { memberRegistrationSchema } from '@flp/validation';
+import { Link, useRouter } from 'expo-router';
+import { useState } from 'react';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Button, Card, Input, Screen } from '../../components/ui';
 import { colors, spacing, typography } from '../../constants/theme';
-import { useAuth } from '../../providers/auth-provider';
-import {
-  authErrorMessage,
-  loadRegistrationConfig,
-  registerParent,
-} from '../../services/auth';
-
-interface ChildDraft {
-  schoolId: string;
-  levelId: string;
-}
-const configuredOrganizationId: unknown =
-  process.env.EXPO_PUBLIC_REGISTRATION_ORGANIZATION_ID;
-const organizationId =
-  typeof configuredOrganizationId === 'string' && configuredOrganizationId
-    ? configuredOrganizationId
-    : 'freres-lumieres';
+import { authErrorMessage, registerMember } from '../../services/auth';
 
 export default function RegisterPage() {
-  const [config, setConfig] = useState<RegistrationConfig | null>(null);
-  const [loadError, setLoadError] = useState(false);
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [children, setChildren] = useState<ChildDraft[]>([]);
+  const [declaredFunction, setDeclaredFunction] = useState('');
   const [message, setMessage] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const { refreshProfile } = useAuth();
-
-  useEffect(() => {
-    loadRegistrationConfig(organizationId)
-      .then((value) => {
-        setConfig(value);
-        const school = value.schools[0];
-        const level = school?.levels[0];
-        if (school && level)
-          setChildren([{ schoolId: school.id, levelId: level.id }]);
-      })
-      .catch(() => setLoadError(true));
-  }, []);
-
-  function chooseSchool(index: number, schoolId: string) {
-    const school = config?.schools.find((entry) => entry.id === schoolId);
-    const levelId = school?.levels[0]?.id ?? '';
-    setChildren((current) =>
-      current.map((child, i) => (i === index ? { schoolId, levelId } : child)),
-    );
-  }
-
-  function chooseLevel(index: number, levelId: string) {
-    setChildren((current) =>
-      current.map((child, i) => (i === index ? { ...child, levelId } : child)),
-    );
-  }
-
-  function addChild() {
-    const school = config?.schools[0];
-    const level = school?.levels[0];
-    if (school && level && children.length < 5)
-      setChildren((current) => [
-        ...current,
-        { schoolId: school.id, levelId: level.id },
-      ]);
-  }
-
+  const router = useRouter();
   async function submit() {
-    const parsed = registrationSchema.safeParse({
+    const parsed = memberRegistrationSchema.safeParse({
       firstName,
       lastName,
       email,
       password,
-      organizationId,
-      children,
+      declaredFunction: declaredFunction || undefined,
+      organizationId: 'freres-lumieres',
     });
     if (!parsed.success) {
       setMessage(parsed.error.issues[0]?.message ?? 'Vérifiez le formulaire.');
@@ -94,33 +31,14 @@ export default function RegisterPage() {
     setSubmitting(true);
     setMessage('');
     try {
-      await registerParent(parsed.data);
-      await refreshProfile();
+      await registerMember(parsed.data);
+      router.replace('/(auth)/status');
     } catch (error) {
       setMessage(authErrorMessage(error));
     } finally {
       setSubmitting(false);
     }
   }
-
-  if (!config && !loadError)
-    return (
-      <Screen>
-        <LoadingState label="Chargement des établissements…" />
-      </Screen>
-    );
-  if (loadError || !config)
-    return (
-      <Screen>
-        <View style={styles.center}>
-          <ErrorState message="Les inscriptions sont momentanément indisponibles." />
-          <Link href="/(auth)/login" style={styles.link}>
-            Revenir à la connexion
-          </Link>
-        </View>
-      </Screen>
-    );
-
   return (
     <Screen>
       <ScrollView
@@ -128,37 +46,30 @@ export default function RegisterPage() {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.intro}>
-          <Text style={styles.eyebrow}>INSCRIPTION</Text>
-          <Text style={styles.title}>Créer mon compte</Text>
+          <Text style={styles.eyebrow}>ACCÈS MEMBRES</Text>
+          <Text style={styles.title}>Demander un accès FCPE</Text>
           <Text style={styles.subtitle}>
-            Aucun nom d’enfant n’est demandé. Seuls l’établissement et le niveau
-            sont conservés.
+            Cette demande concerne uniquement les membres FCPE. L’espace public
+            ne nécessite jamais de compte.
           </Text>
         </View>
         <Card style={styles.form} tone="warm">
-          <Input
-            label="Prénom"
-            autoComplete="given-name"
-            value={firstName}
-            onChangeText={setFirstName}
-          />
-          <Input
-            label="Nom"
-            autoComplete="family-name"
-            value={lastName}
-            onChangeText={setLastName}
-          />
+          <Input label="Prénom" value={firstName} onChangeText={setFirstName} />
+          <Input label="Nom" value={lastName} onChangeText={setLastName} />
           <Input
             label="Adresse email"
             autoCapitalize="none"
-            autoComplete="email"
             keyboardType="email-address"
             value={email}
             onChangeText={setEmail}
           />
           <Input
+            label="Fonction dans la FCPE (facultatif)"
+            value={declaredFunction}
+            onChangeText={setDeclaredFunction}
+          />
+          <Input
             label="Mot de passe"
-            autoComplete="new-password"
             secureTextEntry
             value={password}
             onChangeText={setPassword}
@@ -167,65 +78,9 @@ export default function RegisterPage() {
             12 caractères minimum, avec majuscule, minuscule et chiffre.
           </Text>
         </Card>
-        {children.map((child, index) => {
-          const selectedSchool = config.schools.find(
-            (school) => school.id === child.schoolId,
-          );
-          return (
-            <Card key={`child-${index}`}>
-              <View style={styles.row}>
-                <Text style={styles.heading}>Enfant {index + 1}</Text>
-                {children.length > 1 ? (
-                  <Pressable
-                    accessibilityRole="button"
-                    onPress={() =>
-                      setChildren((current) =>
-                        current.filter((_, i) => i !== index),
-                      )
-                    }
-                  >
-                    <Text style={styles.remove}>Retirer</Text>
-                  </Pressable>
-                ) : null}
-              </View>
-              <Text style={styles.label}>Établissement</Text>
-              <View style={styles.choices}>
-                {config.schools.map((school) => (
-                  <Choice
-                    key={school.id}
-                    label={school.name}
-                    selected={school.id === child.schoolId}
-                    onPress={() => chooseSchool(index, school.id)}
-                  />
-                ))}
-              </View>
-              <Text style={styles.label}>Niveau</Text>
-              <View style={styles.choices}>
-                {selectedSchool?.levels.map((level) => (
-                  <Choice
-                    key={level.id}
-                    label={level.name}
-                    selected={level.id === child.levelId}
-                    onPress={() => chooseLevel(index, level.id)}
-                  />
-                ))}
-              </View>
-            </Card>
-          );
-        })}
-        {children.length < 5 ? (
-          <Button
-            label="Ajouter un autre enfant"
-            onPress={addChild}
-            secondary
-          />
-        ) : null}
-        <Card>
-          <Text style={styles.note}>
-            Après l’inscription, votre compte sera en attente de validation par
-            l’équipe FCPE.
-          </Text>
-        </Card>
+        <Text style={styles.note}>
+          Un administrateur devra valider votre demande.
+        </Text>
         {message ? (
           <Text accessibilityLiveRegion="polite" style={styles.error}>
             {message}
@@ -237,41 +92,19 @@ export default function RegisterPage() {
           onPress={() => void submit()}
         />
         <Link href="/(auth)/login" style={styles.link}>
-          J’ai déjà un compte
+          J’ai déjà un accès membre
+        </Link>
+        <Link href="/(tabs)" style={styles.link}>
+          Revenir à l’espace public
         </Link>
       </ScrollView>
     </Screen>
   );
 }
-
-function Choice({
-  label,
-  selected,
-  onPress,
-}: {
-  label: string;
-  selected: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="radio"
-      accessibilityState={{ checked: selected }}
-      onPress={onPress}
-      style={[styles.choice, selected && styles.choiceSelected]}
-    >
-      <Text style={[styles.choiceText, selected && styles.choiceTextSelected]}>
-        {label}
-      </Text>
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
   content: { padding: spacing.lg, gap: spacing.lg },
   intro: { gap: 8 },
   form: { gap: 15, padding: spacing.lg },
-  center: { flex: 1, justifyContent: 'center', padding: spacing.lg, gap: 18 },
   eyebrow: {
     alignSelf: 'flex-start',
     color: colors.primary,
@@ -285,30 +118,8 @@ const styles = StyleSheet.create({
   },
   title: { ...typography.display, color: colors.primaryDark },
   subtitle: { ...typography.body, color: colors.muted },
-  heading: { ...typography.heading, color: colors.text },
   help: { ...typography.small, color: colors.muted },
-  note: { ...typography.small, color: colors.muted },
-  label: { color: colors.text, fontWeight: '700', marginTop: 8 },
-  choices: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  choice: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-  },
-  choiceSelected: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  choiceText: { color: colors.text },
-  choiceTextSelected: { color: colors.white, fontWeight: '700' },
-  row: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  remove: { color: colors.urgent, fontWeight: '700' },
+  note: { ...typography.small, color: colors.muted, textAlign: 'center' },
   error: { color: colors.urgent },
   link: {
     color: colors.primary,

@@ -1,18 +1,18 @@
 const stats = [
-  ['Parents inscrits', '342'],
-  ['Comptes en attente', '12'],
-  ['Signalements ouverts', '7'],
+  ['Demandes parents nouvelles', '7'],
+  ['Membres FCPE en attente', '2'],
+  ['Demandes en cours', '4'],
   ['Publications ce mois', '18'],
 ];
 const actions = [
-  ['Compte approuvé', 'Il y a 12 min'],
+  ['Membre approuvé', 'Il y a 12 min'],
   ['Publication mise à jour', 'Il y a 1 h'],
-  ['Signalement transmis', 'Hier'],
+  ['Demande transmise', 'Hier'],
 ];
 const todo = [
-  ['12 inscriptions', 'À valider'],
-  ['3 contenus signalés', 'À modérer'],
-  ['7 signalements', 'À suivre'],
+  ['2 demandes membres', 'À valider'],
+  ['3 conversations', 'À attribuer'],
+  ['4 demandes parents', 'À suivre'],
 ];
 
 export default function DashboardPage() {

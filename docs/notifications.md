@@ -1,26 +1,14 @@
-# Architecture des notifications
+# Notifications sans compte
 
-## Recommandation
+Les préférences seront stockées localement par installation. Le token Expo/FCM sera associé côté serveur à des topics publics sans donnée personnelle :
 
-FCM reste le transport. Les topics sont réservés aux audiences larges non sensibles : organisation, école et niveau. Les audiences de classe, FCPE, mises à jour de signalement et réponses personnelles utilisent des tokens sélectionnés côté serveur après vérification des permissions.
+- `all_public`
+- `school_maternelle`
+- `school_elementaire`
+- `canteen`
+- `events`
+- `school_councils`
 
-Exemples de topics :
+L’abonnement/désabonnement sera validé par une Function avec App Check. Un topic n’est jamais une barrière de confidentialité; aucune donnée privée n’est placée dans le titre, le corps ou le nom du topic. La rotation et les erreurs permanentes de token seront gérées sans créer une écriture Firestore par notification/destinataire.
 
-- `organization_freres-lumieres`
-- `school_elementary`
-- `school_kindergarten`
-- `level_ce1`
-
-Un topic ne constitue jamais une barrière de confidentialité : le corps d’une notification ne doit contenir aucune donnée sensible. `fcpe_members` n’est donc pas un topic client auto‑inscriptible.
-
-## Coûts
-
-Le flux ne crée pas une notification Firestore par destinataire. Un document global peut être conservé uniquement si le centre de notifications en a besoin. Les notifications personnelles non lues pourront utiliser une boîte limitée, avec expiration et pagination.
-
-## Tokens
-
-Les tokens seront rattachés à l’utilisateur et à l’installation, renouvelés à chaque rotation, supprimés après erreur FCM permanente et désactivés à la déconnexion. Les préférences utilisateur sont vérifiées côté serveur avant envoi ciblé.
-
-## Phase 1
-
-La Function d’envoi admin accepte uniquement des topics publics conformes. L’automatisation post-publication est volontairement désactivée jusqu’à la Phase 5, lorsque permissions, préférences et configuration native auront des tests de bout en bout.
+Les réponses au chat utiliseront le token rattaché à la conversation côté serveur et ouvriront localement la conversation si son secret existe encore. Une IPA unsigned compile le code push mais APNs ne fonctionne sur iPhone qu’après signature avec les entitlements Apple adéquats.

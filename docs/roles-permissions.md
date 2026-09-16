@@ -1,41 +1,16 @@
-# Rôles, statuts et permissions
+# Rôles et permissions
 
-Le statut est évalué avant le rôle. Un compte qui n’est pas `active` ne reçoit aucune permission applicative, y compris s’il possède un rôle élevé.
+L’utilisateur public n’est pas un rôle Firebase : il n’a ni compte, ni Custom Claims, ni profil. Il peut seulement lire les ressources explicitement publiques et utiliser plus tard les endpoints App Check du contact/sondage.
 
-| Permission                | Parent |       FCPE       | Modérateur | Admin |
-| ------------------------- | :----: | :--------------: | :--------: | :---: |
-| `readPublicContent`       |   ✓    |        ✓         |     ✓      |   ✓   |
-| `createComment`           |   ✓    |        ✓         |     ✓      |   ✓   |
-| `createDiscussionMessage` |   ✓    |        ✓         |     ✓      |   ✓   |
-| `votePoll`                |   ✓    |        ✓         |     ✓      |   ✓   |
-| `createReport`            |   ✓    |        ✓         |     ✓      |   ✓   |
-| `createCouncilQuestion`   |   ✓    |        ✓         |     ✓      |   ✓   |
-| `accessFcpeArea`          |        |        ✓         |     ✓      |   ✓   |
-| `viewReports`             |        |     partagés     |     ✓      |   ✓   |
-| `createPost`              |        | futur si délégué |            |   ✓   |
-| `sendNotification`        |        |                  |            |   ✓   |
-| `moderateContent`         |        |                  |     ✓      |   ✓   |
-| `updateReports`           |        |                  |     ✓      |   ✓   |
-| `manageUsers`             |        |                  |            |   ✓   |
-| `manageRoles`             |        |                  |            |   ✓   |
-| `manageSchools`           |        |                  |            |   ✓   |
-| `manageSettings`          |        |                  |            |   ✓   |
+| Capacité                                        | FCPE | Modérateur | Admin |
+| ----------------------------------------------- | :--: | :--------: | :---: |
+| Espace privé et discussions FCPE                |  ✓   |     ✓      |   ✓   |
+| Lire/répondre aux demandes parents selon droits |  ✓   |     ✓      |   ✓   |
+| Documents internes                              |  ✓   |     ✓      |   ✓   |
+| Assigner/modérer des demandes                   |      |     ✓      |   ✓   |
+| Publications, événements, cantine, documents    |      |            |   ✓   |
+| Notifications massives                          |      |            |   ✓   |
+| Valider les membres et modifier les rôles       |      |            |   ✓   |
+| Paramètres et journaux admin                    |      |            |   ✓   |
 
-La matrice exécutable se trouve dans `packages/shared`. Firestore et Storage traduisent les mêmes invariants indépendamment. Les droits FCPE optionnels seront représentés plus tard par des permissions déléguées explicitement, jamais par une confiance implicite dans l’interface.
-
-## Custom Claims
-
-```json
-{
-  "role": "parent",
-  "status": "active",
-  "organizationId": "freres-lumieres",
-  "schoolIds": ["elementary"],
-  "levelIds": ["ce1"],
-  "classIds": ["ce1-a"]
-}
-```
-
-Seules les Cloud Functions écrivent ces claims. Après une approbation ou un changement de rôle, le client doit forcer le rafraîchissement du token. Le document `users/{uid}` reste la source métier; les claims sont une projection d’autorisation compacte.
-
-L’état `pending` est posé à l’inscription; `suspended` et `rejected` coupent immédiatement les permissions applicatives au prochain rafraîchissement du token. L’administration peut approuver, réactiver, suspendre ou refuser un autre compte de la même organisation. Un administrateur ne peut pas modifier son propre statut depuis cette Function.
+Les statuts sont `pending`, `active`, `suspended`, `rejected`. Seul `active` ouvre les permissions. Les élévations passent par Cloud Functions et reconstruisent les Custom Claims depuis `memberProfiles`.

@@ -4,29 +4,17 @@ import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 
 const projectId =
   process.env.FIREBASE_PROJECT_ID ?? process.env.GCLOUD_PROJECT ?? '';
-const emulatorHost = process.env.FIRESTORE_EMULATOR_HOST;
-const authEmulatorHost = process.env.FIREBASE_AUTH_EMULATOR_HOST;
-
-if (!emulatorHost || !authEmulatorHost || !projectId.startsWith('demo-')) {
-  throw new Error(
-    'Refus du seed : les hôtes Auth/Firestore Emulator et un projectId demo-* sont obligatoires.',
-  );
-}
-
+if (
+  !process.env.FIRESTORE_EMULATOR_HOST ||
+  !process.env.FIREBASE_AUTH_EMULATOR_HOST ||
+  !projectId.startsWith('demo-')
+)
+  throw new Error('Refus du seed hors émulateurs Firebase demo-*.');
 initializeApp({ projectId });
 const db = getFirestore();
 const auth = getAuth();
 const organizationId = 'freres-lumieres';
-
-const users = [
-  {
-    uid: 'demo-parent',
-    email: 'parent@example.test',
-    firstName: 'Mohamed',
-    lastName: 'Parent',
-    role: 'parent',
-    status: 'active',
-  },
+const members = [
   {
     uid: 'demo-admin',
     email: 'admin@example.test',
@@ -36,48 +24,38 @@ const users = [
     status: 'active',
   },
   {
-    uid: 'demo-pending',
-    email: 'pending@example.test',
+    uid: 'demo-fcpe',
+    email: 'fcpe@example.test',
     firstName: 'Sofia',
-    lastName: 'En attente',
-    role: 'parent',
+    lastName: 'FCPE',
+    role: 'fcpe',
     status: 'pending',
   },
-];
-
-for (const user of users) {
+] as const;
+for (const member of members) {
   try {
     await auth.createUser({
-      uid: user.uid,
-      email: user.email,
+      uid: member.uid,
+      email: member.email,
       password: 'Demo-Password-2026!',
     });
   } catch (error) {
     if (!(error instanceof Error) || !error.message.includes('already exists'))
       throw error;
   }
-  await auth.setCustomUserClaims(user.uid, {
-    role: user.role,
-    status: user.status,
+  await auth.setCustomUserClaims(member.uid, {
+    role: member.role,
+    status: member.status,
     organizationId,
-    schoolIds: ['elementary'],
-    levelIds: ['ce1'],
-    classIds: [],
   });
-  await db.doc(`users/${user.uid}`).set({
-    ...user,
-    id: user.uid,
-    status: user.status,
+  await db.doc(`memberProfiles/${member.uid}`).set({
+    ...member,
+    id: member.uid,
     organizationId,
-    schoolIds: ['elementary'],
-    levelIds: ['ce1'],
-    classIds: [],
-    notificationPreferences: {},
     createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
   });
 }
-
 await db.doc(`organizations/${organizationId}`).set({
   id: organizationId,
   name: 'Groupe scolaire Frères Lumières',
@@ -98,49 +76,6 @@ await db.doc('schools/kindergarten').set({
   type: 'kindergarten',
   active: true,
 });
-
-const registrationSchools = [
-  {
-    id: 'kindergarten',
-    name: 'École maternelle Frères Lumières',
-    levels: [
-      { id: 'ps', name: 'Petite Section' },
-      { id: 'ms', name: 'Moyenne Section' },
-      { id: 'gs', name: 'Grande Section' },
-    ],
-  },
-  {
-    id: 'elementary',
-    name: 'École élémentaire Frères Lumières',
-    levels: [
-      { id: 'cp', name: 'CP' },
-      { id: 'ce1', name: 'CE1' },
-      { id: 'ce2', name: 'CE2' },
-      { id: 'cm1', name: 'CM1' },
-      { id: 'cm2', name: 'CM2' },
-    ],
-  },
-];
-
-await db.doc(`registrationOptions/${organizationId}`).set({
-  organizationId,
-  organizationName: 'Groupe scolaire Frères Lumières',
-  active: true,
-  schools: registrationSchools,
-  updatedAt: FieldValue.serverTimestamp(),
-});
-
-for (const school of registrationSchools) {
-  for (const [order, level] of school.levels.entries()) {
-    await db.doc(`levels/${level.id}`).set({
-      ...level,
-      organizationId,
-      schoolId: school.id,
-      order,
-      active: true,
-    });
-  }
-}
 await db.doc('posts/demo-greve').set({
   id: 'demo-greve',
   organizationId,
@@ -149,13 +84,14 @@ await db.doc('posts/demo-greve').set({
   body: 'Donnée fictive réservée au développement local.',
   category: 'urgent',
   audience: { type: 'all', ids: [] },
-  attachmentIds: [],
-  commentsEnabled: true,
+  imagePaths: [],
   pinned: true,
+  importance: 'urgent',
   status: 'published',
   publishedAt: FieldValue.serverTimestamp(),
   createdAt: FieldValue.serverTimestamp(),
   updatedAt: FieldValue.serverTimestamp(),
 });
-
-console.log('Seed fictif chargé dans les émulateurs Firebase.');
+console.log(
+  'Seed public et membres fictifs chargé dans les émulateurs Firebase.',
+);

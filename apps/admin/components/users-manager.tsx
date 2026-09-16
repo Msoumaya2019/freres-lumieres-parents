@@ -1,12 +1,12 @@
 'use client';
 
-import type { User, UserRole, UserStatus } from '@flp/types';
+import type { MemberProfile, UserRole, UserStatus } from '@flp/types';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAdminAuth } from './auth-provider';
 import {
-  changeRole,
-  changeStatus,
-  listOrganizationUsers,
+  changeMemberRole,
+  changeMemberStatus,
+  listOrganizationMembers,
 } from '@/services/users';
 
 const statusLabels: Record<UserStatus, string> = {
@@ -16,7 +16,6 @@ const statusLabels: Record<UserStatus, string> = {
   rejected: 'Refusé',
 };
 const roleLabels: Record<UserRole, string> = {
-  parent: 'Parent',
   fcpe: 'FCPE',
   moderator: 'Modérateur',
   admin: 'Admin',
@@ -24,7 +23,7 @@ const roleLabels: Record<UserRole, string> = {
 
 export function UsersManager() {
   const { organizationId, user: currentUser } = useAdminAuth();
-  const [users, setUsers] = useState<User[]>([]);
+  const [users, setUsers] = useState<MemberProfile[]>([]);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<UserStatus | 'all'>('pending');
   const [loading, setLoading] = useState(true);
@@ -35,7 +34,7 @@ export function UsersManager() {
     if (!organizationId) return;
     setLoading(true);
     try {
-      setUsers(await listOrganizationUsers(organizationId));
+      setUsers(await listOrganizationMembers(organizationId));
       setError('');
     } catch {
       setError('Impossible de charger les utilisateurs.');
@@ -47,7 +46,7 @@ export function UsersManager() {
   useEffect(() => {
     if (!organizationId) return;
     let cancelled = false;
-    void listOrganizationUsers(organizationId)
+    void listOrganizationMembers(organizationId)
       .then((result) => {
         if (!cancelled) {
           setUsers(result);
@@ -94,8 +93,8 @@ export function UsersManager() {
     <>
       <header className="page-header">
         <div>
-          <h1>Utilisateurs</h1>
-          <p>Valider les inscriptions et gérer les accès.</p>
+          <h1>Membres FCPE</h1>
+          <p>Valider les demandes et gérer les accès privés.</p>
         </div>
         <span className="pill">
           {users.filter((user) => user.status === 'pending').length} EN ATTENTE
@@ -147,8 +146,7 @@ export function UsersManager() {
                 </strong>
                 <span>{user.email}</span>
                 <small>
-                  {user.schoolIds.join(', ') || 'Établissement non renseigné'} ·{' '}
-                  {user.levelIds.join(', ') || 'Niveau non renseigné'}
+                  {user.declaredFunction || 'Fonction non renseignée'}
                 </small>
               </div>
               <span className={`status status-${user.status}`}>
@@ -162,7 +160,7 @@ export function UsersManager() {
                   value={user.role}
                   onChange={(event) =>
                     void run(user.id, () =>
-                      changeRole(user.id, event.target.value as UserRole),
+                      changeMemberRole(user.id, event.target.value as UserRole),
                     )
                   }
                 >
@@ -178,7 +176,9 @@ export function UsersManager() {
                   <button
                     disabled={busy === user.id}
                     onClick={() =>
-                      void run(user.id, () => changeStatus(user.id, 'active'))
+                      void run(user.id, () =>
+                        changeMemberStatus(user.id, 'active'),
+                      )
                     }
                   >
                     Approuver / réactiver
@@ -190,7 +190,7 @@ export function UsersManager() {
                     disabled={busy === user.id || user.id === currentUser?.uid}
                     onClick={() =>
                       void run(user.id, () =>
-                        changeStatus(user.id, 'suspended'),
+                        changeMemberStatus(user.id, 'suspended'),
                       )
                     }
                   >
@@ -202,7 +202,9 @@ export function UsersManager() {
                     className="danger-button"
                     disabled={busy === user.id}
                     onClick={() =>
-                      void run(user.id, () => changeStatus(user.id, 'rejected'))
+                      void run(user.id, () =>
+                        changeMemberStatus(user.id, 'rejected'),
+                      )
                     }
                   >
                     Refuser

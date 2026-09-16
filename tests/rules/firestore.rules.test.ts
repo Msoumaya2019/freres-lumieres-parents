@@ -9,41 +9,31 @@ import {
 } from '@firebase/rules-unit-testing';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 
-const projectId = 'demo-freres-lumieres';
 let env: RulesTestEnvironment;
-
 function endpoint(value: string | undefined, fallbackPort: number) {
   const [host = '127.0.0.1', port = String(fallbackPort)] = (value ?? '').split(
     ':',
   );
   return { host, port: Number(port) };
 }
-
-const claims = (role: string, status = 'active') => ({
+const claims = (role: 'fcpe' | 'moderator' | 'admin', status = 'active') => ({
   role,
   status,
   organizationId: 'org-1',
-  schoolIds: ['school-1'],
-  levelIds: ['ce1'],
-  classIds: ['ce1-a'],
 });
-
 beforeAll(async () => {
-  const firestore = endpoint(process.env.FIRESTORE_EMULATOR_HOST, 8080);
-  const storage = endpoint(process.env.FIREBASE_STORAGE_EMULATOR_HOST, 9199);
   env = await initializeTestEnvironment({
-    projectId,
+    projectId: 'demo-freres-lumieres',
     firestore: {
-      ...firestore,
+      ...endpoint(process.env.FIRESTORE_EMULATOR_HOST, 8080),
       rules: readFileSync(resolve('firebase/firestore.rules'), 'utf8'),
     },
     storage: {
-      ...storage,
+      ...endpoint(process.env.FIREBASE_STORAGE_EMULATOR_HOST, 9199),
       rules: readFileSync(resolve('firebase/storage.rules'), 'utf8'),
     },
   });
 });
-
 afterEach(async () => env.clearFirestore());
 afterAll(async () => env.cleanup());
 
@@ -52,154 +42,105 @@ async function seed() {
     const db = context.firestore();
     await setDoc(doc(db, 'posts/public'), {
       organizationId: 'org-1',
-      authorId: 'admin',
+      authorId: 'admin-1',
       status: 'published',
       audience: { type: 'all', ids: [] },
     });
-    await setDoc(doc(db, 'posts/fcpe'), {
+    await setDoc(doc(db, 'posts/draft'), {
       organizationId: 'org-1',
-      authorId: 'admin',
+      authorId: 'admin-1',
+      status: 'draft',
+      audience: { type: 'all', ids: [] },
+    });
+    await setDoc(doc(db, 'posts/private'), {
+      organizationId: 'org-1',
+      authorId: 'admin-1',
       status: 'published',
       audience: { type: 'fcpe', ids: [] },
     });
-    await setDoc(doc(db, 'polls/poll-1'), {
+    await setDoc(doc(db, 'canteenMenus/week'), {
       organizationId: 'org-1',
-      audience: { type: 'all', ids: [] },
+      published: true,
     });
-    await setDoc(doc(db, 'users/parent-1'), {
-      id: 'parent-1',
+    await setDoc(doc(db, 'documents/public'), {
       organizationId: 'org-1',
-      role: 'parent',
+      published: true,
+      audience: { type: 'school', ids: ['elementary'] },
+    });
+    await setDoc(doc(db, 'memberProfiles/fcpe-1'), {
+      id: 'fcpe-1',
+      organizationId: 'org-1',
+      role: 'fcpe',
       status: 'active',
+    });
+    await setDoc(doc(db, 'contactConversations/contact-1'), {
+      organizationId: 'org-1',
+      secretHash: 'hash',
+      status: 'new',
+    });
+    await setDoc(doc(db, 'contactMessages/message-1'), {
+      conversationId: 'contact-1',
+      body: 'privé',
+    });
+    await setDoc(doc(db, 'contactInternalNotes/note-1'), {
+      conversationId: 'contact-1',
+      body: 'interne',
+    });
+    await setDoc(doc(db, 'schoolCouncils/unsafe'), {
+      organizationId: 'org-1',
+      published: true,
+      audience: { type: 'all', ids: [] },
+      internalNotes: 'Ne doit jamais sortir',
     });
   });
 }
 
-describe('Firestore security rules', () => {
-  it('allows an active parent to read public content but not FCPE content', async () => {
+describe('Firestore rules without parent accounts', () => {
+  it('lets an unauthenticated installation read only published public content', async () => {
     await seed();
-    const db = env
-      .authenticatedContext('parent-1', claims('parent'))
-      .firestore();
+    const db = env.unauthenticatedContext().firestore();
     await assertSucceeds(getDoc(doc(db, 'posts/public')));
-    await assertFails(getDoc(doc(db, 'posts/fcpe')));
+    await assertSucceeds(getDoc(doc(db, 'canteenMenus/week')));
+    await assertSucceeds(getDoc(doc(db, 'documents/public')));
+    await assertFails(getDoc(doc(db, 'posts/draft')));
+    await assertFails(getDoc(doc(db, 'posts/private')));
+    await assertFails(getDoc(doc(db, 'schoolCouncils/unsafe')));
   });
-
-  it('allows an FCPE member to read FCPE content', async () => {
-    await seed();
-    const db = env.authenticatedContext('fcpe-1', claims('fcpe')).firestore();
-    await assertSucceeds(getDoc(doc(db, 'posts/fcpe')));
-  });
-
-  it('never lets a client change its role', async () => {
-    await seed();
-    const db = env
-      .authenticatedContext('parent-1', claims('parent'))
-      .firestore();
-    await assertFails(updateDoc(doc(db, 'users/parent-1'), { role: 'admin' }));
-  });
-
-  it('keeps profile creation server-only while exposing active registration options', async () => {
-    await env.withSecurityRulesDisabled(async (context) =>
-      setDoc(doc(context.firestore(), 'registrationOptions/org-1'), {
-        active: true,
-        organizationId: 'org-1',
-        schools: [],
-      }),
-    );
-    const anonymous = env.unauthenticatedContext().firestore();
-    await assertSucceeds(getDoc(doc(anonymous, 'registrationOptions/org-1')));
-    const signedIn = env
-      .authenticatedContext('new-parent', { email: 'new@example.test' })
-      .firestore();
+  it('never allows public clients to write editorial content', async () => {
+    const db = env.unauthenticatedContext().firestore();
     await assertFails(
-      setDoc(doc(signedIn, 'users/new-parent'), {
-        id: 'new-parent',
-        email: 'new@example.test',
-        role: 'parent',
-        status: 'pending',
-        organizationId: 'org-1',
+      setDoc(doc(db, 'posts/attack'), {
+        status: 'published',
+        audience: { type: 'all', ids: [] },
       }),
     );
   });
-
-  it('blocks pending and suspended users from participation', async () => {
+  it('keeps every contact record and internal note server-only', async () => {
     await seed();
-    for (const status of ['pending', 'suspended']) {
-      const db = env
-        .authenticatedContext(`${status}-user`, claims('parent', status))
-        .firestore();
-      await assertFails(
-        setDoc(doc(db, `comments/${status}`), {
-          organizationId: 'org-1',
-          postId: 'public',
-          authorId: `${status}-user`,
-          body: 'Test',
-          status: 'visible',
-        }),
-      );
+    for (const db of [
+      env.unauthenticatedContext().firestore(),
+      env.authenticatedContext('fcpe-1', claims('fcpe')).firestore(),
+      env.authenticatedContext('admin-1', claims('admin')).firestore(),
+    ]) {
+      await assertFails(getDoc(doc(db, 'contactConversations/contact-1')));
+      await assertFails(getDoc(doc(db, 'contactMessages/message-1')));
+      await assertFails(getDoc(doc(db, 'contactInternalNotes/note-1')));
     }
   });
-
-  it('uses deterministic immutable poll votes', async () => {
+  it('lets active FCPE members read private content but not elevate their role', async () => {
+    await seed();
+    const db = env.authenticatedContext('fcpe-1', claims('fcpe')).firestore();
+    await assertSucceeds(getDoc(doc(db, 'posts/private')));
+    await assertSucceeds(getDoc(doc(db, 'memberProfiles/fcpe-1')));
+    await assertFails(
+      updateDoc(doc(db, 'memberProfiles/fcpe-1'), { role: 'admin' }),
+    );
+  });
+  it('blocks pending members from FCPE content', async () => {
     await seed();
     const db = env
-      .authenticatedContext('parent-1', claims('parent'))
+      .authenticatedContext('pending-1', claims('fcpe', 'pending'))
       .firestore();
-    const vote = doc(db, 'pollVotes/poll-1_parent-1');
-    await assertSucceeds(
-      setDoc(vote, {
-        organizationId: 'org-1',
-        pollId: 'poll-1',
-        userId: 'parent-1',
-        optionIds: ['yes'],
-      }),
-    );
-    await assertFails(updateDoc(vote, { optionIds: ['no'] }));
-  });
-
-  it('keeps private reports visible only to their owner and moderators', async () => {
-    await seed();
-    await env.withSecurityRulesDisabled(async (context) =>
-      setDoc(doc(context.firestore(), 'reports/private'), {
-        organizationId: 'org-1',
-        authorId: 'parent-1',
-        visibility: 'owner_moderators',
-        status: 'received',
-      }),
-    );
-    await assertSucceeds(
-      getDoc(
-        doc(
-          env.authenticatedContext('parent-1', claims('parent')).firestore(),
-          'reports/private',
-        ),
-      ),
-    );
-    await assertFails(
-      getDoc(
-        doc(
-          env.authenticatedContext('parent-2', claims('parent')).firestore(),
-          'reports/private',
-        ),
-      ),
-    );
-    await assertSucceeds(
-      getDoc(
-        doc(
-          env
-            .authenticatedContext('moderator-1', claims('moderator'))
-            .firestore(),
-          'reports/private',
-        ),
-      ),
-    );
-  });
-
-  it('lets admins inspect users while role mutations remain server-only', async () => {
-    await seed();
-    const db = env.authenticatedContext('admin-1', claims('admin')).firestore();
-    await assertSucceeds(getDoc(doc(db, 'users/parent-1')));
-    await assertFails(updateDoc(doc(db, 'users/parent-1'), { role: 'fcpe' }));
+    await assertFails(getDoc(doc(db, 'posts/private')));
   });
 });

@@ -1,32 +1,15 @@
-# Design QA — Phase 2 mobile
+# Design QA — Phase 1 révisée
 
-## Références comparées
+Référence : `C:\Users\mchik\Desktop\Image Codex 16 sept. 2026, 09_38_21.png`.
 
-- Maquette source : `C:\Users\mchik\Desktop\Image Codex 16 sept. 2026, 09_38_21.png`
-- Implémentation contrôlée : `http://localhost:8082/login` et `http://localhost:8082/register`
-- Capture d’implémentation : capture directe du navigateur intégré, viewport mobile 371 × 478 px, le 16 septembre 2026.
+La navigation publique reprend désormais la structure attendue (`Accueil`, `Agenda`, `Cantine`, `Contact`, `Plus`) sans écran de connexion initial. Les nouveaux écrans utilisent le design system centralisé : fond crème, vert profond, cartes à tons sémantiques, titres fortement hiérarchisés, espacements et rayons partagés.
 
-La maquette représente le futur écran d’actualités alors que les écrans contrôlés appartiennent au parcours d’identité de Phase 2. La comparaison porte donc sur la direction visuelle et le système de composants, pas sur une reproduction écran pour écran.
+Contrôles réalisés :
 
-## Résultat
+- aucun parcours public ne demande d’email ni de donnée enfant ;
+- l’espace membre FCPE est relégué dans `Plus` ;
+- les écrans Contact et Préférences expliquent clairement leur disponibilité future sans simuler une sécurité inexistante ;
+- les libellés d’actions et rôles d’accessibilité sont présents sur les nouvelles entrées ;
+- le build Web Expo compile toutes les routes publiques.
 
-Statut : **PASS**
-
-- Fond crème, vert profond, surfaces chaudes et états sémantiques cohérents avec la référence.
-- Hiérarchie lisible : sourcil, titre fort, texte d’aide, carte de formulaire et action principale.
-- Rayons, bordures douces, espacements et ombres proviennent des tokens partagés.
-- Le formulaire reste lisible au format mobile et défile sans débordement horizontal.
-- Les champs exposent leurs libellés, les actions sont accessibles et l’ajout d’un second enfant fonctionne.
-- Les états chargement et erreur restent explicites et visuellement cohérents.
-
-## Écarts intentionnels
-
-- L’illustration d’école, les cartes d’actualités par catégorie et la navigation finale de la maquette ne sont pas recopiées dans les écrans d’authentification. Elles seront appliquées aux écrans métier concernés, sans anticiper la Phase 3.
-- La typographie utilise les polices système en Phase 2 afin de ne pas ajouter une dépendance et du poids natif uniquement pour la maquette.
-
-## Contrôles techniques
-
-- Données d’inscription chargées depuis Firebase Emulator.
-- Navigation Connexion → Inscription vérifiée.
-- Ajout dynamique d’un second enfant vérifié.
-- Aucun changement de logique métier ou de règle de sécurité n’a été introduit pour le rendu.
+La reproduction détaillée de la maquette et les audits VoiceOver/TalkBack restent planifiés pour la Phase 10. Aucun choix de design ne modifie les Rules ni la logique d’autorisation.

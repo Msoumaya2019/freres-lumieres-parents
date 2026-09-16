@@ -1,35 +1,13 @@
-# Sécurité et confidentialité
+# Sécurité, confidentialité et RGPD
 
-## Menaces couvertes dès la Phase 2
+- Aucun compte, email, nom d’enfant, adresse ou téléphone n’est requis pour l’usage public.
+- Seuls `fcpe`, `moderator` et `admin` existent dans les Custom Claims.
+- Le client est hostile : masquage UI et helpers de permissions ne remplacent jamais Rules/Functions.
+- Les contenus publics exigent `published=true` (ou `status=published`) et une audience non `fcpe`.
+- `contactConversations`, `contactMessages`, `contactInternalNotes`, `pollResponses` et `contact/**` sont fermés à tout accès direct.
+- Le futur chat exigera App Check, secret fort haché, limitation par installation/IP, délais, limites de longueur/fichiers et blocage serveur. Aucun secret ou message complet ne sera écrit dans les logs.
+- Les notes internes utilisent une collection et un endpoint séparés; un test d’isolation est obligatoire avant activation.
+- Les conversations fermées portent `retentionUntil`; la durée exacte sera validée avec la politique de confidentialité avant production, sans conservation infinie implicite.
+- Aucun secret serveur, compte de service, certificat, provisioning profile ou token privé n’est versionné. Les clés Firebase client ne confèrent aucun privilège.
 
-- Auto‑promotion de rôle : refusée par les règles; mutation via Function admin uniquement.
-- Compte pending/suspended : contenu et participation refusés grâce au claim `status`.
-- Lecture FCPE directe : audience et collection privée protégées côté règles.
-- Lecture des signalements : auteur, modérateur/admin, ou FCPE seulement après partage explicite.
-- Vote multiple : identifiant déterministe et mise à jour interdite.
-- Upload arbitraire : chemins, propriétaires, types MIME et tailles contrôlés.
-- Secret dans le dépôt : `.gitignore` strict et uniquement `.env.example`.
-- Falsification du périmètre scolaire à l’inscription : écoles/niveaux revalidés côté Function et classe optionnelle recoupée avec son organisation.
-- Réinscription d’un compte existant : les claims sont reconstruits depuis le profil serveur existant, jamais depuis les nouvelles données clientes.
-
-## Dépôt public
-
-Les clés de configuration Firebase côté client identifient le projet mais n’accordent aucun privilège; la sécurité repose sur Auth, App Check et les Rules. En revanche, service accounts, P12, provisioning profiles, tokens Expo/GitHub, clés Play et clés Apple sont strictement interdits.
-
-Avant chaque publication : vérifier `git status`, l’historique, les artefacts et les logs. Activer sur GitHub les alertes Dependabot, le secret scanning et la protection de branche. CodeQL est configuré.
-
-## RGPD
-
-- Données enfant minimales : établissement, niveau, classe optionnelle, libellé facultatif.
-- Pas de publicité ni de tracking publicitaire.
-- Analytics et Crashlytics ne sont pas activés; ils nécessiteront information/consentement et revue de minimisation.
-- `deleteUserData` supprime Auth, profil et profils enfants. L’anonymisation du contenu public et le nettoyage complet Storage seront finalisés avant activation en production.
-- Les `adminLogs` sont append-only côté serveur; durée de conservation à fixer avec la politique de confidentialité.
-
-## App Check
-
-App Check sera activé en mode monitoring en développement, puis enforcement après observation des métriques. Les émulateurs utilisent des debug tokens qui ne doivent pas être commités. L’activation mobile interviendra avec les configurations natives de la Phase 5, avant toute production.
-
-## Limites connues de Phase 2
-
-App Check n’est pas encore enforced et aucun environnement Firebase réel n’est configuré. L’identité, l’inscription et l’administration des comptes sont couvertes par un test d’intégration Emulator Suite; les contenus, notifications et suppressions complètes restent à valider dans leurs phases fonctionnelles. Le garde de routes Next.js est une aide d’interface uniquement : les Rules et Functions restent les frontières d’autorisation.
+App Check sera documenté avec fournisseurs iOS/Android/Web, debug tokens locaux non commités et bypass émulateur. L’enforcement précédera l’activation du chat public. CodeQL, Dependabot et la CI restent configurés.

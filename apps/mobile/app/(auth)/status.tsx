@@ -8,7 +8,7 @@ const content = {
   pending: {
     title: 'Votre inscription est en cours de validation.',
     message:
-      'L’équipe vérifiera votre demande avant de vous donner accès aux espaces réservés aux parents.',
+      'Un administrateur vérifiera votre demande avant de vous donner accès à l’espace privé FCPE.',
     tone: 'warning' as const,
   },
   suspended: {

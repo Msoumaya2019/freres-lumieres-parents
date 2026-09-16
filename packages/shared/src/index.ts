@@ -1,47 +1,41 @@
 import type { UserRole, UserStatus } from '@flp/types';
 
+export const PUBLIC_NOTIFICATION_TOPICS = [
+  'all_public',
+  'school_maternelle',
+  'school_elementaire',
+  'canteen',
+  'events',
+  'school_councils',
+] as const;
 export const PERMISSIONS = [
-  'readPublicContent',
-  'createComment',
-  'createDiscussionMessage',
-  'votePoll',
-  'createReport',
-  'createCouncilQuestion',
   'accessFcpeArea',
-  'viewReports',
+  'readParentRequests',
+  'replyParentRequests',
+  'createFcpeMessage',
+  'readInternalDocuments',
   'createPost',
   'sendNotification',
   'moderateContent',
-  'updateReports',
-  'manageUsers',
+  'assignContacts',
+  'manageMembers',
   'manageRoles',
   'manageSchools',
   'manageSettings',
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
-
-const parentPermissions: readonly Permission[] = [
-  'readPublicContent',
-  'createComment',
-  'createDiscussionMessage',
-  'votePoll',
-  'createReport',
-  'createCouncilQuestion',
+const fcpePermissions: readonly Permission[] = [
+  'accessFcpeArea',
+  'readParentRequests',
+  'replyParentRequests',
+  'createFcpeMessage',
+  'readInternalDocuments',
 ];
-
 export const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
-  parent: parentPermissions,
-  fcpe: [...parentPermissions, 'accessFcpeArea', 'viewReports'],
-  moderator: [
-    ...parentPermissions,
-    'accessFcpeArea',
-    'viewReports',
-    'moderateContent',
-    'updateReports',
-  ],
+  fcpe: fcpePermissions,
+  moderator: [...fcpePermissions, 'moderateContent', 'assignContacts'],
   admin: PERMISSIONS,
 };
-
 export function hasPermission(
   user: { role: UserRole; status: UserStatus } | null | undefined,
   permission: Permission,

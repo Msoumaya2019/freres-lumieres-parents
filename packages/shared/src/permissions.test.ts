@@ -1,27 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { hasPermission, ROLE_PERMISSIONS } from './index';
+import { hasPermission } from './index';
 
-describe('role permissions', () => {
-  it('gives parents only parent capabilities', () => {
+describe('member permissions', () => {
+  it('keeps public access outside the authenticated role model', () =>
+    expect(hasPermission(null, 'accessFcpeArea')).toBe(false));
+  it('limits FCPE members to member permissions', () => {
     expect(
-      hasPermission({ role: 'parent', status: 'active' }, 'createReport'),
+      hasPermission({ role: 'fcpe', status: 'active' }, 'accessFcpeArea'),
     ).toBe(true);
     expect(
-      hasPermission({ role: 'parent', status: 'active' }, 'manageRoles'),
+      hasPermission({ role: 'fcpe', status: 'active' }, 'manageRoles'),
     ).toBe(false);
   });
-
-  it('blocks every non-active account regardless of role', () => {
+  it('denies pending memberships', () =>
     expect(
-      hasPermission({ role: 'admin', status: 'suspended' }, 'manageUsers'),
-    ).toBe(false);
-    expect(
-      hasPermission({ role: 'admin', status: 'pending' }, 'manageUsers'),
-    ).toBe(false);
-  });
-
-  it('keeps role inheritance explicit', () => {
-    expect(ROLE_PERMISSIONS.moderator).toContain('accessFcpeArea');
-    expect(ROLE_PERMISSIONS.admin).toContain('manageSettings');
-  });
+      hasPermission({ role: 'admin', status: 'pending' }, 'manageMembers'),
+    ).toBe(false));
 });

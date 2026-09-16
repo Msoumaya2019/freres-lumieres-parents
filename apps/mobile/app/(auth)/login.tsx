@@ -50,10 +50,10 @@ export default function LoginPage() {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.intro}>
-          <Text style={styles.eyebrow}>ESPACE PARENTS</Text>
+          <Text style={styles.eyebrow}>ESPACE MEMBRES FCPE</Text>
           <Text style={styles.title}>Heureux de vous revoir</Text>
           <Text style={styles.subtitle}>
-            Informations • Échanges • Entraide
+            Cet accès est réservé aux membres validés.
           </Text>
         </View>
         <Card style={styles.form} tone="warm">
@@ -90,7 +90,10 @@ export default function LoginPage() {
           />
         </Card>
         <Link href="/(auth)/register" style={styles.link}>
-          Créer un compte parent
+          Demander un accès membre FCPE
+        </Link>
+        <Link href="/(tabs)" style={styles.link}>
+          Revenir à l’espace public
         </Link>
       </ScrollView>
     </Screen>

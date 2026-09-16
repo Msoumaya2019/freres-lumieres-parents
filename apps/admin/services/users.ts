@@ -1,30 +1,30 @@
-import type { User, UserRole, UserStatus } from '@flp/types';
+import type { MemberProfile, UserRole, UserStatus } from '@flp/types';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { firebase } from '@/lib/firebase';
 
-export async function listOrganizationUsers(
+export async function listOrganizationMembers(
   organizationId: string,
-): Promise<User[]> {
+): Promise<MemberProfile[]> {
   const snapshot = await getDocs(
     query(
-      collection(firebase.firestore, 'users'),
+      collection(firebase.firestore, 'memberProfiles'),
       where('organizationId', '==', organizationId),
     ),
   );
   return snapshot.docs
-    .map((entry) => entry.data() as User)
+    .map((entry) => entry.data() as MemberProfile)
     .sort((left, right) => left.lastName.localeCompare(right.lastName, 'fr'));
 }
 
-export async function changeStatus(uid: string, status: UserStatus) {
+export async function changeMemberStatus(uid: string, status: UserStatus) {
   const callable = httpsCallable(
     firebase.functions,
-    status === 'active' ? 'approveUser' : 'setUserStatus',
+    status === 'active' ? 'approveMember' : 'setMemberStatus',
   );
   await callable(status === 'active' ? { uid } : { uid, status });
 }
 
-export async function changeRole(uid: string, role: UserRole) {
-  await httpsCallable(firebase.functions, 'setUserRole')({ uid, role });
+export async function changeMemberRole(uid: string, role: UserRole) {
+  await httpsCallable(firebase.functions, 'setMemberRole')({ uid, role });
 }

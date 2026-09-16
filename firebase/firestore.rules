@@ -6,161 +6,49 @@ service cloud.firestore {
     function role() { return claim('role', ''); }
     function status() { return claim('status', ''); }
     function organizationId() { return claim('organizationId', ''); }
-    function active() { return signedIn() && status() == 'active'; }
-    function roleIn(roles) { return active() && role() in roles; }
+    function activeMember() { return signedIn() && status() == 'active' && role() in ['fcpe', 'moderator', 'admin']; }
+    function roleIn(roles) { return activeMember() && role() in roles; }
     function sameOrganization(data) { return data != null && data.organizationId == organizationId(); }
-    function listClaimContains(name, value) { return value in claim(name, []); }
-    function canReadAudience(data) {
-      return active() && sameOrganization(data) && (
-        data.audience.type == 'all' ||
-        (data.audience.type == 'fcpe' && role() in ['fcpe', 'moderator', 'admin']) ||
-        (data.audience.type == 'school' && data.audience.ids.hasAny(claim('schoolIds', []))) ||
-        (data.audience.type == 'level' && data.audience.ids.hasAny(claim('levelIds', []))) ||
-        (data.audience.type == 'class' && data.audience.ids.hasAny(claim('classIds', [])))
-      );
-    }
-    function owns(data) { return signedIn() && data.authorId == request.auth.uid; }
-    function immutableIdentityFields() {
-      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-        'firstName', 'lastName', 'notificationPreferences', 'updatedAt'
-      ]);
-    }
+    function publicAudience(data) { return data.audience.type in ['all', 'school', 'level', 'class']; }
+    function privateMemberAudience(data) { return activeMember() && sameOrganization(data) && data.audience.type == 'fcpe'; }
+    function publicPublished(data) { return data.published == true && publicAudience(data); }
+    function safePublicCouncil(data) { return !data.keys().hasAny(['internalNotes', 'internalDocumentIds', 'privateNotes']); }
 
-    match /users/{userId} {
-      // Creation, status and role mutations pass through callable Functions.
-      allow create: if false;
-      allow read: if signedIn() && (request.auth.uid == userId || roleIn(['admin']));
-      allow update: if signedIn() && request.auth.uid == userId
-        && status() in ['pending', 'active'] && immutableIdentityFields();
-      allow delete: if false;
+    match /memberProfiles/{memberId} {
+      allow create, delete: if false;
+      allow read: if activeMember() && (request.auth.uid == memberId || role() == 'admin') && sameOrganization(resource.data);
+      allow update: if activeMember() && request.auth.uid == memberId && sameOrganization(resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['firstName', 'lastName', 'declaredFunction', 'updatedAt']);
     }
+    match /organizations/{id} { allow read: if resource.data.active == true; allow write: if false; }
+    match /schools/{id} { allow read: if resource.data.active == true; allow write: if false; }
+    match /levels/{id} { allow read: if resource.data.active == true; allow write: if false; }
+    match /classes/{id} { allow read: if resource.data.active == true; allow write: if false; }
 
-    match /organizations/{id} {
-      allow read: if active() && id == organizationId();
-      allow write: if false;
-    }
-    match /registrationOptions/{id} {
-      allow read: if resource.data.active == true;
-      allow write: if false;
-    }
-    match /schools/{id} {
-      allow read: if active() && sameOrganization(resource.data);
-      allow write: if false;
-    }
-    match /classes/{id} {
-      allow read: if active() && sameOrganization(resource.data);
-      allow write: if false;
-    }
-    match /levels/{id} {
-      allow read: if active() && sameOrganization(resource.data);
-      allow write: if false;
-    }
-    match /childProfiles/{id} {
-      allow read: if active() && sameOrganization(resource.data)
-        && (resource.data.parentUserId == request.auth.uid || role() == 'admin');
-      allow create: if active() && request.resource.data.parentUserId == request.auth.uid
-        && sameOrganization(request.resource.data)
-        && request.resource.data.keys().hasOnly(['id', 'parentUserId', 'organizationId', 'schoolId', 'levelId', 'classId', 'label', 'createdAt']);
-      allow update: if active() && resource.data.parentUserId == request.auth.uid
-        && request.resource.data.parentUserId == request.auth.uid
-        && sameOrganization(request.resource.data)
-        && request.resource.data.organizationId == resource.data.organizationId
-        && request.resource.data.keys().hasOnly(['id', 'parentUserId', 'organizationId', 'schoolId', 'levelId', 'classId', 'label', 'createdAt']);
-      allow delete: if active() && resource.data.parentUserId == request.auth.uid;
-    }
-
-    match /posts/{postId} {
-      allow read: if resource.data.status == 'published' && canReadAudience(resource.data);
-      allow create: if roleIn(['admin']) && sameOrganization(request.resource.data)
-        && request.resource.data.authorId == request.auth.uid;
-      allow update: if roleIn(['admin']) && sameOrganization(resource.data)
-        && sameOrganization(request.resource.data);
+    match /posts/{id} {
+      allow read: if (resource.data.status == 'published' && (publicAudience(resource.data) || privateMemberAudience(resource.data))) || (roleIn(['admin']) && sameOrganization(resource.data));
+      allow create: if roleIn(['admin']) && sameOrganization(request.resource.data) && request.resource.data.authorId == request.auth.uid;
+      allow update: if roleIn(['admin']) && sameOrganization(resource.data) && sameOrganization(request.resource.data);
       allow delete: if roleIn(['admin']) && sameOrganization(resource.data);
     }
-    match /comments/{commentId} {
-      allow read: if active() && resource.data.status == 'visible'
-        && canReadAudience(get(/databases/$(database)/documents/posts/$(resource.data.postId)).data);
-      allow create: if active() && request.resource.data.authorId == request.auth.uid
-        && sameOrganization(request.resource.data)
-        && request.resource.data.status == 'visible'
-        && canReadAudience(get(/databases/$(database)/documents/posts/$(request.resource.data.postId)).data);
-      allow update: if active() && owns(resource.data)
-        && sameOrganization(resource.data)
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['body', 'updatedAt']);
-      allow delete: if false;
-    }
+    match /events/{id} { allow read: if publicPublished(resource.data) || (resource.data.published == true && privateMemberAudience(resource.data)) || (roleIn(['admin']) && sameOrganization(resource.data)); allow write: if roleIn(['admin']) && sameOrganization(request.resource.data); }
+    match /canteenMenus/{id} { allow read: if resource.data.published == true; allow write: if roleIn(['admin']) && sameOrganization(request.resource.data); }
+    match /documents/{id} { allow read: if publicPublished(resource.data) || (resource.data.published == true && privateMemberAudience(resource.data)) || (roleIn(['admin']) && sameOrganization(resource.data)); allow write: if roleIn(['admin']) && sameOrganization(request.resource.data); }
+    match /schoolCouncils/{id} { allow read: if safePublicCouncil(resource.data) && (publicPublished(resource.data) || (resource.data.published == true && privateMemberAudience(resource.data)) || (roleIn(['admin']) && sameOrganization(resource.data))); allow write: if roleIn(['admin']) && sameOrganization(request.resource.data) && safePublicCouncil(request.resource.data); }
+    match /schoolCouncilPreparations/{id} { allow read: if activeMember() && sameOrganization(resource.data); allow create, update: if activeMember() && sameOrganization(request.resource.data); allow delete: if roleIn(['admin']) && sameOrganization(resource.data); }
+    match /polls/{id} { allow read: if publicPublished(resource.data) || (resource.data.published == true && privateMemberAudience(resource.data)) || (roleIn(['admin']) && sameOrganization(resource.data)); allow write: if roleIn(['admin']) && sameOrganization(request.resource.data); }
 
-    match /discussionChannels/{channelId} {
-      allow read: if canReadAudience(resource.data);
-      allow write: if roleIn(['admin']) && sameOrganization(request.resource.data);
-    }
-    match /messages/{messageId} {
-      allow read: if active() && resource.data.status == 'visible'
-        && canReadAudience(get(/databases/$(database)/documents/discussionChannels/$(resource.data.channelId)).data);
-      allow create: if active() && request.resource.data.authorId == request.auth.uid
-        && sameOrganization(request.resource.data) && request.resource.data.status == 'visible'
-        && canReadAudience(get(/databases/$(database)/documents/discussionChannels/$(request.resource.data.channelId)).data);
-      allow update: if active() && owns(resource.data)
-        && sameOrganization(resource.data)
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['body', 'reactionCounts']);
-      allow delete: if false;
-    }
+    // Les votes anonymes et le support sans compte passent uniquement par des Functions.
+    match /pollResponses/{id} { allow read, write: if false; }
+    match /contactConversations/{id} { allow read, write: if false; }
+    match /contactMessages/{id} { allow read, write: if false; }
+    match /contactInternalNotes/{id} { allow read, write: if false; }
 
-    match /polls/{pollId} {
-      allow read: if canReadAudience(resource.data);
-      allow write: if roleIn(['admin']) && sameOrganization(request.resource.data);
-    }
-    match /pollVotes/{voteId} {
-      allow read: if roleIn(['admin']);
-      allow create: if active() && request.resource.data.userId == request.auth.uid
-        && voteId == request.resource.data.pollId + '_' + request.auth.uid
-        && sameOrganization(request.resource.data)
-        && canReadAudience(get(/databases/$(database)/documents/polls/$(request.resource.data.pollId)).data);
-      allow update, delete: if false;
-    }
-
-    match /reports/{reportId} {
-      allow read: if active() && sameOrganization(resource.data) && (
-        resource.data.authorId == request.auth.uid ||
-        role() in ['moderator', 'admin'] ||
-        (role() == 'fcpe' && resource.data.visibility == 'fcpe')
-      );
-      allow create: if active() && request.resource.data.authorId == request.auth.uid
-        && sameOrganization(request.resource.data)
-        && request.resource.data.status == 'received';
-      allow update: if roleIn(['moderator', 'admin']) && sameOrganization(resource.data)
-        && sameOrganization(request.resource.data)
-        && request.resource.data.authorId == resource.data.authorId;
-      allow delete: if false;
-    }
-    match /collectiveIssues/{id} {
-      allow read: if canReadAudience(resource.data);
-      allow write: if roleIn(['moderator', 'admin']) && sameOrganization(request.resource.data);
-    }
-    match /collectiveIssueSupporters/{supportId} {
-      allow read: if roleIn(['moderator', 'admin']);
-      allow create: if active() && request.resource.data.userId == request.auth.uid
-        && supportId == request.resource.data.issueId + '_' + request.auth.uid
-        && sameOrganization(request.resource.data);
-      allow update, delete: if false;
-    }
-
-    match /events/{id} { allow read: if canReadAudience(resource.data); allow write: if roleIn(['admin']) && sameOrganization(request.resource.data); }
-    match /documents/{id} { allow read: if canReadAudience(resource.data); allow write: if roleIn(['admin']) && sameOrganization(request.resource.data); }
-    match /schoolCouncils/{id} { allow read: if canReadAudience(resource.data); allow write: if roleIn(['admin']) && sameOrganization(request.resource.data); }
-    match /notifications/{id} { allow read: if canReadAudience(resource.data); allow write: if false; }
-    match /fcpeContent/{id} { allow read: if roleIn(['fcpe', 'moderator', 'admin']) && sameOrganization(resource.data); allow write: if roleIn(['fcpe', 'moderator', 'admin']) && sameOrganization(request.resource.data); }
-
-    match /moderationReports/{id} {
-      allow create: if active() && request.resource.data.reporterId == request.auth.uid && sameOrganization(request.resource.data);
-      allow read, update: if roleIn(['moderator', 'admin']) && sameOrganization(resource.data);
-      allow delete: if false;
-    }
-    match /adminLogs/{id} {
-      allow read: if roleIn(['admin']) && sameOrganization(resource.data);
-      allow write: if false;
-    }
-
+    match /fcpeChannels/{id} { allow read: if activeMember() && sameOrganization(resource.data); allow write: if roleIn(['moderator', 'admin']) && sameOrganization(request.resource.data); }
+    match /fcpeMessages/{id} { allow read: if activeMember() && sameOrganization(resource.data); allow create: if activeMember() && sameOrganization(request.resource.data) && request.resource.data.authorId == request.auth.uid; allow update: if roleIn(['moderator', 'admin']) && sameOrganization(resource.data); allow delete: if false; }
+    match /notificationCampaigns/{id} { allow read: if roleIn(['admin']) && sameOrganization(resource.data); allow write: if false; }
+    match /adminLogs/{id} { allow read: if roleIn(['admin']) && sameOrganization(resource.data); allow write: if false; }
+    match /moderationLogs/{id} { allow read: if roleIn(['moderator', 'admin']) && sameOrganization(resource.data); allow write: if false; }
     match /{document=**} { allow read, write: if false; }
   }
 }

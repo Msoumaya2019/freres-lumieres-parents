@@ -17,7 +17,6 @@
     "test:unit": "vitest run --exclude \"tests/rules/**\" --exclude \"tests/integration/**\"",
     "test:rules": "vitest run tests/rules",
     "test:rules:emulated": "firebase emulators:exec --project demo-freres-lumieres --only firestore,storage \"pnpm test:rules\"",
-    "test:phase2:emulated": "pnpm --filter @flp/functions build && firebase emulators:exec --project demo-freres-lumieres --only auth,firestore,functions \"vitest run tests/integration\"",
     "build": "pnpm -r --if-present build",
     "emulators": "firebase emulators:start --project demo-freres-lumieres --export-on-exit=.firebase/emulator-data",
     "seed:demo": "firebase emulators:exec --project demo-freres-lumieres --only auth,firestore \"pnpm --filter @flp/functions seed:demo\"",

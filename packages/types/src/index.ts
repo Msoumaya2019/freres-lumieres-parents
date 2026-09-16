@@ -1,6 +1,5 @@
-export const USER_ROLES = ['parent', 'fcpe', 'moderator', 'admin'] as const;
+export const USER_ROLES = ['fcpe', 'moderator', 'admin'] as const;
 export type UserRole = (typeof USER_ROLES)[number];
-
 export const USER_STATUSES = [
   'pending',
   'active',
@@ -8,7 +7,6 @@ export const USER_STATUSES = [
   'rejected',
 ] as const;
 export type UserStatus = (typeof USER_STATUSES)[number];
-
 export type EntityId = string;
 export type DateValue =
   Date | string | { seconds: number; nanoseconds: number };
@@ -17,8 +15,7 @@ export interface Audience {
   type: 'all' | 'school' | 'level' | 'class' | 'fcpe';
   ids: EntityId[];
 }
-
-export interface User {
+export interface MemberProfile {
   id: EntityId;
   firstName: string;
   lastName: string;
@@ -26,25 +23,10 @@ export interface User {
   role: UserRole;
   status: UserStatus;
   organizationId: EntityId;
-  schoolIds: EntityId[];
-  levelIds: EntityId[];
-  classIds: EntityId[];
-  notificationPreferences: Record<string, boolean>;
+  declaredFunction?: string;
   createdAt: DateValue;
   updatedAt: DateValue;
 }
-
-export interface ChildProfile {
-  id: EntityId;
-  parentUserId: EntityId;
-  organizationId: EntityId;
-  schoolId: EntityId;
-  levelId: EntityId;
-  classId?: EntityId;
-  label?: string;
-  createdAt: DateValue;
-}
-
 export interface Organization {
   id: EntityId;
   name: string;
@@ -58,6 +40,14 @@ export interface School {
   type: 'kindergarten' | 'elementary' | 'other';
   active: boolean;
 }
+export interface SchoolLevel {
+  id: EntityId;
+  organizationId: EntityId;
+  schoolId: EntityId;
+  name: string;
+  order: number;
+  active: boolean;
+}
 export interface ClassGroup {
   id: EntityId;
   organizationId: EntityId;
@@ -68,84 +58,113 @@ export interface ClassGroup {
   active: boolean;
 }
 
-export interface SchoolLevel {
-  id: EntityId;
-  organizationId: EntityId;
-  schoolId: EntityId;
-  name: string;
-  order: number;
-  active: boolean;
-}
-
-export interface RegistrationOption {
-  id: EntityId;
-  name: string;
-  levels: Array<{ id: EntityId; name: string }>;
-}
-
-export interface RegistrationConfig {
-  organizationId: EntityId;
-  organizationName: string;
-  active: boolean;
-  schools: RegistrationOption[];
-}
-
+export const POST_CATEGORIES = [
+  'information',
+  'urgent',
+  'canteen',
+  'after_school',
+  'works',
+  'school_trip',
+  'fcpe',
+  'city',
+  'event',
+  'school_council',
+  'other',
+] as const;
+export type PostCategory = (typeof POST_CATEGORIES)[number];
 export interface Post {
   id: EntityId;
   organizationId: EntityId;
   authorId: EntityId;
   title: string;
   body: string;
-  category:
-    | 'information'
-    | 'urgent'
-    | 'canteen'
-    | 'after_school'
-    | 'works'
-    | 'school_trip'
-    | 'fcpe'
-    | 'city'
-    | 'event'
+  category: PostCategory;
+  audience: Audience;
+  imagePaths: string[];
+  flyerPath?: string;
+  pdfPath?: string;
+  linkUrl?: string;
+  pinned: boolean;
+  importance: 'normal' | 'important' | 'urgent';
+  status: 'draft' | 'scheduled' | 'published' | 'archived';
+  publishedAt?: DateValue;
+  createdAt: DateValue;
+  updatedAt: DateValue;
+}
+export interface Event {
+  id: EntityId;
+  organizationId: EntityId;
+  title: string;
+  description: string;
+  type:
+    | 'meeting'
     | 'school_council'
+    | 'trip'
+    | 'fair'
+    | 'holiday'
+    | 'election'
+    | 'school_event'
     | 'other';
   audience: Audience;
-  attachmentIds: EntityId[];
-  commentsEnabled: boolean;
-  pinned: boolean;
-  publishedAt: DateValue;
+  startsAt: DateValue;
+  endsAt?: DateValue;
+  location?: string;
+  documentId?: EntityId;
+  linkUrl?: string;
+  reminderEnabled: boolean;
+  published: boolean;
   createdAt: DateValue;
   updatedAt: DateValue;
 }
-
-export interface Comment {
-  id: EntityId;
-  postId: EntityId;
-  organizationId: EntityId;
-  authorId: EntityId;
-  body: string;
-  status: 'visible' | 'hidden' | 'deleted';
-  createdAt: DateValue;
-  updatedAt: DateValue;
-}
-export interface DiscussionChannel {
+export interface CanteenMenu {
   id: EntityId;
   organizationId: EntityId;
-  name: string;
+  title: string;
   description?: string;
-  audience: Audience;
-  active: boolean;
-}
-export interface Message {
-  id: EntityId;
-  channelId: EntityId;
-  organizationId: EntityId;
-  authorId: EntityId;
-  body: string;
+  startsOn: string;
+  endsOn: string;
   imagePath?: string;
-  replyToId?: EntityId;
-  reactionCounts: Record<string, number>;
-  status: 'visible' | 'hidden' | 'deleted';
+  pdfPath?: string;
+  published: boolean;
   createdAt: DateValue;
+  updatedAt: DateValue;
+}
+export interface Document {
+  id: EntityId;
+  organizationId: EntityId;
+  title: string;
+  category: 'flyer' | 'canteen' | 'minutes' | 'city' | 'fcpe' | 'other';
+  year: number;
+  audience: Audience;
+  storagePath: string;
+  contentType: string;
+  sizeBytes: number;
+  published: boolean;
+  createdAt: DateValue;
+  updatedAt: DateValue;
+}
+export interface SchoolCouncil {
+  id: EntityId;
+  organizationId: EntityId;
+  schoolId: EntityId;
+  title: string;
+  scheduledAt: DateValue;
+  publicAgenda: string[];
+  publicDecisions: string[];
+  publicDocumentIds: EntityId[];
+  audience: Audience;
+  published: boolean;
+  createdAt: DateValue;
+  updatedAt: DateValue;
+}
+export interface SchoolCouncilPreparation {
+  id: EntityId;
+  councilId: EntityId;
+  organizationId: EntityId;
+  notes: string;
+  questionIds: EntityId[];
+  internalDocumentIds: EntityId[];
+  updatedAt: DateValue;
 }
 
 export interface PollOption {
@@ -160,130 +179,121 @@ export interface Poll {
   question: string;
   options: PollOption[];
   multipleChoice: boolean;
-  anonymous: boolean;
   audience: Audience;
   endsAt?: DateValue;
+  published: boolean;
   createdAt: DateValue;
 }
-export interface PollVote {
+export interface PollResponse {
   id: EntityId;
   pollId: EntityId;
-  userId: EntityId;
+  installationHash: string;
   optionIds: EntityId[];
   createdAt: DateValue;
 }
 
-export const REPORT_STATUSES = [
-  'received',
+export const CONTACT_CATEGORIES = [
+  'canteen',
+  'after_school',
+  'teaching',
+  'safety',
+  'school_council',
+  'event',
+  'other',
+] as const;
+export const CONTACT_STATUSES = [
+  'new',
   'in_progress',
   'forwarded_school',
   'forwarded_city',
   'resolved',
   'closed',
+  'blocked',
 ] as const;
-export type ReportStatus = (typeof REPORT_STATUSES)[number];
-export interface Report {
+export type ContactCategory = (typeof CONTACT_CATEGORIES)[number];
+export type ContactStatus = (typeof CONTACT_STATUSES)[number];
+export interface ContactConversation {
+  id: EntityId;
+  organizationId: EntityId;
+  secretHash: string;
+  category: ContactCategory;
+  status: ContactStatus;
+  displayName?: string;
+  schoolId?: EntityId;
+  levelId?: EntityId;
+  email?: string;
+  pushTokenCiphertext?: string;
+  assignedMemberId?: EntityId;
+  tags: string[];
+  createdAt: DateValue;
+  updatedAt: DateValue;
+  closedAt?: DateValue;
+  retentionUntil: DateValue;
+}
+export interface ContactMessage {
+  id: EntityId;
+  conversationId: EntityId;
+  authorType: 'public' | 'member';
+  authorMemberId?: EntityId;
+  body: string;
+  imagePaths: string[];
+  status: 'visible' | 'removed';
+  createdAt: DateValue;
+}
+export interface ContactInternalNote {
+  id: EntityId;
+  conversationId: EntityId;
+  authorMemberId: EntityId;
+  body: string;
+  createdAt: DateValue;
+}
+
+export interface FcpeChannel {
+  id: EntityId;
+  organizationId: EntityId;
+  name: string;
+  active: boolean;
+  createdAt: DateValue;
+}
+export interface FcpeMessage {
+  id: EntityId;
+  channelId: EntityId;
+  organizationId: EntityId;
+  authorId: EntityId;
+  body: string;
+  attachmentPaths: string[];
+  replyToId?: EntityId;
+  reactionCounts: Record<string, number>;
+  status: 'visible' | 'hidden' | 'deleted';
+  createdAt: DateValue;
+}
+export interface NotificationCampaign {
   id: EntityId;
   organizationId: EntityId;
   authorId: EntityId;
   title: string;
-  description: string;
-  category:
-    | 'canteen'
-    | 'safety'
-    | 'bullying'
-    | 'after_school'
-    | 'premises'
-    | 'teaching'
-    | 'transport'
-    | 'other';
-  status: ReportStatus;
-  visibility: 'owner_moderators' | 'fcpe';
-  photoPaths: string[];
-  createdAt: DateValue;
-  updatedAt: DateValue;
-}
-export interface CollectiveIssue {
-  id: EntityId;
-  organizationId: EntityId;
-  title: string;
-  category: string;
-  status: string;
-  supporterCount: number;
-  audience: Audience;
-  createdAt: DateValue;
-}
-export interface Event {
-  id: EntityId;
-  organizationId: EntityId;
-  title: string;
-  description: string;
-  audience: Audience;
-  startsAt: DateValue;
-  endsAt?: DateValue;
-  location?: string;
-  volunteerTarget?: number;
-  participantCount: number;
-  createdAt: DateValue;
-}
-export interface Document {
-  id: EntityId;
-  organizationId: EntityId;
-  title: string;
-  category: string;
-  year: number;
-  schoolId?: EntityId;
-  audience: Audience;
-  storagePath: string;
-  contentType: string;
-  sizeBytes: number;
-  createdAt: DateValue;
-}
-export interface SchoolCouncil {
-  id: EntityId;
-  organizationId: EntityId;
-  schoolId: EntityId;
-  title: string;
-  scheduledAt: DateValue;
-  agenda: string[];
-  audience: Audience;
-  documentIds: EntityId[];
-  createdAt: DateValue;
-}
-export interface ModerationReport {
-  id: EntityId;
-  organizationId: EntityId;
-  reporterId: EntityId;
-  targetType: 'post' | 'comment' | 'message';
-  targetId: EntityId;
-  reason: string;
-  status: 'open' | 'reviewing' | 'resolved' | 'dismissed';
-  assignedTo?: EntityId;
-  createdAt: DateValue;
-  updatedAt: DateValue;
-}
-export interface Notification {
-  id: EntityId;
-  organizationId: EntityId;
-  type: string;
-  title: string;
   body: string;
-  audience: Audience;
+  topic: string;
+  urgency: 'normal' | 'urgent';
+  targetType?: 'post' | 'event' | 'document' | 'conversation';
   targetId?: EntityId;
+  status: 'draft' | 'sent' | 'failed';
   createdAt: DateValue;
+  sentAt?: DateValue;
 }
+
 export type AdminLogAction =
-  | 'USER_APPROVED'
-  | 'USER_SUSPENDED'
-  | 'USER_REACTIVATED'
-  | 'USER_REJECTED'
-  | 'USER_SET_PENDING'
+  | 'MEMBER_APPROVED'
+  | 'MEMBER_REJECTED'
+  | 'MEMBER_SUSPENDED'
+  | 'MEMBER_REACTIVATED'
   | 'ROLE_CHANGED'
-  | 'POST_HIDDEN'
+  | 'POST_CREATED'
   | 'POST_DELETED'
-  | 'COMMENT_HIDDEN'
-  | 'MESSAGE_HIDDEN'
-  | 'REPORT_STATUS_CHANGED';
+  | 'NOTIFICATION_SENT'
+  | 'CONTACT_ASSIGNED'
+  | 'CONTACT_STATUS_CHANGED'
+  | 'CONTACT_BLOCKED';
 export interface AdminLog {
   id: EntityId;
   organizationId: EntityId;
