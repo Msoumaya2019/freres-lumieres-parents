@@ -111,7 +111,12 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: admin-build
+          # `.next` commence par un point, et `upload-artifact` v4 exclut les
+          # fichiers cachés **par défaut**. Sans ce réglage l'étape réussit,
+          # n'archive rien, et ne le signale que par un avertissement — un
+          # artefact absent se remarque le jour où on en a besoin, pas avant.
           path: apps/admin/.next
+          include-hidden-files: true
           retention-days: 3
           if-no-files-found: warn
 
