@@ -158,21 +158,21 @@ sur la confidentialité, commentée dans `firestore.rules`.
 
 ### Les règles les plus critiques
 
-| Collection                            | Règle clé                                                                                                                                               |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `users/{uid}`                         | lecture de soi, ou `user.read.any` ; `role`/`status`/`audienceKeys` non modifiables par l'utilisateur                                                   |
-| `users/{uid}/tokens`                  | **aucune lecture client**, écriture de soi uniquement                                                                                                   |
-| `deviceTokens/{token}`                | lecture réservée aux Cloud Functions ; écriture de soi si `uid` correspond                                                                              |
-| `posts/{id}/comments`                 | lecture si le post parent est lisible et `status == 'visible'` ; création si `isActive()` ; mise à jour : identité et compteurs figés par `unchanged()` |
-| `channels/{id}/messages`              | même régime que les commentaires : l'auteur modifie son corps, `isModerator()` masque, `authorId`/`authorRole`/`reportCount` figés                      |
-| `polls/{id}/votes/{uid}`              | **écriture uniquement si `uid == request.auth.uid`** → double vote impossible                                                                           |
-| `reports/{id}`                        | lecture si `authorId == uid` **ou** `isFcpe()`                                                                                                          |
-| `reports/{id}/replies`                | lecture : `internal == false` pour l'auteur, tout pour la FCPE                                                                                          |
-| `schoolCouncils/{id}/items`           | lecture des `visibility == 'fcpe'` réservée à `isFcpe()`                                                                                                |
-| `moderationReports`                   | lecture et écriture : `isModerator()`                                                                                                                   |
-| `adminLogs`                           | **création réservée au serveur**, aucune modification ni suppression, lecture `isAdmin()`                                                               |
-| `counters`, `highlights`              | écriture réservée au serveur, lecture `isActive()`                                                                                                      |
-| `organizations`, `schools`, `classes` | lecture `isSignedIn()` (nécessaire au formulaire d'inscription), écriture `isAdmin()`                                                                   |
+| Collection                            | Règle clé                                                                                                                                                                                                                                   |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `users/{uid}`                         | lecture de soi, ou `user.read.any` ; `role`/`status`/`audienceKeys` non modifiables par l'utilisateur                                                                                                                                       |
+| `users/{uid}/tokens`                  | **aucune lecture client**, écriture de soi uniquement                                                                                                                                                                                       |
+| `deviceTokens/{token}`                | lecture réservée aux Cloud Functions ; écriture de soi si `uid` correspond                                                                                                                                                                  |
+| `posts/{id}/comments`                 | lecture si le post parent est lisible et `status == 'visible'` ; création si `isActive()` **et** que la publication parente est publiée et ouverte aux commentaires (`get()`) ; mise à jour : identité et compteurs figés par `unchanged()` |
+| `channels/{id}/messages`              | même régime que les commentaires : l'auteur modifie son corps, `isModerator()` masque, `authorId`/`authorRole`/`reportCount` figés                                                                                                          |
+| `polls/{id}/votes/{uid}`              | **écriture uniquement si `uid == request.auth.uid`** → double vote impossible                                                                                                                                                               |
+| `reports/{id}`                        | lecture si `authorId == uid` **ou** `isFcpe()`                                                                                                                                                                                              |
+| `reports/{id}/replies`                | lecture : `internal == false` pour l'auteur, tout pour la FCPE                                                                                                                                                                              |
+| `schoolCouncils/{id}/items`           | lecture des `visibility == 'fcpe'` réservée à `isFcpe()`                                                                                                                                                                                    |
+| `moderationReports`                   | lecture et écriture : `isModerator()`                                                                                                                                                                                                       |
+| `adminLogs`                           | **création réservée au serveur**, aucune modification ni suppression, lecture `isAdmin()`                                                                                                                                                   |
+| `counters`, `highlights`              | écriture réservée au serveur, lecture `isActive()`                                                                                                                                                                                          |
+| `organizations`, `schools`, `classes` | lecture `isSignedIn()` (nécessaire au formulaire d'inscription), écriture `isAdmin()`                                                                                                                                                       |
 
 ---
 

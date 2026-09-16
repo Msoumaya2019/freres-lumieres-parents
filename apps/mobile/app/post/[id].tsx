@@ -20,17 +20,32 @@
  */
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams } from 'expo-router';
-import { ActivityIndicator, FlatList, RefreshControl, View } from 'react-native';
+import { useCallback, useState } from 'react';
+import {
+  ActivityIndicator,
+  FlatList,
+  KeyboardAvoidingView,
+  Platform,
+  RefreshControl,
+  View,
+} from 'react-native';
 
 import { appErrorMessage, pluralize } from '@fl/shared';
-import type { AppError } from '@fl/types';
+import type { AppError, Comment } from '@fl/types';
 
 import { CommentCard } from '@/components/post/comment-card';
+import { CommentComposer } from '@/components/post/comment-composer';
 import { PostDetailCard } from '@/components/post/post-detail-card';
 import { AppText, Button, Screen } from '@/components/ui';
 import { EmptyState, ErrorState, LoadingView } from '@/components/ui/state-views';
 import { usePost } from '@/hooks/use-post';
 import { useTheme } from '@/providers/theme-provider';
+
+/** Commentaire auquel la prochaine saisie répondra. */
+interface ReplyTarget {
+  readonly id: string;
+  readonly authorName: string;
+}
 
 export default function PostDetailScreen(): React.JSX.Element {
   const params = useLocalSearchParams<{ id?: string }>();
@@ -38,6 +53,13 @@ export default function PostDetailScreen(): React.JSX.Element {
 
   const { theme } = useTheme();
   const detail = usePost(postId);
+  const [replyTo, setReplyTo] = useState<ReplyTarget | null>(null);
+
+  const handleReply = useCallback((comment: Comment) => {
+    setReplyTo({ id: comment.id, authorName: comment.authorName });
+  }, []);
+
+  const cancelReply = useCallback(() => setReplyTo(null), []);
 
   if (detail.error) {
     return (
@@ -77,61 +99,90 @@ export default function PostDetailScreen(): React.JSX.Element {
 
   return (
     <Screen edges={[]} padded={false}>
-      <FlatList
-        data={commentsOpen ? detail.comments : []}
-        keyExtractor={(comment) => comment.id}
-        renderItem={({ item }) => <CommentCard comment={item} depth={item.parentId ? 1 : 0} />}
-        ItemSeparatorComponent={() => <View style={{ height: theme.spacing.lg }} />}
-        contentContainerStyle={{
-          paddingHorizontal: theme.spacing.lg,
-          paddingBottom: theme.spacing.xxxl,
-        }}
-        ListHeaderComponent={
-          <>
-            <View style={{ paddingTop: theme.spacing.lg }}>
-              <PostDetailCard post={post} />
-            </View>
-
-            <AppText variant="label" color="muted" style={{ marginBottom: theme.spacing.md }}>
-              {post.stats.commentCount > 0
-                ? pluralize(post.stats.commentCount, 'commentaire')
-                : 'Commentaires'}
-            </AppText>
-          </>
-        }
-        ListEmptyComponent={
-          commentsOpen ? (
-            <CommentsPlaceholder
-              status={detail.commentsStatus}
-              error={detail.commentsError}
-              onRetry={detail.refresh}
+      <KeyboardAvoidingView
+        // Sans cela, le clavier recouvre la zone de saisie sur iOS : le parent
+        // écrirait sans voir ce qu'il écrit. Sur Android, le système remonte
+        // déjà la vue (`adjustResize`), et ajouter `padding` la remonterait
+        // deux fois.
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={{ flex: 1 }}
+      >
+        <FlatList
+          data={commentsOpen ? detail.comments : []}
+          keyExtractor={(comment) => comment.id}
+          renderItem={({ item }) => (
+            <CommentCard
+              comment={item}
+              depth={item.parentId ? 1 : 0}
+              onReply={item.parentId ? undefined : handleReply}
             />
-          ) : (
-            <AppText variant="body" color="muted">
-              Les commentaires sont fermés pour cette publication.
-            </AppText>
-          )
-        }
-        ListFooterComponent={
-          <CommentsFooter
-            visible={commentsOpen && detail.comments.length > 0}
-            hasMore={detail.hasMoreComments}
-            loading={detail.loadingMoreComments}
-            error={detail.loadMoreError}
-            onLoadMore={detail.loadMoreComments}
-          />
-        }
-        refreshControl={
-          <RefreshControl
-            refreshing={detail.refreshing}
-            onRefresh={detail.refresh}
-            tintColor={theme.colors.primary}
-            colors={[theme.colors.primary]}
-          />
-        }
-        onEndReached={commentsOpen && detail.hasMoreComments ? detail.loadMoreComments : undefined}
-        onEndReachedThreshold={0.6}
-      />
+          )}
+          ItemSeparatorComponent={() => <View style={{ height: theme.spacing.lg }} />}
+          contentContainerStyle={{
+            paddingHorizontal: theme.spacing.lg,
+            paddingBottom: theme.spacing.xxxl,
+          }}
+          ListHeaderComponent={
+            <>
+              <View style={{ paddingTop: theme.spacing.lg }}>
+                <PostDetailCard post={post} />
+              </View>
+
+              <AppText variant="label" color="muted" style={{ marginBottom: theme.spacing.md }}>
+                {post.stats.commentCount > 0
+                  ? pluralize(post.stats.commentCount, 'commentaire')
+                  : 'Commentaires'}
+              </AppText>
+            </>
+          }
+          ListEmptyComponent={
+            commentsOpen ? (
+              <CommentsPlaceholder
+                status={detail.commentsStatus}
+                error={detail.commentsError}
+                onRetry={detail.refresh}
+              />
+            ) : (
+              <AppText variant="body" color="muted">
+                Les commentaires sont fermés pour cette publication.
+              </AppText>
+            )
+          }
+          ListFooterComponent={
+            <CommentsFooter
+              visible={commentsOpen && detail.comments.length > 0}
+              hasMore={detail.hasMoreComments}
+              loading={detail.loadingMoreComments}
+              error={detail.loadMoreError}
+              onLoadMore={detail.loadMoreComments}
+            />
+          }
+          refreshControl={
+            <RefreshControl
+              refreshing={detail.refreshing}
+              onRefresh={detail.refresh}
+              tintColor={theme.colors.primary}
+              colors={[theme.colors.primary]}
+            />
+          }
+          onEndReached={
+            commentsOpen && detail.hasMoreComments ? detail.loadMoreComments : undefined
+          }
+          onEndReachedThreshold={0.6}
+        />
+
+        {commentsOpen ? (
+          <View style={{ paddingHorizontal: theme.spacing.lg }}>
+            <CommentComposer
+              replyTo={replyTo}
+              onCancelReply={cancelReply}
+              onSubmit={(body) => detail.submitComment(body, replyTo?.id)}
+              submitting={detail.submitting}
+              error={detail.submitError}
+            />
+          </View>
+        ) : null}
+      </KeyboardAvoidingView>
     </Screen>
   );
 }

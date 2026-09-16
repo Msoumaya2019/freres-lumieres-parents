@@ -267,6 +267,10 @@ service cloud.firestore {
           && d.status in ['draft', 'published']
           && d.authorId == request.auth.uid
           && d.orgId == orgId()
+          // `commentsEnabled` est obligatoire dans le modèle : l'exiger ici
+          // garantit qu'une publication porte toujours la décision, plutôt que
+          // de laisser la règle des commentaires interpréter une absence.
+          && d.commentsEnabled is bool
           // Les compteurs ne sont jamais fixés par le client : ils sont
           // maintenus par les Cloud Functions.
           && d.stats.commentCount is int
@@ -349,7 +353,29 @@ service cloud.firestore {
         // Un commentaire n'est lisible que si la publication parente l'est.
         allow read: if isActive() && resource.data.status == 'visible';
 
-        allow create: if isActive() && validComment();
+        // Une publication fermée aux commentaires n'en reçoit pas, et une
+        // publication non publiée non plus.
+        //
+        // Sans cette vérification, `commentsEnabled` serait purement indicatif :
+        // l'interface masque le champ de saisie, mais un client hostile n'a pas
+        // besoin de notre interface pour écrire dans Firestore. Fermer les
+        // commentaires est une décision de la FCPE : elle doit être une règle,
+        // pas une convention d'affichage.
+        //
+        // `get()` lit le document parent avec un accès total — la règle de
+        // lecture de `posts` ne s'applique pas ici. Un document absent fait
+        // échouer l'accès à `.data`, donc l'écriture est refusée : échec fermé.
+        // Coût : une lecture par création de commentaire (voir
+        // `docs/06-couts.md`).
+        //
+        // La vérification ne porte que sur `create` : une fois les commentaires
+        // fermés, leur auteur doit pouvoir continuer à retirer le sien.
+        function parentAcceptsComments() {
+          let post = get(/databases/$(database)/documents/posts/$(postId)).data;
+          return post.status == 'published' && post.commentsEnabled == true;
+        }
+
+        allow create: if isActive() && parentAcceptsComments() && validComment();
 
         // Auteur : modifier son corps, ou le retirer (`deleted`).
         // Modérateur : masquer, et remettre en ligne.

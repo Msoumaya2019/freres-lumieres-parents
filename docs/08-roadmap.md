@@ -245,11 +245,17 @@ vitest. Il pointe maintenant sur un `tsconfig.test.json`, comme `@fl/shared`.
       moment du toucher** et jamais stockée (voir `docs/04-security.md`). Seuls
       les liens `http`/`https` sont ouverts, même si le schéma les valide déjà.
 - [ ] Commentaires, réponses à un commentaire, réactions
-      _(modèle, règles et compteurs faits ; **lecture** faite : liste paginée,
-      réponses indentées ; restent l'écriture d'un commentaire et les réactions)_
+      _(modèle, règles et compteurs faits ; lecture **et écriture** faites :
+      liste paginée, réponses indentées, saisie d'un commentaire ou d'une
+      réponse ; restent les réactions)_
       Limite assumée : les réponses sont indentées dans la liste chronologique
       au lieu d'être rattachées à leur parent, ce qui demanderait de charger le
       parent — absent de la page une fois sur deux.
+      Fermer les commentaires est désormais **une règle**, pas un simple
+      masquage du champ de saisie : la règle de création lit la publication
+      parente et exige qu'elle soit publiée et ouverte aux commentaires. Le
+      test correspondant existe, et un test vérifie qu'une publication sans
+      cette décision est refusée à la création.
 - [ ] Compression des images avant upload
 - [ ] Écran admin : créer, modifier, épingler une publication
       **Trou connu dans les règles :** `allow update` sur `posts/{postId}` exige

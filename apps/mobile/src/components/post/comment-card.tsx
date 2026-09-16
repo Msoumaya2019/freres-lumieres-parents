@@ -16,7 +16,8 @@
  * et le trait vertical suffisent à le montrer sans construire un arbre : au-delà
  * d'un niveau, une conversation sur téléphone devient illisible.
  */
-import { View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { Pressable, StyleSheet, View } from 'react-native';
 
 import { BADGE_COLORS, REACTION_EMOJIS, USER_ROLE_LABELS, formatRelative } from '@fl/shared';
 import type { Comment } from '@fl/types';
@@ -28,9 +29,17 @@ export interface CommentCardProps {
   comment: Comment;
   /** Profondeur d'indentation : 0 pour un commentaire, 1 pour une réponse. */
   depth?: number;
+  /**
+   * Ouvre la saisie d'une réponse à ce commentaire.
+   *
+   * Absent sur une réponse : le modèle ne prévoit qu'un niveau
+   * (`parentId` désigne un commentaire racine), et une réponse à une réponse
+   * produirait une structure que l'écran ne sait pas représenter.
+   */
+  onReply?: ((comment: Comment) => void) | undefined;
 }
 
-export function CommentCard({ comment, depth = 0 }: CommentCardProps): React.JSX.Element {
+export function CommentCard({ comment, depth = 0, onReply }: CommentCardProps): React.JSX.Element {
   const { theme } = useTheme();
 
   const relativeDate = formatRelative(comment.createdAt);
@@ -94,6 +103,28 @@ export function CommentCard({ comment, depth = 0 }: CommentCardProps): React.JSX
           ))}
         </View>
       ) : null}
+
+      {depth === 0 && onReply ? (
+        <Pressable
+          onPress={() => onReply(comment)}
+          accessibilityRole="button"
+          accessibilityLabel={`Répondre au commentaire de ${comment.authorName}`}
+          hitSlop={theme.spacing.sm}
+          style={({ pressed }) => [
+            styles.reply,
+            {
+              minHeight: theme.touchTarget * 0.75,
+              gap: theme.spacing.xs,
+              opacity: pressed ? 0.7 : 1,
+            },
+          ]}
+        >
+          <Ionicons name="arrow-undo-outline" size={16} color={theme.colors.primary} />
+          <AppText variant="caption" style={{ color: theme.colors.primary }}>
+            Répondre
+          </AppText>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -115,3 +146,10 @@ function reactionName(emoji: string): string {
   };
   return names[emoji] ?? 'réaction';
 }
+
+const styles = StyleSheet.create({
+  reply: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+});

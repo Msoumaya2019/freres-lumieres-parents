@@ -108,6 +108,9 @@ function postDocument(overrides: Record<string, unknown> = {}) {
     // prouverait alors plus rien sur la donnée réellement écrite.
     audience: { type: 'all' },
     audienceKeys: [`org:${TEST_ORG}`],
+    // Obligatoire dans le modèle, et exigé par `validPost()` : une publication
+    // porte toujours la décision d'ouvrir ou de fermer ses commentaires.
+    commentsEnabled: true,
     stats: { commentCount: 0, reactionCount: 0 },
     publishedAt: new Date('2026-09-01T10:00:00Z'),
     createdAt: new Date('2026-09-01T09:00:00Z'),
@@ -239,6 +242,12 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
       await setDoc(
         doc(db, 'posts', 'post-other-org'),
         postDocument({ orgId: TEST_OTHER_ORG, audienceKeys: [`org:${TEST_OTHER_ORG}`] }),
+      );
+      // Publication publiée mais fermée aux commentaires : sert à vérifier que
+      // la fermeture est une règle, et non une convention d'affichage.
+      await setDoc(
+        doc(db, 'posts', 'post-commentaires-fermes'),
+        postDocument({ commentsEnabled: false }),
       );
 
       await setDoc(
@@ -442,6 +451,15 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
       await assertFails(
         setDoc(doc(db, 'posts', 'post-usurpe'), postDocument({ authorId: UID.parent })),
       );
+    });
+
+    it('une publication sans décision sur les commentaires est refusée', async () => {
+      const db = fcpe.firestore();
+      const { commentsEnabled: _ignore, ...sansDecision } = postDocument({ authorId: UID.fcpe });
+
+      // Sans ce champ, la règle des commentaires devrait interpréter une
+      // absence — exactement ce qu'un échec fermé ne doit pas faire.
+      await assertFails(setDoc(doc(db, 'posts', 'post-sans-decision'), sansDecision));
     });
 
     it('un parent ne peut pas supprimer une publication', async () => {
@@ -657,6 +675,39 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
         setDoc(
           doc(parent.firestore(), 'posts', 'post-own-published', 'comments', 'comment-nouveau'),
           commentDocument(),
+        ),
+      );
+    });
+
+    it('on ne commente pas une publication fermée aux commentaires', async () => {
+      await assertFails(
+        setDoc(
+          doc(
+            parent.firestore(),
+            'posts',
+            'post-commentaires-fermes',
+            'comments',
+            'comment-nouveau',
+          ),
+          commentDocument({ postId: 'post-commentaires-fermes' }),
+        ),
+      );
+    });
+
+    it('on ne commente pas une publication non publiée', async () => {
+      await assertFails(
+        setDoc(
+          doc(parent.firestore(), 'posts', 'post-own-draft', 'comments', 'comment-nouveau'),
+          commentDocument({ postId: 'post-own-draft' }),
+        ),
+      );
+    });
+
+    it('on ne commente pas une publication inexistante', async () => {
+      await assertFails(
+        setDoc(
+          doc(parent.firestore(), 'posts', 'post-inexistant', 'comments', 'comment-nouveau'),
+          commentDocument({ postId: 'post-inexistant' }),
         ),
       );
     });

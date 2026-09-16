@@ -106,6 +106,21 @@ d'intégrité. Un recomptage à la place de l'incrément coûterait, lui, une
 lecture **par réaction affichée et par réaction posée** — c'est précisément ce
 que le décompte dénormalisé évite.
 
+**Coût d'une règle qui lit son parent.** Créer un commentaire déclenche une
+lecture supplémentaire : `parentAcceptsComments()` interroge la publication
+parente avec `get()` pour vérifier qu'elle est publiée et ouverte aux
+commentaires. Sans cette lecture, fermer les commentaires ne serait qu'une
+convention d'affichage — un client hostile écrirait sans passer par
+l'application. Une lecture par commentaire écrit est le prix de cette
+garantie, et les commentaires sont rares.
+
+**Coût d'un commentaire écrit depuis l'application.** Le client recharge la
+publication et la première page de commentaires après une écriture réussie
+(une vingtaine de lectures). C'est ce qui permet d'afficher un décompte exact :
+`stats.commentCount` est écrit par une Cloud Function **après** la création,
+donc le client ne peut pas l'incrémenter lui-même sans mentir. Une insertion
+locale aurait affiché un compteur faux pendant quelques secondes.
+
 ### Estimation chiffrée
 
 Hypothèses : 300 parents, 3 ouvertures par jour et par parent, 2 publications

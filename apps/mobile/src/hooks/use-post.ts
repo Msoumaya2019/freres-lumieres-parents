@@ -32,9 +32,11 @@ import {
   toAppError,
   type PostRepository,
 } from '@fl/firebase';
+import { displayName } from '@fl/shared';
 import type { AppError, Comment, Post } from '@fl/types';
 
 import { initializeFirebase } from '@/lib/firebase';
+import { useAuth } from '@/providers/auth-provider';
 
 import type { AsyncData } from './use-reference-data';
 
@@ -63,9 +65,14 @@ export interface PostDetailResult {
   readonly refreshing: boolean;
   refresh: () => void;
   loadMoreComments: () => void;
+  /** Écrit un commentaire, ou une réponse si `parentId` est fourni. */
+  submitComment: (body: string, parentId?: string) => Promise<boolean>;
+  readonly submitting: boolean;
+  readonly submitError: AppError | null;
 }
 
 export function usePost(postId: string): PostDetailResult {
+  const { profile, firebaseUser } = useAuth();
   const [firebase] = useState(() => initializeFirebase());
   const repository = useMemo<PostRepository | null>(
     () => (firebase ? createPostRepository(firebase.db) : null),
@@ -76,6 +83,8 @@ export function usePost(postId: string): PostDetailResult {
   const [loadingMoreComments, setLoadingMoreComments] = useState(false);
   const [loadMoreError, setLoadMoreError] = useState<AppError | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<AppError | null>(null);
 
   const cursor = useRef<QueryDocumentSnapshot | null>(null);
   const generation = useRef(0);
@@ -193,8 +202,60 @@ export function usePost(postId: string): PostDetailResult {
     })();
   }, [repository, postId, loadingMoreComments]);
 
-  const current = snapshot && snapshot.key === postId ? snapshot : null;
+  /**
+   * Écrit un commentaire, puis recharge la publication et sa première page de
+   * commentaires.
+   *
+   * ## Pourquoi un rechargement, et non une insertion locale
+   *
+   * Insérer le commentaire dans l'état local afficherait un compteur faux : le
+   * décompte en tête d'écran vient de `stats.commentCount`, écrit par une Cloud
+   * Function **après** la création. Le compteur ne peut donc pas être incrémenté
+   * par le client sans mentir. Recharger coûte une vingtaine de lectures, ce qui
+   * est négligeable pour une action volontaire et rare — et c'est la seule façon
+   * d'afficher le décompte réel.
+   *
+   * Le rechargement ramène aussi la première page : le commentaire qu'on vient
+   * d'écrire étant le plus récent, il apparaît en tête. Perdre les pages
+   * suivantes est sans conséquence, l'auteur venant nécessairement de remonter
+   * en haut de la conversation pour saisir son texte.
+   *
+   * `authorId` vient de `firebaseUser.uid` et non de `profile.id` : c'est la
+   * valeur que les règles comparent, et la seule qui ne puisse pas être périmée.
+   */
+  const submitComment = useCallback(
+    async (body: string, parentId?: string): Promise<boolean> => {
+      const trimmed = body.trim();
+      const uid = firebaseUser?.uid ?? null;
 
+      if (!repository || !postId || !uid || !profile || trimmed.length === 0) return false;
+
+      setSubmitting(true);
+      setSubmitError(null);
+
+      try {
+        await repository.addComment({
+          postId,
+          authorId: uid,
+          authorName: displayName(profile.firstName, profile.lastName),
+          authorRole: profile.role,
+          body: trimmed,
+          ...(parentId ? { parentId } : {}),
+        });
+
+        await load();
+        return true;
+      } catch (error) {
+        setSubmitError(isAppError(error) ? error : toAppError(error));
+        return false;
+      } finally {
+        setSubmitting(false);
+      }
+    },
+    [repository, postId, firebaseUser, profile, load],
+  );
+
+  const current = snapshot && snapshot.key === postId ? snapshot : null;
   const status: AsyncData<Post | null>['status'] = !enabled
     ? 'idle'
     : current === null
@@ -217,5 +278,8 @@ export function usePost(postId: string): PostDetailResult {
     refreshing,
     refresh,
     loadMoreComments,
+    submitComment,
+    submitting,
+    submitError,
   };
 }
