@@ -49,6 +49,14 @@
         }
       ],
       "expo-image",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "L’application accède à vos photos uniquement pour celles que vous choisissez de joindre à une publication.",
+          "cameraPermission": false,
+          "microphonePermission": false
+        }
+      ],
       "expo-splash-screen"
     ],
     "experiments": {

@@ -69,6 +69,52 @@ export const slugSchema = z
   .regex(/^[a-z0-9][a-z0-9-]*$/, 'Utilisez uniquement des minuscules, chiffres et tirets.');
 
 // ---------------------------------------------------------------------------
+// Lecture d'un résultat de validation
+// ---------------------------------------------------------------------------
+
+/**
+ * Forme minimale d'une erreur de validation, sans dépendre de Zod.
+ *
+ * Structurelle à dessein : un écran lit un résultat de validation sans avoir à
+ * importer la bibliothèque, et un objet qui présente ces trois propriétés est
+ * accepté tel quel. Zod satisfait cette forme, elle n'est donc jamais un
+ * obstacle.
+ */
+export interface ValidationIssue {
+  readonly path: readonly PropertyKey[];
+  readonly message: string;
+}
+
+/**
+ * Première erreur par champ, pour l'affichage.
+ *
+ * Une seule par champ : empiler « trop court » puis « doit contenir un
+ * chiffre » sous le même champ brouille le message plus qu'il n'aide.
+ *
+ * La clé de regroupement est le chemin de l'erreur joint par des points —
+ * `['children', 0, 'schoolId']` donne `children.0.schoolId` —, ce qui permet à
+ * un formulaire de retrouver l'erreur d'un champ répété sans connaître
+ * l'indexation de Zod. La **première** erreur d'un champ l'emporte : Zod
+ * rapporte les problèmes dans l'ordre de déclaration du schéma, qui va du plus
+ * général au plus fin.
+ *
+ * Vit ici, et non dans un écran, parce que trois formulaires s'en servent
+ * déjà : l'inscription mobile, la publication mobile et l'éditeur
+ * d'administration. Trois copies d'une règle d'affichage, c'est trois
+ * occasions de ne plus présenter les erreurs de la même façon.
+ */
+export function firstIssueByField(issues: readonly ValidationIssue[]): Record<string, string> {
+  const messages: Record<string, string> = {};
+
+  for (const issue of issues) {
+    const field = issue.path.join('.');
+    if (!messages[field]) messages[field] = issue.message;
+  }
+
+  return messages;
+}
+
+// ---------------------------------------------------------------------------
 // Audience
 // ---------------------------------------------------------------------------
 

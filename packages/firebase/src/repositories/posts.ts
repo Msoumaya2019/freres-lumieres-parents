@@ -65,6 +65,22 @@ export interface CreatePostParams {
   authorId: string;
   authorName: string;
   authorRole: UserRole;
+  /**
+   * Identifiant à donner à la publication, obtenu par `newPostId()`.
+   *
+   * Sans lui, Firestore en génère un — ce qui interdit d'envoyer des pièces
+   * jointes **avant** la création. Leur chemin contient en effet l'identifiant
+   * de la publication (`orgs/{orgId}/posts/{postId}/…`), et les règles Storage
+   * ne vérifient pas que le document existe : le pré-générer permet donc de
+   * créer la publication complète du premier coup, photos comprises.
+   *
+   * C'est nécessaire parce que `publishedAt` est **figé** par les règles et
+   * posé à la création. Un brouillon intermédiaire, publié après l'envoi des
+   * photos, porterait la date du brouillon — et une publication datée de la
+   * veille passerait sous les yeux des parents sans qu'ils comprennent
+   * pourquoi.
+   */
+  postId?: string;
   input: PostInput;
 }
 
@@ -96,6 +112,14 @@ export interface PostRepository {
   get(postId: string): Promise<Post | null>;
   /** Crée une publication. Valide les données et calcule les clés d'audience. */
   create(params: CreatePostParams): Promise<string>;
+  /**
+   * Identifiant d'une publication qui n'existe pas encore.
+   *
+   * N'écrit rien et ne consomme aucune lecture : Firestore génère
+   * l'identifiant côté client. Il sert à envoyer les pièces jointes **avant**
+   * la création du document, en les rangeant déjà à leur place définitive.
+   */
+  newPostId(): string;
   /** Met à jour une publication existante. */
   update(postId: string, input: Partial<PostInput>): Promise<void>;
   /** Épingle ou désépingle une publication. */
@@ -238,8 +262,19 @@ export function createPostRepository(db: Firestore): PostRepository {
     }
   }
 
+  /**
+   * Identifiant d'une publication qui n'existe pas encore.
+   *
+   * `doc(collection)` fabrique un identifiant côté client : rien n'est écrit,
+   * rien n'est lu. L'appelant peut donc ranger les pièces jointes à leur place
+   * définitive avant que le document n'existe — c'est tout l'intérêt.
+   */
+  function newPostId(): string {
+    return doc(postsCollection).id;
+  }
+
   async function create(params: CreatePostParams): Promise<string> {
-    const { orgId, schoolId, authorId, authorName, authorRole, input } = params;
+    const { orgId, schoolId, authorId, authorName, authorRole, postId, input } = params;
 
     const parsed = postInputSchema.safeParse(input);
     if (!parsed.success) {
@@ -260,7 +295,7 @@ export function createPostRepository(db: Firestore): PostRepository {
 
     try {
       const now = serverTimestamp();
-      const ref = await addDoc(postsCollection, {
+      const payload = {
         orgId,
         ...(schoolId ? { schoolId } : {}),
         title: data.title,
@@ -282,8 +317,20 @@ export function createPostRepository(db: Firestore): PostRepository {
         // Les compteurs démarrent à zéro : les règles Firestore refusent
         // toute création qui tenterait de les fixer autrement.
         stats: { commentCount: 0, reactionCount: 0 },
-      });
-      return ref.id;
+      };
+
+      // Avec un identifiant pré-généré, on écrit à une place connue d'avance —
+      // c'est ce qui permet d'avoir envoyé les pièces jointes avant, à leur
+      // chemin définitif. Sans lui, Firestore choisit l'identifiant, et il
+      // faudrait créer d'abord puis compléter : deux écritures, un état
+      // intermédiaire visible, et `publishedAt` figé trop tôt.
+      if (postId) {
+        await setDoc(doc(postsCollection, postId), payload);
+        return postId;
+      }
+
+      const created = await addDoc(postsCollection, payload);
+      return created.id;
     } catch (error) {
       throw toAppError(error);
     }
@@ -463,6 +510,7 @@ export function createPostRepository(db: Firestore): PostRepository {
     fetchForAdmin,
     fetchPinned,
     get,
+    newPostId,
     create,
     update,
     setPinned,

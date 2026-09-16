@@ -13,4 +13,5 @@ export * from './audience.js';
 export * from './permissions.js';
 export * from './validation.js';
 export * from './formatting.js';
+export * from './uploads.js';
 export * from './theme.js';

@@ -31,8 +31,13 @@ void SplashScreen.preventAutoHideAsync();
  * La liste est explicite plutôt que déduite d'un préfixe : une route oubliée
  * ici se voit tout de suite, alors qu'une exception trop large laisserait
  * passer n'importe quelle route ajoutée plus tard.
+ *
+ * `publier` y figure bien qu'elle soit atteinte depuis la feuille « Créer » :
+ * la feuille est remplacée par l'écran, donc `create` quitte l'historique et
+ * le segment courant devient `publier`. Sans cette entrée, le formulaire de
+ * publication serait refermé à l'instant où il s'ouvre.
  */
-const DETAIL_ROUTES: readonly string[] = ['post'];
+const DETAIL_ROUTES: readonly string[] = ['post', 'publier'];
 
 export default function RootLayout(): React.JSX.Element {
   return (
@@ -79,6 +84,19 @@ function RootNavigator(): React.JSX.Element {
             presentation: 'modal',
             headerShown: true,
             title: 'Créer',
+            headerStyle: { backgroundColor: theme.colors.surface },
+            headerTintColor: theme.colors.textPrimary,
+          }}
+        />
+        <Stack.Screen
+          name="publier"
+          options={{
+            // Même présentation que la feuille « Créer » : celle-ci mène ici
+            // par un remplacement, et changer de présentation au passage
+            // ferait disparaître puis réapparaître l'écran.
+            presentation: 'modal',
+            headerShown: true,
+            title: 'Publier une information',
             headerStyle: { backgroundColor: theme.colors.surface },
             headerTintColor: theme.colors.textPrimary,
           }}

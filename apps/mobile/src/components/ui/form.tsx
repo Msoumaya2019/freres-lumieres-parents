@@ -46,6 +46,15 @@ export interface TextFieldProps {
   onBlur?: () => void;
   onSubmitEditing?: () => void;
   returnKeyType?: TextInputProps['returnKeyType'];
+  /**
+   * Saisie sur plusieurs lignes (texte long, message).
+   *
+   * `lines` fixe la hauteur visible, en lignes, et non un maximum : un champ
+   * qui grandit à chaque mot fait sauter le formulaire sous le doigt, et un
+   * champ qui plafonne masque ce qui vient d'être écrit.
+   */
+  multiline?: boolean;
+  lines?: number;
 }
 
 export function TextField({
@@ -66,6 +75,8 @@ export function TextField({
   onBlur,
   onSubmitEditing,
   returnKeyType,
+  multiline = false,
+  lines = 6,
 }: TextFieldProps): React.JSX.Element {
   const { theme } = useTheme();
   const accessibleLabel = optional ? `${label} (facultatif)` : label;
@@ -90,11 +101,15 @@ export function TextField({
         textContentType={textContentType}
         maxLength={maxLength}
         returnKeyType={returnKeyType}
+        multiline={multiline}
+        numberOfLines={multiline ? lines : undefined}
         accessibilityLabel={accessibleLabel}
         style={[
           styles.input,
+          multiline && styles.multiline,
           {
-            minHeight: theme.touchTarget,
+            minHeight: multiline ? undefined : theme.touchTarget,
+            paddingVertical: multiline ? theme.spacing.sm : undefined,
             borderRadius: theme.radii.md,
             borderColor: error ? theme.colors.danger : theme.colors.border,
             // Un champ en lecture seule est visuellement distinct : l'utilisateur
@@ -416,4 +431,9 @@ export function FormAlert({ tone, title, children }: FormAlertProps): React.JSX.
 
 const styles = StyleSheet.create({
   input: { borderWidth: StyleSheet.hairlineWidth },
+  // Sur Android, un champ multiligne centre son texte verticalement par
+  // défaut : la première ligne apparaîtrait au milieu du cadre, au lieu de
+  // commencer en haut. L'espacement, lui, reste un jeton de thème — il est
+  // donc appliqué dans le composant, où le thème est accessible.
+  multiline: { textAlignVertical: 'top' },
 });

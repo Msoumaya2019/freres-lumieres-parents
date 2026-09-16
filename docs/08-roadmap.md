@@ -257,7 +257,31 @@ vitest. Il pointe maintenant sur un `tsconfig.test.json`, comme `@fl/shared`.
       Le décompte des réactions est tenu par une Cloud Function ; l'application
       l'estime localement le temps de la réponse, puis le remplace au
       rechargement suivant — sans quoi le bouton semblerait ne rien faire.
-- [ ] Compression des images avant upload
+- [x] Compression des images avant upload
+      Les photos sont réduites **avant** de quitter le téléphone :
+      1600 px de côté au maximum, JPEG qualité 0,8 — les valeurs de
+      `UPLOAD_LIMITS`, donc les mêmes que celles que les Storage Rules
+      vérifient. La géométrie vit dans `@fl/shared` (`fitWithin`) et non dans
+      l'écran : l'administration compressera les mêmes images un jour, et deux
+      calculs de ratio divergeraient au premier cas limite. Le redimensionnement
+      lui-même passe par `expo-image-manipulator`, seule partie qui ne peut pas
+      être partagée.
+      **L'ordre des opérations est imposé par les règles.** Le chemin d'une
+      pièce jointe contient l'identifiant de la publication
+      (`orgs/{orgId}/posts/{postId}/…`), donc rien ne peut être envoyé avant que
+      cet identifiant existe ; mais `publishedAt` est figé à la création, donc
+      un brouillon publié après l'envoi porterait la date du brouillon. La
+      sortie est de **pré-générer l'identifiant** (`newPostId()`, qui n'écrit
+      rien et ne lit rien), d'envoyer les photos à leur place définitive, puis
+      de créer la publication complète du premier coup. Aucun état
+      intermédiaire n'est visible, et le document n'est jamais écrit deux fois.
+      Les fichiers d'une publication dont la création échoue sont supprimés :
+      les règles Storage ne vérifient pas que le document existe, donc ils
+      seraient facturés sans être référencés par personne — et plus
+      supprimables. Un nettoyage raté ne masque pas l'erreur d'origine.
+      Limite assumée : l'éditeur d'administration accepte un tableau de pièces
+      jointes mais n'en envoie jamais. Un texte publié depuis le web n'a donc
+      pas de photo, et c'est le seul chemin qui existe pour l'instant.
 - [x] Écran admin : créer, modifier, épingler une publication
       **Le trou de règle annoncé ici est fermé.** La question laissée ouverte —
       _un membre de la FCPE peut-il épingler la publication d'un autre ?_ —

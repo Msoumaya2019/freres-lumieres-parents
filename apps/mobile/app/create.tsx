@@ -5,8 +5,10 @@
  * hésite. Chaque option indique clairement ce qu'elle fait et à qui elle
  * s'adresse.
  *
- * ⚠️ ÉTAT : Phase 1. La feuille s'ouvre et se ferme correctement ; chaque
- * destination est reliée à sa phase de développement.
+ * Une option sans `route` n'existe pas encore : elle porte alors la phase qui
+ * l'apportera, et l'appui referme simplement la feuille. La pastille de phase
+ * n'apparaît que dans ce cas — sur une option disponible, elle laisserait
+ * croire que la fonctionnalité est encore à venir.
  */
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -23,9 +25,9 @@ interface CreateOption {
   title: string;
   description: string;
   icon: keyof typeof Ionicons.glyphMap;
-  /** Phase de développement correspondante. */
+  /** Phase de développement qui apportera la fonctionnalité. */
   phase: string;
-  /** Route cible, une fois la phase réalisée. */
+  /** Écran cible. Absent tant que la fonctionnalité n'existe pas. */
   route?: string;
   /** Réservé à certains rôles. */
   visible?: boolean;
@@ -66,6 +68,7 @@ export default function CreateSheet(): React.JSX.Element {
       description: 'Réservé aux membres de la FCPE.',
       icon: 'megaphone-outline',
       phase: 'Phase 3 — Publications',
+      route: '/publier',
       visible: canPublish,
     },
   ];
@@ -84,6 +87,15 @@ export default function CreateSheet(): React.JSX.Element {
             <Card
               key={option.key}
               onPress={() => {
+                // `replace`, et non `push` : la feuille a rempli son rôle dès
+                // que l'option est choisie. La garder dans l'historique ferait
+                // revenir le geste de retour sur une liste de choix déjà
+                // consommée, au lieu de l'écran d'où l'utilisateur est parti.
+                if (option.route) {
+                  router.replace(option.route);
+                  return;
+                }
+
                 // Tant que la fonctionnalité n'existe pas, on referme la
                 // feuille plutôt que d'ouvrir un écran vide.
                 router.back();
@@ -109,7 +121,7 @@ export default function CreateSheet(): React.JSX.Element {
                     {option.description}
                   </AppText>
                 </View>
-                <Badge label={option.phase.split(' — ')[0] ?? ''} />
+                <Badge label={option.route ? 'Disponible' : (option.phase.split(' — ')[0] ?? '')} />
               </View>
             </Card>
           ))}

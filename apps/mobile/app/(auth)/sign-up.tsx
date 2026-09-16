@@ -38,6 +38,7 @@ import {
   TEXT_LIMITS,
   childDraftSchema,
   childrenDraftSchema,
+  firstIssueByField,
   registrationIdentitySchema,
 } from '@fl/shared';
 import type { ChildDraftInput } from '@fl/shared';
@@ -82,27 +83,6 @@ let childKeySeed = 0;
 function createChildDraft(): ChildDraft {
   childKeySeed += 1;
   return { key: `enfant-${childKeySeed}`, firstName: '', schoolId: null, classId: null };
-}
-
-/** Forme minimale d'une erreur de validation, sans dépendre de Zod ici. */
-interface ValidationIssue {
-  readonly path: readonly PropertyKey[];
-  readonly message: string;
-}
-
-/**
- * Première erreur par champ.
- *
- * Une seule par champ : empiler « trop court » puis « doit contenir un
- * chiffre » sous le même champ brouille le message plus qu'il n'aide.
- */
-function firstIssueByField(issues: readonly ValidationIssue[]): Record<string, string> {
-  const map: Record<string, string> = {};
-  for (const issue of issues) {
-    const key = issue.path.join('.');
-    if (!map[key]) map[key] = issue.message;
-  }
-  return map;
 }
 
 /**
@@ -255,10 +235,7 @@ export default function SignUpScreen(): React.JSX.Element {
   );
 
   const identityIssues = useMemo(
-    () =>
-      identityValidation.success
-        ? {}
-        : firstIssueByField(identityValidation.error.issues as readonly ValidationIssue[]),
+    () => (identityValidation.success ? {} : firstIssueByField(identityValidation.error.issues)),
     [identityValidation],
   );
 
@@ -280,10 +257,7 @@ export default function SignUpScreen(): React.JSX.Element {
   );
 
   const childrenIssues = useMemo(
-    () =>
-      childrenValidation.success
-        ? {}
-        : firstIssueByField(childrenValidation.error.issues as readonly ValidationIssue[]),
+    () => (childrenValidation.success ? {} : firstIssueByField(childrenValidation.error.issues)),
     [childrenValidation],
   );
 
