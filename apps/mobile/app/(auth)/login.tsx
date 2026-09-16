@@ -2,9 +2,9 @@ import { loginSchema } from '@flp/validation';
 import { Link } from 'expo-router';
 import { useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
-import { Button, Card, Input, Screen } from '@/components/ui';
-import { colors, spacing, typography } from '@/constants/theme';
-import { authErrorMessage, login, resetPassword } from '@/services/auth';
+import { Button, Card, Input, Screen } from '../../components/ui';
+import { colors, spacing, typography } from '../../constants/theme';
+import { authErrorMessage, login, resetPassword } from '../../services/auth';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');

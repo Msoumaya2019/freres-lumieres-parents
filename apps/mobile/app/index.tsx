@@ -1,4 +1,4 @@
-import { LoadingState, Screen } from '@/components/ui';
+import { LoadingState, Screen } from '../components/ui';
 
 export default function IndexPage() {
   return (

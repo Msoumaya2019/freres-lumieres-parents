@@ -1,6 +1,6 @@
 import { Tabs } from 'expo-router';
 import { Text, type ColorValue } from 'react-native';
-import { colors } from '@/constants/theme';
+import { colors } from '../../constants/theme';
 
 const icon =
   (symbol: string) =>

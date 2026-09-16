@@ -11,7 +11,7 @@ import {
   useState,
   type PropsWithChildren,
 } from 'react';
-import { auth, firestore } from '@/lib/firebase';
+import { auth, firestore } from '../lib/firebase';
 
 interface AuthState {
   firebaseUser: FirebaseUser | null;

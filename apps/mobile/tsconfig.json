@@ -3,7 +3,6 @@
   "compilerOptions": {
     "strict": true,
     "customConditions": ["react-native"],
-    "paths": { "@/*": ["./*"] },
     "types": ["node"]
   },
   "include": ["**/*.ts", "**/*.tsx", ".expo/types/**/*.ts", "expo-env.d.ts"]

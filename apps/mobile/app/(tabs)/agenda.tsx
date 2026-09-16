@@ -1,6 +1,6 @@
 import { ScrollView, StyleSheet, Text } from 'react-native';
-import { Badge, Card, Screen } from '@/components/ui';
-import { colors, typography } from '@/constants/theme';
+import { Badge, Card, Screen } from '../../components/ui';
+import { colors, typography } from '../../constants/theme';
 
 export default function AgendaPage() {
   return (

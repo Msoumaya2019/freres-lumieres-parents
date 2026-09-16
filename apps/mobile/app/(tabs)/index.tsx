@@ -1,6 +1,6 @@
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
-import { Badge, Card, Screen } from '@/components/ui';
-import { colors, typography } from '@/constants/theme';
+import { Badge, Card, Screen } from '../../components/ui';
+import { colors, typography } from '../../constants/theme';
 
 const filters = ['Tout', 'Urgent', 'École', 'Cantine', 'FCPE', 'Événements'];
 const posts = [

@@ -11,7 +11,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { colors, radii, shadow, typography } from '@/constants/theme';
+import { colors, radii, shadow, typography } from '../constants/theme';
 
 export function Screen({ children }: PropsWithChildren) {
   return <SafeAreaView style={styles.screen}>{children}</SafeAreaView>;

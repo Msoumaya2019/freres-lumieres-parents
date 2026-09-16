@@ -1,6 +1,6 @@
 import { ScrollView, StyleSheet, Text } from 'react-native';
-import { Card, Screen } from '@/components/ui';
-import { colors, typography } from '@/constants/theme';
+import { Card, Screen } from '../../components/ui';
+import { colors, typography } from '../../constants/theme';
 
 const actions = [
   ['Poser une question', 'À la communauté des parents'],

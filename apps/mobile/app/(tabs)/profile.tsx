@@ -1,14 +1,20 @@
 import type { ChildProfile, RegistrationConfig } from '@flp/types';
 import { useEffect, useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
-import { Avatar, Button, Card, LoadingState, Screen } from '@/components/ui';
-import { colors, spacing, typography } from '@/constants/theme';
-import { useAuth } from '@/providers/auth-provider';
+import {
+  Avatar,
+  Button,
+  Card,
+  LoadingState,
+  Screen,
+} from '../../components/ui';
+import { colors, spacing, typography } from '../../constants/theme';
+import { useAuth } from '../../providers/auth-provider';
 import {
   loadChildProfiles,
   loadRegistrationConfig,
   logout,
-} from '@/services/auth';
+} from '../../services/auth';
 
 const roleLabels = {
   parent: 'Parent',

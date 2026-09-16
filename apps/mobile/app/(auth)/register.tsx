@@ -10,14 +10,14 @@ import {
   Input,
   LoadingState,
   Screen,
-} from '@/components/ui';
-import { colors, spacing, typography } from '@/constants/theme';
-import { useAuth } from '@/providers/auth-provider';
+} from '../../components/ui';
+import { colors, spacing, typography } from '../../constants/theme';
+import { useAuth } from '../../providers/auth-provider';
 import {
   authErrorMessage,
   loadRegistrationConfig,
   registerParent,
-} from '@/services/auth';
+} from '../../services/auth';
 
 interface ChildDraft {
   schoolId: string;

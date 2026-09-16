@@ -1,8 +1,8 @@
 import { ScrollView, StyleSheet, Text } from 'react-native';
-import { Button, Card, LoadingState, Screen } from '@/components/ui';
-import { colors, typography } from '@/constants/theme';
-import { useAuth } from '@/providers/auth-provider';
-import { logout } from '@/services/auth';
+import { Button, Card, LoadingState, Screen } from '../../components/ui';
+import { colors, typography } from '../../constants/theme';
+import { useAuth } from '../../providers/auth-provider';
+import { logout } from '../../services/auth';
 
 const content = {
   pending: {

@@ -16,7 +16,7 @@ import {
   where,
 } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
-import { auth, firestore, functions } from '@/lib/firebase';
+import { auth, firestore, functions } from '../lib/firebase';
 
 export async function login(email: string, password: string) {
   const credential = await signInWithEmailAndPassword(
