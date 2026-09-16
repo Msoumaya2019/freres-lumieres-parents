@@ -104,6 +104,28 @@ service cloud.firestore {
       return request.resource.data[field] == resource.data[field];
     }
 
+    // Champ **facultatif** figé : soit absent des deux côtés, soit présent et
+    // identique.
+    //
+    // `unchanged()` ne convient pas ici, et la raison est la même que pour
+    // `isOptionalString` juste en dessous : il lit `resource.data[field]`, ce qui
+    // lève « Property … is undefined on object » quand le champ est absent — et
+    // une erreur vaut refus.
+    //
+    // Conséquence concrète sans ce helper : une publication jamais épinglée n'a
+    // pas de `pinnedUntil`, et une publication jamais notifiée n'a pas de
+    // `notifiedAt`. Leur auteur ne pourrait donc plus corriger sa propre faute de
+    // frappe, alors que la règle serait juste sur le papier. C'est le même piège
+    // que `parentId` / `replyToId`, mais avec une issue : ces deux-là sont
+    // facultatifs *et* modifiables, tandis que ceux-ci sont facultatifs et
+    // **doivent rester figés**, ce que ce test exprime exactement.
+    function unchangedOptional(field) {
+      return (!(field in request.resource.data) && !(field in resource.data))
+        || (field in request.resource.data
+          && field in resource.data
+          && request.resource.data[field] == resource.data[field]);
+    }
+
     // Vérifie qu'un champ est absent, ou identique à la valeur attendue.
     function keeps(field, value) {
       return !(field in request.resource.data) || request.resource.data[field] == value;
@@ -264,6 +286,14 @@ service cloud.firestore {
           && d.audienceKeys is list
           && d.audienceKeys.size() > 0
           && d.audienceKeys.size() <= 5
+          // `attachments` et `authorName` sont affichés tels quels par
+          // l'application : un client hostile peut écrire une chaîne là où le
+          // modèle attend une liste, ou un nom vide. Ce n'est pas une frontière
+          // de confidentialité, mais c'est une donnée qu'on relit, donc elle est
+          // bornée ici plutôt que défendue à l'affichage.
+          && d.attachments is list
+          && d.attachments.size() <= 5
+          && isNonEmptyString(d.authorName, 60)
           && d.status in ['draft', 'published']
           && d.authorId == request.auth.uid
           && d.orgId == orgId()
@@ -271,6 +301,11 @@ service cloud.firestore {
           // garantit qu'une publication porte toujours la décision, plutôt que
           // de laisser la règle des commentaires interpréter une absence.
           && d.commentsEnabled is bool
+          // `pinned` est obligatoire dans le modèle (`Post.pinned: boolean`), et
+          // c'est ce qui permet de le figer sans risque plus bas : le figer sur
+          // un champ absent lèverait une erreur, donc refuserait toute
+          // modification légitime.
+          && d.pinned is bool
           // Les compteurs ne sont jamais fixés par le client : ils sont
           // maintenus par les Cloud Functions.
           && d.stats.commentCount is int
@@ -278,14 +313,136 @@ service cloud.firestore {
           && isOptionalString('linkUrl', 2048);
       }
 
-      // Lecture : tout membre actif de la même organisation.
-      // Le ciblage fin est appliqué par la requête (voir l'en-tête du fichier).
-      allow read: if canReadOrgContent() && resource.data.status == 'published';
+      // Lecture d'une publication précise.
+      //
+      // Plus large que la requête, et c'est nécessaire : l'auteur doit pouvoir
+      // rouvrir son brouillon dans l'éditeur, et la modération doit pouvoir
+      // relire un contenu masqué pour revenir sur son masquage. Sans cela un
+      // brouillon serait écrit puis définitivement invisible — y compris pour
+      // celui qui vient de l'écrire.
+      //
+      // Élargir `get` ne découvre rien : les trois cas sont « c'est publié »,
+      // « j'en suis l'auteur », « je modère ».
+      allow get: if isActive()
+        && resource.data.orgId == orgId()
+        && (resource.data.status == 'published'
+          || resource.data.authorId == request.auth.uid
+          || isModerator());
+
+      // Requête : seule une règle **démontrable à partir des contraintes de la
+      // requête** est acceptée (voir l'en-tête de ce fichier). `status ==
+      // 'published'` l'est ; une disjonction avec `isModerator()` ne l'est pas,
+      // car Firestore ne peut pas la prouver à partir d'un `where`.
+      //
+      // Conséquence assumée : le fil et l'écran d'administration listent les
+      // publications publiées, et un brouillon s'ouvre par son identifiant, pas
+      // par une liste.
+      allow list: if canReadOrgContent() && resource.data.status == 'published';
 
       // Seule la FCPE publie dans le fil d'actualité. Un parent s'exprime via
       // les discussions, les signalements et les sondages.
-      allow create: if isFcpe() && validPost();
-      allow update: if isFcpe() && validPost() && unchanged('orgId') && unchanged('authorId');
+      //
+      // Deux conditions de plus qu'une simple validation de forme, et toutes
+      // deux corrigent une restriction qui n'existait que dans l'interface :
+      //
+      //  - `pinned` ne peut pas être vrai à la création, sauf pour un rôle de
+      //    modération. `post.pin` est réservé à `moderator` / `admin` dans la
+      //    matrice de permissions, mais rien ne l'appliquait : il suffisait de
+      //    passer `pinned: true` pour épingler sa publication. Or un client
+      //    hostile n'utilise pas notre interface.
+      //  - `authorRole` doit correspondre au rôle réel. Le fil affiche un badge
+      //    à partir de ce champ, donc le laisser libre permettrait à un membre
+      //    de la FCPE de se présenter comme administrateur.
+      //
+      // Cette seconde vérification est ici, et non dans `validPost()`, parce
+      // qu'elle compare une valeur écrite au jeton de l'appelant : à la mise à
+      // jour, `authorRole` est figé, et un membre promu entre-temps doit pouvoir
+      // corriger ses anciennes publications.
+      allow create: if isFcpe() && validPost()
+        && request.resource.data.authorRole == role()
+        && (request.resource.data.pinned == false || isModerator());
+
+      // -----------------------------------------------------------------------
+      //  Mise à jour — deux branches, un seul motif
+      // -----------------------------------------------------------------------
+      //
+      // Une mise à jour est évaluée sur le **document entier** après fusion, et
+      // non sur le seul champ modifié : une règle qui n'exige rien autorise la
+      // réécriture de tout. Chaque branche doit donc figer explicitement ce
+      // qu'elle n'a pas vocation à changer.
+      //
+      // Deux acteurs aux besoins disjoints :
+      //   - l'auteur corrige son texte — il ne touche ni à son identité, ni aux
+      //     compteurs, ni à l'épinglage ;
+      //   - la modération épingle, masque ou archive — elle ne réécrit jamais le
+      //     texte sous le nom de son auteur.
+      //
+      // C'est le motif déjà appliqué aux commentaires et aux messages, à une
+      // différence près : `validPost()` exige `d.authorId == request.auth.uid`,
+      // donc il ne peut pas servir à la branche de modération, qui agit par
+      // définition sur la publication d'un autre. D'où `validModerationEdit()`,
+      // qui ne revalide pas le contenu mais le fige — figer est plus fort que
+      // revalider, puisque la valeur figée a déjà été validée à la création.
+      //
+      // La version précédente (`isFcpe() && validPost() && unchanged('orgId')
+      // && unchanged('authorId')`) souffrait des deux côtés à la fois : un
+      // modérateur ne pouvait pas épingler la publication d'un autre, et un
+      // membre de la FCPE pouvait épingler la sienne.
+
+      // Branche 1 — l'auteur corrige son texte.
+      //
+      // `stats` est figé : `validPost()` n'exige qu'un entier positif, donc sans
+      // ce gel un auteur pouvait écrire `commentCount: 9999` et se donner
+      // l'apparence d'une publication très commentée.
+      function validOwnPostEdit() {
+        return isFcpe()
+          && validPost()
+          && unchanged('authorId')
+          && unchanged('authorName')
+          && unchanged('authorRole')
+          && unchanged('orgId')
+          && unchanged('createdAt')
+          && unchanged('publishedAt')
+          && unchanged('stats')
+          && unchanged('pinned')
+          && unchangedOptional('pinnedUntil')
+          && unchangedOptional('notifiedAt');
+      }
+
+      // Branche 2 — la modération ne touche qu'à l'épinglage et au statut.
+      //
+      // Tout le reste est figé, y compris `title`, `body` et `attachments` : un
+      // modérateur masque, il ne réécrit pas.
+      //
+      // Le statut est borné à `published` / `hidden` / `archived`. Retirer
+      // définitivement une publication reste une décision d'administrateur
+      // (`allow delete`), et `draft` n'a pas de sens pour quelqu'un qui n'est
+      // pas l'auteur : une rétractation est un masquage, pas un retour au
+      // brouillon.
+      function validModerationEdit() {
+        let d = request.resource.data;
+        return unchanged('title')
+          && unchanged('body')
+          && unchanged('category')
+          && unchanged('audience')
+          && unchanged('audienceKeys')
+          && unchanged('attachments')
+          && unchangedOptional('linkUrl')
+          && unchanged('authorId')
+          && unchanged('authorName')
+          && unchanged('authorRole')
+          && unchanged('commentsEnabled')
+          && unchanged('orgId')
+          && unchanged('createdAt')
+          && unchanged('publishedAt')
+          && unchanged('stats')
+          && unchangedOptional('notifiedAt')
+          && d.pinned is bool
+          && d.status in ['published', 'hidden', 'archived'];
+      }
+
+      allow update: if (resource.data.authorId == request.auth.uid && validOwnPostEdit())
+        || (isModerator() && validModerationEdit());
 
       // Suppression réservée à l'administrateur : masquer est réversible et
       // traçable, supprimer ne l'est pas.

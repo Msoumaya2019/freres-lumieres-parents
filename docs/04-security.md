@@ -156,6 +156,43 @@ propriété absente lève une erreur, et une erreur vaut refus. `replyToId` et
 `replyToPreview` échappent donc à ces règles — limitation connue, sans incidence
 sur la confidentialité, commentée dans `firestore.rules`.
 
+**Les publications suivent le même motif, avec une variante.** La branche
+« auteur » ne peut pas réutiliser `validPost()`, puisque celui-ci exige
+`authorId == request.auth.uid` — or la modération agit par définition sur la
+publication d'un autre. Elle a donc sa propre validation, `validModerationEdit()`,
+qui ne revalide pas le contenu mais le **fige** : figer est plus fort que
+revalider, puisque la valeur figée a déjà été validée à la création. Un
+modérateur ne peut donc toucher qu'à `pinned`, `pinnedUntil` et `status`.
+
+Deux règles en découlent, qui n'existaient que dans l'interface :
+
+- **`pinned` est vérifié à la création.** `post.pin` est réservé à
+  `moderator` / `admin` dans la matrice de permissions, mais rien ne l'appliquait
+  : il suffisait de passer `pinned: true` pour épingler. Un auteur ne peut pas
+  non plus épingler sa propre publication à la mise à jour.
+- **`authorRole` est comparé au Custom Claim** (`authorRole == role()`) à la
+  création. Le fil affiche un badge à partir de ce champ : le laisser libre
+  permettait à un membre de la FCPE de se présenter comme administrateur.
+
+### Pourquoi la lecture est scindée en `get` et `list`
+
+Une règle de **requête** doit être démontrable à partir des contraintes de la
+requête. `status == 'published'` l'est ; une disjonction avec `isModerator()` ne
+l'est pas, car Firestore ne peut pas la prouver à partir d'un `where`.
+
+`posts/{postId}` déclare donc les deux séparément :
+
+- `allow get` : publié, **ou** j'en suis l'auteur, **ou** je modère. C'est ce qui
+  permet à un auteur de rouvrir son brouillon — sans quoi un brouillon serait
+  écrit puis définitivement invisible, y compris pour celui qui vient de
+  l'écrire — et à un modérateur de revenir sur un masquage.
+- `allow list` : `orgId` et `status == 'published'`, rien de plus.
+
+Élargir `get` ne découvre rien : les trois cas sont « c'est publié », « c'est
+moi », « je modère ». La contrepartie est assumée et visible dans le produit :
+**aucune liste ne peut remonter un brouillon**, d'où un éditeur qui n'en propose
+pas.
+
 ### Les règles les plus critiques
 
 | Collection                            | Règle clé                                                                                                                                                                                                                                   |
@@ -164,6 +201,7 @@ sur la confidentialité, commentée dans `firestore.rules`.
 | `users/{uid}/tokens`                  | **aucune lecture client**, écriture de soi uniquement                                                                                                                                                                                       |
 | `deviceTokens/{token}`                | lecture réservée aux Cloud Functions ; écriture de soi si `uid` correspond                                                                                                                                                                  |
 | `posts/{id}/comments`                 | lecture si le post parent est lisible et `status == 'visible'` ; création si `isActive()` **et** que la publication parente est publiée et ouverte aux commentaires (`get()`) ; mise à jour : identité et compteurs figés par `unchanged()` |
+| `posts/{id}`                          | `get` : publié, auteur, ou `isModerator()` ; `list` : `status == 'published'` seulement. Création : `pinned` refusé hors modération, `authorRole` comparé au claim. Mise à jour en deux branches, `pinned`/`stats`/identité figés pour l'auteur, tout le contenu figé pour la modération |
 | `channels/{id}/messages`              | même régime que les commentaires : l'auteur modifie son corps, `isModerator()` masque, `authorId`/`authorRole`/`reportCount` figés                                                                                                          |
 | `polls/{id}/votes/{uid}`              | **écriture uniquement si `uid == request.auth.uid`** → double vote impossible                                                                                                                                                               |
 | `reports/{id}`                        | lecture si `authorId == uid` **ou** `isFcpe()`                                                                                                                                                                                              |

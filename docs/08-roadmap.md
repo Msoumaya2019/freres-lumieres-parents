@@ -258,16 +258,44 @@ vitest. Il pointe maintenant sur un `tsconfig.test.json`, comme `@fl/shared`.
       l'estime localement le temps de la réponse, puis le remplace au
       rechargement suivant — sans quoi le bouton semblerait ne rien faire.
 - [ ] Compression des images avant upload
-- [ ] Écran admin : créer, modifier, épingler une publication
-      **Trou connu dans les règles :** `allow update` sur `posts/{postId}` exige
-      `validPost()`, qui contient `d.authorId == request.auth.uid`. Un membre de
-      la FCPE ne peut donc **pas épingler la publication d'un autre** :
-      `setPinned` échoue avec « permission denied », alors que l'écran admin le
-      proposera. Il faut dédoubler la règle comme pour les commentaires — un cas
-      « auteur qui modifie son texte », un cas « modération qui ne touche qu'à
-      `pinned` / `pinnedUntil` / `status` », le reste figé par `unchanged()`.
-      À trancher avant d'écrire l'écran : _un membre de la FCPE peut-il épingler
-      la publication d'un autre ?_
+- [x] Écran admin : créer, modifier, épingler une publication
+      **Le trou de règle annoncé ici est fermé.** La question à trancher — _un
+      membre de la FCPE peut-il épingler la publication d'un autre ?_ — était
+      déjà répondue par la matrice de permissions : `post.pin` est réservé à
+      `moderator` / `admin`. Un membre `fcpe` publie, mais n'épingle pas, **pas
+      même sa propre publication**. `allow update` est donc dédoublé :
+      - branche « auteur » (`isFcpe()` + `authorId == uid`) : corrige son texte,
+        et voit figés son identité, `stats`, `pinned`, `pinnedUntil`,
+        `notifiedAt` ;
+      - branche « modération » (`isModerator()`) : n'agit que sur `pinned`,
+        `pinnedUntil` et `status`, tout le reste figé — y compris `title`,
+        `body` et `attachments`. Un modérateur masque, il ne réécrit pas.
+
+      Deux défauts symétriques ont été corrigés au passage, tous deux du même
+      genre — une restriction qui n'existait que dans l'interface :
+      - `allow create` acceptait `pinned: true` d'un simple membre `fcpe` ;
+      - `authorRole` était libre, alors que le fil en affiche un badge : un
+        membre pouvait se présenter comme administrateur. Il est désormais
+        comparé au Custom Claim (`authorRole == role()`), à la création
+        seulement — à la mise à jour il est figé, et un membre promu entre-temps
+        doit pouvoir corriger ses anciennes publications.
+
+      **La lecture est scindée en `get` et `list`**, et ce n'est pas un détail :
+      une règle de requête doit être démontrable à partir des contraintes de la
+      requête. `get` est élargi à l'auteur (pour rouvrir un brouillon) et à la
+      modération (pour revenir sur un masquage) ; `list` reste borné à
+      `status == 'published'`. Conséquence assumée : **aucune liste ne peut
+      remonter un brouillon.**
+
+      L'éditeur n'offre donc **ni brouillon, ni épinglage, ni notification** :
+      un brouillon enregistré disparaîtrait aussitôt écrit, épingler est un acte
+      de modération qui se fait depuis la liste, et `notify` n'est lu par
+      personne. Trois cases à cocher qui ne feraient rien valent moins que trois
+      explications.
+      L'écran liste les publications de l'organisation **toutes audiences
+      confondues**, ce que le fil mobile ne peut pas faire : il filtre sur les
+      clés d'audience de celui qui regarde. Nouvelle requête, donc nouvel index
+      `orgId, status, publishedAt`.
 - [x] Compteurs dénormalisés (`commentCount`, réactions d'un commentaire)
       **Trois déclencheurs** dans `functions/src/triggers/counters.ts` :
       signalements, `commentCount` d'une publication, décompte des réactions
@@ -275,12 +303,14 @@ vitest. Il pointe maintenant sur un `tsconfig.test.json`, comme `@fl/shared`.
       n'est modifiable que par la FCPE, donc l'écriture d'un parent était
       refusée juste après un commentaire pourtant créé — l'interface annonçait un
       échec pour une action réussie.
-      **Deux champs déclarés et jamais alimentés**, à trancher :
+      **Trois champs déclarés et jamais alimentés**, à trancher :
       `PostStats.reactionCount` (les réactions vivent sur les commentaires, il
-      n'existe aucune sous-collection de réactions sur une publication) et
+      n'existe aucune sous-collection de réactions sur une publication),
       `Comment.replyCount` (les réponses existent, mais aucun écran ne les
-      compte). Tous deux sont écrits à zéro et lus par personne — les retirer ou
-      les tenir est une décision de modèle, pas un oubli de plomberie.
+      compte) et `notify` dans `postInputSchema` (accepté par le schéma,
+      `create()` ne l'écrit pas dans Firestore, rien ne le lit). Tous trois sont
+      écrits ou acceptés sans être lus — les retirer ou les tenir est une
+      décision de modèle, pas un oubli de plomberie.
 - [ ] Tests : création de publication, ciblage d'audience, lecture filtrée
 
 **Critère de sortie :** le fil se charge en une requête ; un parent ne voit

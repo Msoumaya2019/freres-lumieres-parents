@@ -25,7 +25,7 @@ import {
 } from 'firebase/firestore';
 
 import { buildAudienceKeys, isReactionEmoji, postInputSchema, type PostInput } from '@fl/shared';
-import type { Comment, Post, PostCategory, UserRole } from '@fl/types';
+import type { Comment, ContentStatus, Post, PostCategory, UserRole } from '@fl/types';
 
 import { invalidArgument, toAppError } from '../errors.js';
 import { paginate, type FirestorePage } from '../pagination.js';
@@ -34,6 +34,7 @@ import { COLLECTIONS, paths } from '../paths.js';
 /** Tailles de page — voir `PAGE_SIZES` dans `@fl/shared`. */
 const FEED_PAGE_SIZE = 10;
 const COMMENTS_PAGE_SIZE = 20;
+const ADMIN_POSTS_PAGE_SIZE = 20;
 
 export interface FeedParams {
   orgId: string;
@@ -52,6 +53,12 @@ export interface FeedParams {
   pageSize?: number;
 }
 
+export interface AdminPostsParams {
+  orgId: string;
+  cursor?: QueryDocumentSnapshot | null;
+  pageSize?: number;
+}
+
 export interface CreatePostParams {
   orgId: string;
   schoolId?: string;
@@ -64,6 +71,25 @@ export interface CreatePostParams {
 export interface PostRepository {
   /** Fil d'actualité paginé, filtré par les règles ET par les clés d'audience. */
   fetchFeed(params: FeedParams): Promise<FirestorePage<Post>>;
+  /**
+   * Publications publiées d'une organisation, pour l'administration.
+   *
+   * Différente du fil, et pas seulement par confort : `fetchFeed` filtre sur
+   * `audienceKeys`, donc une publication destinée au seul niveau CM2
+   * n'apparaîtrait pas pour un membre de la FCPE dont les enfants sont en CE1.
+   * Or c'est exactement ce que l'administration doit voir : tout ce qui a été
+   * publié, quel qu'en soit le ciblage.
+   *
+   * La requête contraint `orgId` et `status`, les deux champs sur lesquels la
+   * règle `list` s'appuie — sans quoi Firestore refuserait la requête entière
+   * (voir `firestore.rules`, « les règles ne sont pas des filtres »).
+   *
+   * Elle ne peut pas, en revanche, remonter les brouillons : une règle de
+   * requête doit être démontrable à partir des contraintes, et `status ==
+   * 'published'` est la seule qui le soit. Un brouillon s'ouvre par son
+   * identifiant, jamais par une liste.
+   */
+  fetchForAdmin(params: AdminPostsParams): Promise<FirestorePage<Post>>;
   /** Publications épinglées, affichées en tête du fil. */
   fetchPinned(orgId: string): Promise<Post[]>;
   /** Détail d'une publication. */
@@ -74,6 +100,16 @@ export interface PostRepository {
   update(postId: string, input: Partial<PostInput>): Promise<void>;
   /** Épingle ou désépingle une publication. */
   setPinned(postId: string, pinned: boolean): Promise<void>;
+  /**
+   * Change le statut éditorial d'une publication.
+   *
+   * Distinct de `update()`, qui ne transporte que les champs du formulaire et
+   * dont le `status` est borné à `draft | published`. Masquer une publication
+   * est un acte de modération, pas une édition : la règle l'autorise d'ailleurs
+   * à d'autres rôles que l'auteur, et le type doit le refléter plutôt que
+   * d'obliger l'appelant à contourner `PostInput`.
+   */
+  setStatus(postId: string, status: ContentStatus): Promise<void>;
   /** Charge une page de commentaires, du plus récent au plus ancien. */
   fetchComments(
     postId: string,
@@ -151,6 +187,23 @@ export function createPostRepository(db: Firestore): PostRepository {
           // audiences, grâce aux clés dénormalisées.
           where('audienceKeys', 'array-contains-any', [...audienceKeys]),
           ...(category ? [where('category', '==', category)] : []),
+          orderBy('publishedAt', 'desc'),
+        ),
+      mapDocument: mapPost,
+    });
+  }
+
+  function fetchForAdmin(params: AdminPostsParams): Promise<FirestorePage<Post>> {
+    const { orgId, cursor = null, pageSize = ADMIN_POSTS_PAGE_SIZE } = params;
+
+    return paginate<Post>({
+      pageSize,
+      cursor,
+      buildQuery: () =>
+        query(
+          postsCollection,
+          where('orgId', '==', orgId),
+          where('status', '==', 'published'),
           orderBy('publishedAt', 'desc'),
         ),
       mapDocument: mapPost,
@@ -246,7 +299,17 @@ export function createPostRepository(db: Firestore): PostRepository {
       if (input.commentsEnabled !== undefined) payload.commentsEnabled = input.commentsEnabled;
       if (input.pinned !== undefined) payload.pinned = input.pinned;
       if (input.attachments !== undefined) payload.attachments = input.attachments;
-      if (input.linkUrl !== undefined) payload.linkUrl = input.linkUrl ?? deleteField();
+      // `linkUrl` est le seul champ facultatif modifiable : une chaîne vide
+      // signifie « effacer le lien », et non « écrire une chaîne vide ».
+      //
+      // Sans ce test de vacuité, `deleteField()` était inatteignable : `??` ne
+      // se déclenche que sur `null` / `undefined`, deux valeurs que
+      // `exactOptionalPropertyTypes` interdit précisément de transmettre
+      // explicitement. Un lien posé par erreur ne pouvait donc jamais être
+      // retiré.
+      if (input.linkUrl !== undefined) {
+        payload.linkUrl = input.linkUrl ? input.linkUrl : deleteField();
+      }
       if (input.status !== undefined) payload.status = input.status;
 
       if (input.audience !== undefined) {
@@ -270,6 +333,14 @@ export function createPostRepository(db: Firestore): PostRepository {
   async function setPinned(postId: string, pinned: boolean): Promise<void> {
     try {
       await updateDoc(doc(db, paths.post(postId)), { pinned, updatedAt: serverTimestamp() });
+    } catch (error) {
+      throw toAppError(error);
+    }
+  }
+
+  async function setStatus(postId: string, status: ContentStatus): Promise<void> {
+    try {
+      await updateDoc(doc(db, paths.post(postId)), { status, updatedAt: serverTimestamp() });
     } catch (error) {
       throw toAppError(error);
     }
@@ -389,11 +460,13 @@ export function createPostRepository(db: Firestore): PostRepository {
 
   return {
     fetchFeed,
+    fetchForAdmin,
     fetchPinned,
     get,
     create,
     update,
     setPinned,
+    setStatus,
     fetchComments,
     addComment,
     fetchMyReactions,

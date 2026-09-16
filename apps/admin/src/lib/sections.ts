@@ -40,7 +40,7 @@ export const ADMIN_SECTIONS: readonly AdminSection[] = [
     description: 'Créer, modifier et épingler les informations',
     permission: 'post.create',
     phase: 'Phase 3',
-    implemented: false,
+    implemented: true,
   },
   {
     slug: 'notifications',

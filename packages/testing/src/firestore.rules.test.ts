@@ -89,6 +89,20 @@ function userDocument(uid: string, status: 'pending' | 'active' = 'active') {
   };
 }
 
+/**
+ * Publication minimale mais complète, telle que la produit `create()` du
+ * repository `posts`.
+ *
+ * Les champs d'identité (`authorName`, `authorRole`) et `pinned` sont présents
+ * parce que les règles les exigent désormais, et `attachments` parce que
+ * `validPost()` vérifie qu'il s'agit bien d'une liste. Un fixture incomplet
+ * rendrait les tests de refus complaisants — c'est le piège décrit en tête de
+ * fichier, et il s'est déjà produit ici avec `audience`.
+ *
+ * `pinned` en particulier n'est pas décoratif : la branche « auteur » de
+ * `allow update` le compare avec `unchanged()`, qui lève une erreur sur un
+ * champ absent.
+ */
 function postDocument(overrides: Record<string, unknown> = {}) {
   return {
     id: 'post-1',
@@ -98,6 +112,11 @@ function postDocument(overrides: Record<string, unknown> = {}) {
     status: 'published',
     orgId: TEST_ORG,
     authorId: UID.fcpe,
+    // `authorRole` doit correspondre au rôle réel : `allow create` compare ce
+    // champ au Custom Claim de l'appelant, pour qu'un membre de la FCPE ne
+    // puisse pas se présenter comme administrateur dans le fil.
+    authorName: 'FCPE Frères Lumières',
+    authorRole: 'fcpe',
     // `audience` et `audienceKeys` doivent être cohérents : les règles exigent
     // les deux, et `buildAudienceKeys({ type: 'all' }, orgId)` produit
     // exactement la clé ci-dessous.
@@ -108,9 +127,11 @@ function postDocument(overrides: Record<string, unknown> = {}) {
     // prouverait alors plus rien sur la donnée réellement écrite.
     audience: { type: 'all' },
     audienceKeys: [`org:${TEST_ORG}`],
+    attachments: [],
     // Obligatoire dans le modèle, et exigé par `validPost()` : une publication
     // porte toujours la décision d'ouvrir ou de fermer ses commentaires.
     commentsEnabled: true,
+    pinned: false,
     stats: { commentCount: 0, reactionCount: 0 },
     publishedAt: new Date('2026-09-01T10:00:00Z'),
     createdAt: new Date('2026-09-01T09:00:00Z'),
@@ -248,6 +269,32 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
       await setDoc(
         doc(db, 'posts', 'post-commentaires-fermes'),
         postDocument({ commentsEnabled: false }),
+      );
+
+      // Brouillon d'un autre auteur : sert à vérifier que l'élargissement de la
+      // lecture profite à l'auteur de la publication, et à personne d'autre.
+      await setDoc(
+        doc(db, 'posts', 'post-brouillon-autre'),
+        postDocument({
+          status: 'draft',
+          publishedAt: null,
+          authorId: UID.moderator,
+          authorRole: 'moderator',
+        }),
+      );
+
+      // Publication masquée : la modération doit pouvoir la relire pour revenir
+      // sur son masquage, un parent ne doit pas la voir du tout.
+      await setDoc(doc(db, 'posts', 'post-masquee'), postDocument({ status: 'hidden' }));
+
+      // Publication épinglée avec une date de fin : exerce le cas « champ
+      // facultatif présent » de `unchangedOptional`. Les autres publications du
+      // harnais n'ont ni `pinnedUntil` ni `notifiedAt`, ce qui exerce le cas
+      // « absent des deux côtés » — les deux chemins comptent, puisque c'est
+      // précisément l'absence qui faisait lever `unchanged()`.
+      await setDoc(
+        doc(db, 'posts', 'post-epinglee'),
+        postDocument({ pinned: true, pinnedUntil: new Date('2026-10-01T00:00:00Z') }),
       );
 
       await setDoc(
@@ -408,6 +455,36 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
       await assertFails(getDoc(doc(parent.firestore(), 'posts', 'post-own-draft')));
     });
 
+    // L'auteur doit pouvoir rouvrir son brouillon : sans cela, un brouillon
+    // serait écrit puis définitivement invisible, y compris pour celui qui
+    // vient de l'écrire — et l'éditeur ne pourrait pas le reprendre.
+    it('l’auteur relit son propre brouillon', async () => {
+      await assertSucceeds(getDoc(doc(fcpe.firestore(), 'posts', 'post-own-draft')));
+    });
+
+    it('un membre de la FCPE ne lit pas le brouillon d’un autre', async () => {
+      await assertFails(getDoc(doc(fcpe.firestore(), 'posts', 'post-brouillon-autre')));
+    });
+
+    // La modération doit pouvoir relire un contenu masqué pour revenir sur son
+    // masquage ; c'est la contrepartie du caractère réversible du masquage.
+    it('un modérateur relit une publication masquée', async () => {
+      await assertSucceeds(getDoc(doc(moderator.firestore(), 'posts', 'post-masquee')));
+    });
+
+    it('un parent ne lit pas une publication masquée', async () => {
+      await assertFails(getDoc(doc(parent.firestore(), 'posts', 'post-masquee')));
+    });
+
+    // La lecture unitaire a été élargie, la requête non : c'est le cœur de la
+    // distinction `get` / `list`. Une requête qui ne contraint pas `status`
+    // reste refusée, sinon Firestore ne pourrait pas démontrer la règle.
+    it('lister sans contraindre le statut est refusé', async () => {
+      const db = moderator.firestore();
+      const filtre = query(collection(db, 'posts'), where('orgId', '==', TEST_ORG));
+      await assertFails(getDocs(filtre));
+    });
+
     it('le fil se charge en une requête contrainte', async () => {
       // Illustre la contrainte « les règles ne sont pas des filtres » : la
       // requête doit contraindre les champs sur lesquels la règle s'appuie
@@ -464,6 +541,201 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
 
     it('un parent ne peut pas supprimer une publication', async () => {
       await assertFails(deleteDoc(doc(parent.firestore(), 'posts', 'post-own-published')));
+    });
+
+    // Épingler est réservé à `moderator` / `admin` dans la matrice de
+    // permissions. Sans cette vérification à la création, la restriction ne
+    // vivrait que dans l'interface : il suffisait de passer `pinned: true`.
+    it('un membre de la FCPE ne peut pas publier d’emblée épinglé', async () => {
+      const db = fcpe.firestore();
+      await assertFails(
+        setDoc(doc(db, 'posts', 'post-epingle-par-fcpe'), postDocument({ pinned: true })),
+      );
+    });
+
+    it('un modérateur peut publier épinglé', async () => {
+      const db = moderator.firestore();
+      await assertSucceeds(
+        setDoc(
+          doc(db, 'posts', 'post-epingle-par-moderateur'),
+          postDocument({ authorId: UID.moderator, authorRole: 'moderator', pinned: true }),
+        ),
+      );
+    });
+
+    // Le fil affiche un badge à partir de `authorRole` : le laisser libre
+    // permettrait à un membre de la FCPE de se présenter comme administrateur.
+    it('une publication ne peut pas se déclarer un autre rôle que le sien', async () => {
+      const db = fcpe.firestore();
+      await assertFails(
+        setDoc(doc(db, 'posts', 'post-role-usurpe'), postDocument({ authorRole: 'admin' })),
+      );
+    });
+
+    it('une publication dont les pièces jointes ne sont pas une liste est refusée', async () => {
+      const db = fcpe.firestore();
+      await assertFails(
+        setDoc(doc(db, 'posts', 'post-pj-invalides'), postDocument({ attachments: 'aucune' })),
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Mise à jour des publications — deux branches, un seul motif
+  // -------------------------------------------------------------------------
+  //
+  // Une mise à jour est évaluée sur le document entier après fusion. Ces tests
+  // vérifient donc chaque champ figé **un par un** : c'est la seule façon de
+  // voir qu'une branche laisse passer ce qu'elle prétend interdire.
+
+  describe('Mise à jour des publications', () => {
+    it('l’auteur corrige le texte de sa publication', async () => {
+      const db = fcpe.firestore();
+      await assertSucceeds(
+        updateDoc(doc(db, 'posts', 'post-own-published'), { body: 'Nouveau texte.' }),
+      );
+    });
+
+    it('l’auteur ne peut pas modifier la publication d’un autre', async () => {
+      const db = fcpe.firestore();
+      await assertFails(
+        updateDoc(doc(db, 'posts', 'post-brouillon-autre'), { body: 'Détournement.' }),
+      );
+    });
+
+    it('un parent ne peut pas modifier une publication', async () => {
+      const db = parent.firestore();
+      await assertFails(
+        updateDoc(doc(db, 'posts', 'post-own-published'), { body: 'Nouveau texte.' }),
+      );
+    });
+
+    // `post.pin` est réservé aux rôles de modération : un auteur ne peut donc
+    // pas épingler son propre texte, sans quoi la règle serait contournable par
+    // celui qui publie le plus.
+    it('l’auteur ne peut pas épingler sa propre publication', async () => {
+      const db = fcpe.firestore();
+      await assertFails(updateDoc(doc(db, 'posts', 'post-own-published'), { pinned: true }));
+    });
+
+    it('l’auteur ne peut pas désépingler une publication épinglée', async () => {
+      const db = fcpe.firestore();
+      await assertFails(updateDoc(doc(db, 'posts', 'post-epinglee'), { pinned: false }));
+    });
+
+    // Sans ce gel, `validPost()` n'exigeant qu'un entier positif, un auteur
+    // pouvait écrire `commentCount: 9999` et se donner l'apparence d'une
+    // publication très commentée.
+    it('l’auteur ne peut pas gonfler le compteur de commentaires', async () => {
+      const db = fcpe.firestore();
+      await assertFails(
+        updateDoc(doc(db, 'posts', 'post-own-published'), {
+          stats: { commentCount: 9999, reactionCount: 0 },
+        }),
+      );
+    });
+
+    it('l’auteur ne peut pas se déclarer administrateur', async () => {
+      const db = fcpe.firestore();
+      await assertFails(updateDoc(doc(db, 'posts', 'post-own-published'), { authorRole: 'admin' }));
+    });
+
+    it('l’auteur ne peut pas attribuer sa publication à quelqu’un d’autre', async () => {
+      const db = fcpe.firestore();
+      await assertFails(
+        updateDoc(doc(db, 'posts', 'post-own-published'), { authorId: UID.parent }),
+      );
+    });
+
+    // Ce cas est le plus fragile du lot : `pinnedUntil` est facultatif, donc
+    // `unchanged()` y lèverait une erreur — et une erreur vaut refus. C'est ce
+    // test qui distingue `unchangedOptional()` d'un `unchanged()` naïf.
+    it('l’auteur modifie une publication épinglée sans toucher à l’épinglage', async () => {
+      const db = fcpe.firestore();
+      await assertSucceeds(
+        updateDoc(doc(db, 'posts', 'post-epinglee'), { body: 'Texte corrigé.' }),
+      );
+    });
+
+    it('l’auteur peut repasser sa publication en brouillon', async () => {
+      // Retirer son propre texte de la circulation n'est pas un acte de
+      // modération : `draft` reste dans les statuts qu'un auteur peut écrire.
+      const db = fcpe.firestore();
+      await assertSucceeds(updateDoc(doc(db, 'posts', 'post-own-published'), { status: 'draft' }));
+    });
+
+    it('l’auteur ne peut pas masquer sa publication', async () => {
+      // Masquer est réversible mais engage la modération : le statut `hidden`
+      // n'appartient pas à la branche « auteur ».
+      const db = fcpe.firestore();
+      await assertFails(updateDoc(doc(db, 'posts', 'post-own-published'), { status: 'hidden' }));
+    });
+
+    it('un modérateur épingle la publication d’un autre', async () => {
+      // La fonction centrale de l'écran d'administration, et celle que la règle
+      // précédente rendait impossible : `validPost()` exige
+      // `authorId == request.auth.uid`.
+      const db = moderator.firestore();
+      await assertSucceeds(updateDoc(doc(db, 'posts', 'post-own-published'), { pinned: true }));
+    });
+
+    it('un modérateur masque une publication', async () => {
+      const db = moderator.firestore();
+      await assertSucceeds(updateDoc(doc(db, 'posts', 'post-own-published'), { status: 'hidden' }));
+    });
+
+    it('un modérateur ne peut pas réécrire le corps d’une publication', async () => {
+      // Masquer, oui ; réécrire sous le nom de l'auteur, non. Même frontière que
+      // pour les commentaires et les messages.
+      const db = moderator.firestore();
+      await assertFails(
+        updateDoc(doc(db, 'posts', 'post-own-published'), { body: 'Texte réécrit.' }),
+      );
+    });
+
+    it('un modérateur ne peut pas s’attribuer une publication', async () => {
+      const db = moderator.firestore();
+      await assertFails(
+        updateDoc(doc(db, 'posts', 'post-own-published'), { authorId: UID.moderator }),
+      );
+    });
+
+    it('un modérateur ne peut pas archiver en changeant autre chose', async () => {
+      // Le statut `archived` est légitime, mais il ne doit pas servir de
+      // véhicule : la même écriture qui archive ne peut rien modifier d'autre.
+      const db = moderator.firestore();
+      await assertFails(
+        updateDoc(doc(db, 'posts', 'post-own-published'), {
+          status: 'archived',
+          title: 'Titre réécrit.',
+        }),
+      );
+    });
+
+    it('un modérateur ne peut pas gonfler le compteur de commentaires', async () => {
+      const db = moderator.firestore();
+      await assertFails(
+        updateDoc(doc(db, 'posts', 'post-own-published'), {
+          stats: { commentCount: 9999, reactionCount: 0 },
+        }),
+      );
+    });
+
+    it('un modérateur ne peut pas fermer les commentaires d’une publication', async () => {
+      // Fermer les commentaires est une décision éditoriale de la FCPE, mais
+      // elle appartient à la branche « auteur » : la modération ne touche qu'à
+      // l'épinglage et au statut.
+      const db = moderator.firestore();
+      await assertFails(
+        updateDoc(doc(db, 'posts', 'post-own-published'), { commentsEnabled: false }),
+      );
+    });
+
+    it('un membre de la FCPE ne peut pas épingler par la branche de modération', async () => {
+      // Vérifie que les deux branches ne se recouvrent pas : `isFcpe()` couvre
+      // `moderator` et `admin`, mais l'inverse est faux.
+      const db = fcpe.firestore();
+      await assertFails(updateDoc(doc(db, 'posts', 'post-brouillon-autre'), { pinned: true }));
     });
   });
 

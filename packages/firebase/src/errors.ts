@@ -6,6 +6,7 @@
  * traduit systématiquement vers un `AppError` doté d'un code stable, que
  * l'interface sait présenter en français.
  */
+import { APP_ERROR_MESSAGES } from '@fl/shared';
 import type { AppError, AppErrorCode } from '@fl/types';
 
 /** Codes d'erreur Firestore / Auth, mappés vers nos codes applicatifs. */
@@ -43,21 +44,6 @@ const ERROR_CODE_MAP: Record<string, AppErrorCode> = {
   'functions/unavailable': 'network',
 };
 
-/** Messages destinés à l'utilisateur, par code applicatif. */
-const USER_MESSAGES: Record<AppErrorCode, string> = {
-  unauthenticated: 'Vous devez être connecté pour effectuer cette action.',
-  'permission-denied': "Vous n'avez pas les droits nécessaires pour cette action.",
-  'not-found': "Cet élément n'existe plus ou a été supprimé.",
-  'already-exists': 'Cet élément existe déjà.',
-  'invalid-argument': 'Les informations saisies sont incorrectes.',
-  'failed-precondition':
-    "L'action n'est pas possible dans l'état actuel. Rechargez la page et réessayez.",
-  'resource-exhausted': 'Trop de données demandées. Réessayez dans quelques instants.',
-  'rate-limited': 'Vous avez effectué trop d’actions. Patientez un instant avant de réessayer.',
-  network: 'Connexion impossible. Vérifiez votre réseau puis réessayez.',
-  unknown: "Une erreur inattendue s'est produite. Réessayez dans quelques instants.",
-};
-
 /** Extrait un code exploitable d'une erreur inconnue. */
 function extractCode(error: unknown): string | undefined {
   if (typeof error === 'object' && error !== null && 'code' in error) {
@@ -92,12 +78,23 @@ export function toAppError(error: unknown): AppError {
   };
 }
 
-/** Message présentable à l'utilisateur, en français. */
+/**
+ * Message présentable à l'utilisateur, en français.
+ *
+ * La table des messages vit dans `@fl/shared` (`APP_ERROR_MESSAGES`), et non
+ * ici. Elle y était dupliquée : deux `Record<AppErrorCode, string>` exhaustifs,
+ * avec des formulations différentes pour le même code. L'application mobile
+ * affichait donc « Cette information n'existe plus ou a été retirée » là où
+ * l'administration affichait « Cet élément n'existe plus ou a été supprimé » —
+ * pour la même erreur. Une seule table, un seul texte.
+ *
+ * Ce qui reste ici est ce que `@fl/shared` ne peut pas connaître : la
+ * traduction d'une erreur *inconnue* en code applicatif. D'où la signature qui
+ * accepte `unknown`, plus commode que `appErrorMessage(error: AppError)` dans
+ * un bloc `catch`.
+ */
 export function userMessage(error: AppError | unknown): string {
-  if (isAppError(error)) {
-    return USER_MESSAGES[error.code];
-  }
-  return USER_MESSAGES[toAppError(error).code];
+  return APP_ERROR_MESSAGES[isAppError(error) ? error.code : toAppError(error).code];
 }
 
 /** Garde de type. */
