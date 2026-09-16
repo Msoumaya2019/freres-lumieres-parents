@@ -373,7 +373,7 @@ que les publications de son audience.
 - [ ] Tableau de bord alimenté par `highlights` — reporté volontairement. `OrganizationHighlights` est déclaré et `paths.highlight()` existe, mais **rien ne l'écrit** : les fonctionnalités qu'il résume (prochain événement, dernier sondage, prochain conseil) relèvent des phases 8 à 10. Le lire aujourd'hui afficherait une section vide en permanence.
 - [x] Gestion des utilisateurs : filtres et actions — file par statut, pagination, actions filtrées par permission, motif obligatoire pour un refus ou une suspension, et passage exclusif par une Cloud Function puisqu'approuver modifie les Custom Claims.
 - [ ] Gestion des utilisateurs : recherche et détail — la file se parcourt par statut ; il manque la recherche par nom ou par adresse, et une fiche par compte.
-- [ ] Journal d'audit (`adminLogs`) : consultation — le modèle et les règles existent (`allow read: if isAdmin()`, écriture serveur uniquement), l'écran reste à écrire.
+- [x] Journal d'audit (`adminLogs`) : consultation — lecture seule, filtre par type d'action, pagination. Les règles réservent la lecture à `isAdmin()` et refusent toute écriture cliente, administrateur compris : l'écran n'offre donc aucune modification, et ce n'est pas un oubli. Le filtre n'a qu'une dimension parce que Firestore exige un index composite par combinaison — `actorId` et `targetType + targetId` sont prêts pour les fiches de détail.
 - [ ] Paramètres de l'organisation
 
 **Critère de sortie :** l'admin est utilisable sur téléphone, tablette et

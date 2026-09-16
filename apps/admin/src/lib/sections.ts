@@ -123,9 +123,17 @@ export const ADMIN_SECTIONS: readonly AdminSection[] = [
     implemented: false,
   },
   {
+    slug: 'journal',
+    label: 'Journal d’audit',
+    description: 'Consulter les actions sensibles : validations, rôles, suppressions',
+    permission: 'audit.read',
+    phase: 'Phase 4',
+    implemented: true,
+  },
+  {
     slug: 'parametres',
     label: 'Paramètres',
-    description: 'Organisation, écoles, classes et journaux d’audit',
+    description: 'Organisation, écoles et classes',
     permission: 'settings.update',
     phase: 'Phase 4',
     implemented: false,
@@ -154,4 +162,4 @@ export const ADMIN_SECTION_SLUGS: readonly string[] = ADMIN_SECTIONS.map((sectio
  * L'oubli n'est pas laissé à la vigilance : `sections.test.ts` compare cette
  * liste aux dossiers réellement présents sous `app/(dashboard)/`.
  */
-export const DEDICATED_ROUTE_SLUGS: readonly string[] = ['publications', 'utilisateurs'];
+export const DEDICATED_ROUTE_SLUGS: readonly string[] = ['journal', 'publications', 'utilisateurs'];

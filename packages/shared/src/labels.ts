@@ -7,6 +7,7 @@
  *     dupliquer ce fichier en `labels.en.ts` et d'indexer par locale.
  */
 import type {
+  AdminAction,
   AppError,
   AppErrorCode,
   AudienceType,
@@ -305,6 +306,49 @@ export const ISSUE_SUPPORT_LABELS = {
   for: 'Je suis favorable',
   against: 'Je suis défavorable',
 } as const;
+
+/**
+ * Libellé d'une action du journal d'audit.
+ *
+ * Au **passé** : une entrée de journal raconte ce qui a eu lieu, pas ce qu'on
+ * peut faire. « Compte approuvé » se lit dans une liste chronologique ;
+ * « Approuver » s'y lirait comme un bouton.
+ *
+ * Le type est exhaustif : ajouter une action à `AdminAction` sans lui donner
+ * de libellé ici ne compile pas.
+ */
+export const ADMIN_ACTION_LABELS: Record<AdminAction, string> = {
+  'user.approve': 'Compte approuvé',
+  'user.reject': 'Compte refusé',
+  'user.suspend': 'Compte suspendu',
+  'user.reactivate': 'Compte réactivé',
+  'user.role_change': 'Rôle modifié',
+  'user.delete': 'Compte supprimé',
+  'user.export_data': 'Données exportées',
+  'post.create': 'Publication créée',
+  'post.update': 'Publication modifiée',
+  'post.delete': 'Publication supprimée',
+  'post.pin': 'Épinglage modifié',
+  'content.hide': 'Contenu masqué',
+  'content.restore': 'Contenu rétabli',
+  'notification.send': 'Notification envoyée',
+  'settings.update': 'Paramètres modifiés',
+  'report.update': 'Signalement mis à jour',
+  'poll.close': 'Sondage clôturé',
+};
+
+/**
+ * Libellé d'une action du journal, avec repli sur la valeur brute.
+ *
+ * Le repli n'est pas décoratif : **un journal survit au code qui l'a écrit**.
+ * Une action retirée ou renommée dans une version ultérieure laisserait sinon
+ * une ligne sans intitulé — dans un écran dont le rôle est précisément de
+ * rendre le passé lisible.
+ */
+export function adminActionLabel(action: string): string {
+  const labels: Record<string, string> = ADMIN_ACTION_LABELS;
+  return labels[action] ?? action;
+}
 
 /** Libellé lisible d'une clé d'audience, utilisé dans les écrans d'administration. */
 export function audienceLabel(audience: {

@@ -1,9 +1,10 @@
 /**
  * Jeu d'icônes minimal.
  *
- * Dessiné à la main plutôt qu'importé d'une bibliothèque : quatorze icônes
- * suffisent à toute l'interface d'administration, et éviter une dépendance
- * supplémentaire vaut mieux que trois cents kilo-octets de symboles inutilisés.
+ * Dessiné à la main plutôt qu'importé d'une bibliothèque : une poignée
+ * d'icônes suffit à toute l'interface d'administration, et éviter une
+ * dépendance supplémentaire vaut mieux que trois cents kilo-octets de symboles
+ * inutilisés.
  *
  * Toutes les icônes partagent les mêmes conventions : grille 24×24, contour
  * de 1,8 px, couleur héritée du texte parent (`currentColor`), donc
@@ -164,6 +165,16 @@ export function IconSettings(props: IconProps): React.JSX.Element {
   );
 }
 
+export function IconHistory(props: IconProps): React.JSX.Element {
+  return (
+    <Icon {...props}>
+      <path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1" />
+      <path d="M3.5 4.5V10H9" />
+      <path d="M12 8v4.6l3 1.8" />
+    </Icon>
+  );
+}
+
 export function IconLogout(props: IconProps): React.JSX.Element {
   return (
     <Icon {...props}>
@@ -204,5 +215,6 @@ export const SECTION_ICONS: Record<string, (props: IconProps) => React.JSX.Eleme
   documents: IconFile,
   'conseils-ecole': IconSchool,
   fcpe: IconLock,
+  journal: IconHistory,
   parametres: IconSettings,
 };

@@ -436,3 +436,15 @@ satisfait l'article 17 tout en préservant l'intégrité des échanges.
   En attendant, un test encode la limite actuelle
   (`packages/testing`, « limite assumée : un parent lit une publication réservée
   à la FCPE »). C'est lui qu'il faudra inverser, et non supprimer.
+- **Journal d'audit et frontière d'organisation.** `AdminLog` ne porte aucun
+  `orgId`, et la règle se contente de `allow read: if isAdmin()` : un
+  administrateur d'un groupe scolaire lirait donc le journal d'un autre. Sans
+  conséquence tant qu'une seule organisation existe, mais la frontière
+  d'organisation — la plus dure du reste du modèle — ne s'applique pas ici,
+  alors qu'elle repose partout ailleurs sur la comparaison du champ `orgId` de
+  la ressource avec l'organisation du lecteur. La corriger demande d'ajouter
+  `orgId` au modèle, de l'écrire dans `writeAuditLog` et de le vérifier dans la
+  règle, donc de traiter les entrées déjà écrites. Le champ n'existe aujourd'hui
+  nulle part : ni dans le type, ni dans l'écrivain — seule la fixture de
+  `firestore.rules.test.ts` en porte un, trace d'une intention jamais suivie.
+  À trancher au moment où une seconde organisation devient possible, pas avant.
