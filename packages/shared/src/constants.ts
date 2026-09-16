@@ -97,6 +97,28 @@ export const POST_CATEGORIES = [
   'autre',
 ] as const satisfies readonly PostCategory[];
 
+/**
+ * Réactions autorisées sur un commentaire.
+ *
+ * Liste **fermée**, et reprise en littéral dans `firebase/firestore.rules` :
+ * une règle ne peut pas importer une constante TypeScript. La concordance est
+ * donc manuelle, comme celle de la matrice de permissions — toute modification
+ * ici doit être reportée là-bas dans le même changement.
+ *
+ * Les emojis choisis sont tous d'un seul point de code. Les variantes comme
+ * « ❤️ » en comptent deux (cœur + sélecteur de variante) : elles resteraient
+ * valides, mais exigeraient que la source TypeScript et le fichier de règles
+ * portent exactement la même séquence d'octets. Autant éviter la question.
+ */
+export const REACTION_EMOJIS = ['👍', '🎉', '🙏', '😮', '😍'] as const;
+
+export type ReactionEmoji = (typeof REACTION_EMOJIS)[number];
+
+/** Garde de type : refuse tout ce qui n'est pas dans la liste ci-dessus. */
+export function isReactionEmoji(value: string): value is ReactionEmoji {
+  return (REACTION_EMOJIS as readonly string[]).includes(value);
+}
+
 export const CONTENT_STATUSES = [
   'draft',
   'published',

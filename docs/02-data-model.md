@@ -38,6 +38,7 @@ deviceTokens/{token}            (index d'envoi, lisible uniquement par les Funct
 
 posts/{postId}
   └── comments/{commentId}
+      └── reactions/{uid}        (id = uid : double réaction impossible)
 
 channels/{channelId}
   └── messages/{messageId}
@@ -210,6 +211,22 @@ idempotent (un même appareil ne crée jamais deux entrées).
 
 En sous-collection : les commentaires ne sont jamais lus hors du contexte
 d'une publication, et la règle d'accès hérite naturellement de celle du post.
+
+#### `posts/{postId}/comments/{commentId}/reactions/{uid}`
+
+`uid`, `postId`, `commentId`, `emoji`, `createdAt`.
+
+L'identifiant du document est l'UID du réacteur : une double réaction est donc
+impossible par construction, comme pour `votes/{uid}`. Chacun ne lit et ne
+supprime que la sienne — c'est ce qui suffit à afficher l'état du bouton.
+
+> La map `reactions` du commentaire est un **décompte dénormalisé**, pas la
+> source de vérité : c'est la sous-collection. Elle est entretenue par une Cloud
+> Function, et non par le client, pour une raison de fond autant que de forme.
+> Le commentaire n'est modifiable que par son auteur et les modérateurs, donc un
+> autre membre ne peut pas y écrire ; et laisser le client fixer un décompte
+> reviendrait à le laisser mentir. C'est le même partage que `stats.commentCount`
+> sur la publication.
 
 ### `channels/{channelId}`
 

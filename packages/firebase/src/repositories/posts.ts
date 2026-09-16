@@ -8,22 +8,23 @@
 import {
   addDoc,
   collection,
+  deleteDoc,
   deleteField,
   doc,
   getDoc,
   getDocs,
-  increment,
   limit,
   orderBy,
   query,
   serverTimestamp,
+  setDoc,
   updateDoc,
   where,
   type Firestore,
   type QueryDocumentSnapshot,
 } from 'firebase/firestore';
 
-import { buildAudienceKeys, postInputSchema, type PostInput } from '@fl/shared';
+import { buildAudienceKeys, isReactionEmoji, postInputSchema, type PostInput } from '@fl/shared';
 import type { Comment, Post, UserRole } from '@fl/types';
 
 import { invalidArgument, toAppError } from '../errors.js';
@@ -69,7 +70,7 @@ export interface PostRepository {
     postId: string,
     cursor?: QueryDocumentSnapshot | null,
   ): Promise<FirestorePage<Comment>>;
-  /** Ajoute un commentaire et met à jour le compteur de la publication. */
+  /** Ajoute un commentaire. Le compteur est tenu par une Cloud Function. */
   addComment(params: {
     postId: string;
     authorId: string;
@@ -78,6 +79,35 @@ export interface PostRepository {
     body: string;
     parentId?: string;
   }): Promise<string>;
+  /**
+   * Réactions de l'utilisateur courant, pour les commentaires demandés.
+   *
+   * Une lecture par commentaire, et non une requête de groupe : le décompte
+   * affiché vient du commentaire lui-même (`reactions`), il ne reste donc qu'à
+   * savoir ce que **moi** j'ai choisi. Une requête de groupe exigerait un index
+   * supplémentaire et une règle `match /{path=**}/...` pour un gain marginal
+   * sur vingt commentaires.
+   */
+  fetchMyReactions(
+    postId: string,
+    commentIds: readonly string[],
+    uid: string,
+  ): Promise<Map<string, string>>;
+  /**
+   * Pose, bascule ou retire une réaction.
+   *
+   * Aucun compteur n'est écrit ici : le commentaire n'est modifiable que par son
+   * auteur, et laisser le client fixer un décompte reviendrait à le laisser
+   * mentir. Une Cloud Function recalcule `reactions` depuis cette
+   * sous-collection.
+   */
+  setReaction(params: {
+    postId: string;
+    commentId: string;
+    uid: string;
+    emoji: string;
+    active: boolean;
+  }): Promise<void>;
 }
 
 export function createPostRepository(db: Firestore): PostRepository {
@@ -276,15 +306,72 @@ export function createPostRepository(db: Firestore): PostRepository {
         createdAt: now,
       });
 
-      // Le compteur de la publication est mis à jour côté client pour un
-      // affichage immédiat. Une Cloud Function le recalcule de toute façon,
-      // ce qui garantit la cohérence même en cas d'échec de cette écriture.
-      await updateDoc(doc(db, paths.post(postId)), {
-        'stats.commentCount': increment(1),
-        updatedAt: now,
-      });
-
+      // Le compteur de la publication n'est **pas** incrémenté ici.
+      //
+      // La version précédente tentait `increment(1)` sur `stats.commentCount`,
+      // mais `allow update` sur `posts/{postId}` exige `isFcpe()` : un parent
+      // voyait donc son commentaire créé, puis la seconde écriture refusée, et
+      // l'interface signalait un échec pour une action pourtant réussie. Le
+      // compteur est maintenu par la Cloud Function de compteurs, qui écrit
+      // avec l'Admin SDK et n'est pas soumise à ces règles.
       return ref.id;
+    } catch (error) {
+      throw toAppError(error);
+    }
+  }
+
+  async function fetchMyReactions(
+    postId: string,
+    commentIds: readonly string[],
+    uid: string,
+  ): Promise<Map<string, string>> {
+    try {
+      const snapshots = await Promise.all(
+        commentIds.map((commentId) =>
+          getDoc(doc(db, paths.commentReaction(postId, commentId, uid))),
+        ),
+      );
+
+      const mine = new Map<string, string>();
+      commentIds.forEach((commentId, index) => {
+        const snapshot = snapshots[index];
+        const data = snapshot?.exists() ? snapshot.data() : null;
+        if (data && typeof data.emoji === 'string') mine.set(commentId, data.emoji);
+      });
+      return mine;
+    } catch (error) {
+      throw toAppError(error);
+    }
+  }
+
+  async function setReaction(params: {
+    postId: string;
+    commentId: string;
+    uid: string;
+    emoji: string;
+    active: boolean;
+  }): Promise<void> {
+    const { postId, commentId, uid, emoji, active } = params;
+
+    if (!isReactionEmoji(emoji)) {
+      throw invalidArgument('Réaction inconnue.');
+    }
+
+    const ref = doc(db, paths.commentReaction(postId, commentId, uid));
+
+    try {
+      if (!active) {
+        await deleteDoc(ref);
+        return;
+      }
+
+      await setDoc(ref, {
+        uid,
+        postId,
+        commentId,
+        emoji,
+        createdAt: serverTimestamp(),
+      });
     } catch (error) {
       throw toAppError(error);
     }
@@ -299,5 +386,7 @@ export function createPostRepository(db: Firestore): PostRepository {
     setPinned,
     fetchComments,
     addComment,
+    fetchMyReactions,
+    setReaction,
   };
 }

@@ -140,6 +140,18 @@ function commentDocument(overrides: Record<string, unknown> = {}) {
   };
 }
 
+/** Réaction de commentaire, telle que la produit `setReaction()`. */
+function reactionDocument(overrides: Record<string, unknown> = {}) {
+  return {
+    uid: UID.parent,
+    postId: 'post-own-published',
+    commentId: 'comment-du-parent',
+    emoji: '👍',
+    createdAt: new Date('2026-09-03T09:00:00Z'),
+    ...overrides,
+  };
+}
+
 describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
   beforeAll(async () => {
     testEnv = await createRulesTestEnvironment();
@@ -201,6 +213,33 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
       await setDoc(
         doc(db, 'posts', 'post-own-published', 'comments', 'comment-signale'),
         commentDocument({ reportCount: 2 }),
+      );
+
+      // Deux réactions, dont une posée par un autre parent : sert à vérifier
+      // qu'on ne lit ni ne retire la réaction de quelqu'un d'autre.
+      await setDoc(
+        doc(
+          db,
+          'posts',
+          'post-own-published',
+          'comments',
+          'comment-du-parent',
+          'reactions',
+          UID.parent,
+        ),
+        reactionDocument(),
+      );
+      await setDoc(
+        doc(
+          db,
+          'posts',
+          'post-own-published',
+          'comments',
+          'comment-du-parent',
+          'reactions',
+          UID.otherParent,
+        ),
+        reactionDocument({ uid: UID.otherParent }),
       );
 
       await setDoc(doc(db, 'adminLogs', 'log-1'), {
@@ -670,6 +709,116 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
           { body: 'Propos détournés.' },
         ),
       );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Réactions de commentaire
+  //
+  // Le décompte affiché vit sur le commentaire (`reactions`), tenu par une Cloud
+  // Function. Ce qui se joue ici est plus étroit : l'identifiant du document est
+  // l'UID du porteur, donc une double réaction est impossible par construction,
+  // et personne ne peut lire ni retirer celle d'un autre.
+  // -------------------------------------------------------------------------
+
+  describe('Réactions', () => {
+    const reaction = (context: RulesTestContext, uid: string) =>
+      doc(
+        context.firestore(),
+        'posts',
+        'post-own-published',
+        'comments',
+        'comment-du-parent',
+        'reactions',
+        uid,
+      );
+
+    it('un membre actif lit sa propre réaction', async () => {
+      await assertSucceeds(getDoc(reaction(parent, UID.parent)));
+    });
+
+    it('personne ne lit la réaction d’un autre', async () => {
+      // Savoir qui a réagi à quoi n'est pas nécessaire à l'affichage : le
+      // décompte vient du commentaire, l'état du bouton de sa propre réaction.
+      await assertFails(getDoc(reaction(parent, UID.otherParent)));
+    });
+
+    it('un membre actif réagit à un commentaire', async () => {
+      await assertSucceeds(
+        setDoc(
+          doc(
+            parent.firestore(),
+            'posts',
+            'post-own-published',
+            'comments',
+            'comment-de-la-fcpe',
+            'reactions',
+            UID.parent,
+          ),
+          reactionDocument({ commentId: 'comment-de-la-fcpe' }),
+        ),
+      );
+    });
+
+    it('on ne réagit pas sous l’identité d’un autre', async () => {
+      await assertFails(
+        setDoc(
+          doc(
+            parent.firestore(),
+            'posts',
+            'post-own-published',
+            'comments',
+            'comment-de-la-fcpe',
+            'reactions',
+            UID.otherParent,
+          ),
+          reactionDocument({ uid: UID.otherParent, commentId: 'comment-de-la-fcpe' }),
+        ),
+      );
+    });
+
+    it('un emoji hors de la liste fermée est refusé', async () => {
+      // La liste est en dur dans les règles, et doit rester identique à
+      // `REACTION_EMOJIS` : une règle ne peut pas importer de constante.
+      await assertFails(
+        setDoc(
+          doc(
+            parent.firestore(),
+            'posts',
+            'post-own-published',
+            'comments',
+            'comment-de-la-fcpe',
+            'reactions',
+            UID.parent,
+          ),
+          reactionDocument({ emoji: '🍕', commentId: 'comment-de-la-fcpe' }),
+        ),
+      );
+    });
+
+    it('un compte en attente ne réagit pas', async () => {
+      await assertFails(
+        setDoc(
+          doc(
+            pending.firestore(),
+            'posts',
+            'post-own-published',
+            'comments',
+            'comment-de-la-fcpe',
+            'reactions',
+            UID.parent,
+          ),
+          reactionDocument({ commentId: 'comment-de-la-fcpe' }),
+        ),
+      );
+    });
+
+    it('un membre retire sa propre réaction', async () => {
+      await assertSucceeds(deleteDoc(reaction(parent, UID.parent)));
+    });
+
+    it('personne ne retire la réaction d’un autre', async () => {
+      await assertFails(deleteDoc(reaction(parent, UID.otherParent)));
     });
   });
 

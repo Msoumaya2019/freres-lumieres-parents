@@ -359,6 +359,35 @@ service cloud.firestore {
           || (isModerator() && validModerationEdit());
 
         allow delete: if isAdmin();
+
+        // Réactions : même motif que `votes/{voterKey}` — l'identifiant du
+        // document est l'UID du réacteur, donc une double réaction est
+        // impossible par construction, et non par du code applicatif.
+        match /reactions/{uid} {
+
+          // La liste des emojis est en dur, et doit rester identique à
+          // `REACTION_EMOJIS` dans `@fl/shared` : une règle ne peut pas
+          // importer de constante TypeScript.
+          function validReaction() {
+            let d = request.resource.data;
+            return d.uid == request.auth.uid
+              && d.postId == postId
+              && d.commentId == commentId
+              && d.emoji in ['👍', '🎉', '🙏', '😮', '😍'];
+          }
+
+          // Chacun ne lit que sa propre réaction : c'est ce qui suffit à
+          // afficher l'état du bouton. Le décompte vient du commentaire.
+          allow read: if isActive() && uid == request.auth.uid;
+
+          // `validReaction` épingle l'identité à la fois sur l'UID du porteur et
+          // sur le chemin parent : inutile d'y ajouter des `unchanged`.
+          allow create, update: if isActive() && uid == request.auth.uid && validReaction();
+
+          // Retirer sa réaction est légitime ; le document disparaît et la
+          // Cloud Function recalcule le décompte.
+          allow delete: if isActive() && resource.data.uid == request.auth.uid;
+        }
       }
     }
 

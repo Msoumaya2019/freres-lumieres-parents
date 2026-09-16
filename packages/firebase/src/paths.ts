@@ -59,6 +59,7 @@ export const SUBCOLLECTIONS = {
   supporters: 'supporters',
   participants: 'participants',
   items: 'items',
+  reactions: 'reactions',
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -97,6 +98,11 @@ export const paths = {
   postComments: (postId: PostId) => `${COLLECTIONS.posts}/${postId}/${SUBCOLLECTIONS.comments}`,
   postComment: (postId: PostId, commentId: string) =>
     `${COLLECTIONS.posts}/${postId}/${SUBCOLLECTIONS.comments}/${commentId}`,
+  commentReactions: (postId: PostId, commentId: string) =>
+    `${COLLECTIONS.posts}/${postId}/${SUBCOLLECTIONS.comments}/${commentId}/${SUBCOLLECTIONS.reactions}`,
+  /** L'identifiant est l'UID : une double réaction est impossible. */
+  commentReaction: (postId: PostId, commentId: string, uid: UserId) =>
+    `${COLLECTIONS.posts}/${postId}/${SUBCOLLECTIONS.comments}/${commentId}/${SUBCOLLECTIONS.reactions}/${uid}`,
 
   channels: () => COLLECTIONS.channels,
   channel: (channelId: ChannelId) => `${COLLECTIONS.channels}/${channelId}`,
