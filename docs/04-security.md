@@ -419,3 +419,20 @@ satisfait l'article 17 tout en préservant l'intégrité des échanges.
   un avertissement dans le README.
 - **Domaine des liens universels.** Nécessaire pour que les notifications
   ouvrent l'application, à définir en Phase 5.
+- **Audience `fcpe` : retirer la promesse, ou la tenir ?** L'écran de
+  publication annonce qu'une information ciblée « Membres FCPE uniquement »
+  « ne sera visible que par les membres de la FCPE » — et les règles ne
+  l'appliquent pas : `allow get` sur `posts/{id}` ne regarde ni `audience` ni
+  `audienceKeys`. Un parent qui connaît l'identifiant la lit. Les deux issues
+  n'ont pas le même coût.
+  **Retirer la promesse** est immédiat : le libellé dirait qu'il s'agit d'un
+  ciblage de pertinence, et non d'une restriction. La FCPE perdrait le moyen de
+  publier en interne — mais ce besoin a déjà son mécanisme, `visibility: 'fcpe'`
+  (Phase 10), que les règles **vérifient**, elles.
+  **Tenir la promesse** demande que la règle lise les clés du lecteur, donc un
+  `get()` sur son profil. Firestore ne sait pas démontrer une règle de requête à
+  partir d'un `get()` : le fil devrait passer par une Cloud Function, ou les
+  publications être réparties par audience. C'est un changement de modèle.
+  En attendant, un test encode la limite actuelle
+  (`packages/testing`, « limite assumée : un parent lit une publication réservée
+  à la FCPE »). C'est lui qu'il faudra inverser, et non supprimer.

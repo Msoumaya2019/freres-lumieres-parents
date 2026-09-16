@@ -55,7 +55,7 @@ import {
   updateDoc,
   where,
 } from 'firebase/firestore';
-import { afterAll, beforeAll, beforeEach, describe, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { CLAIMS, TEST_ORG, TEST_OTHER_ORG, UID, createRulesTestEnvironment } from './env.js';
 
@@ -287,6 +287,49 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
       // sur son masquage, un parent ne doit pas la voir du tout.
       await setDoc(doc(db, 'posts', 'post-masquee'), postDocument({ status: 'hidden' }));
 
+      // --- Publications ciblées ---------------------------------------------
+      //
+      // Elles servent à montrer ce que **la requête** filtre, et non ce que les
+      // règles protègent : les règles ne lisent jamais `audienceKeys` (voir le
+      // describe « Lecture filtrée »). Les clés sont écrites en dur plutôt que
+      // calculées par `buildAudienceKeys` — un fixture qui dériverait ses
+      // valeurs du code applicatif passerait au vert même si ce code était faux.
+      //
+      // Deux niveaux du même établissement : c'est le cas qui compte, parce que
+      // les deux publications sont lisibles par le même parent au sens des
+      // règles, et que seule la requête les distingue.
+      //
+      // Les identifiants sont préfixés pour ne pas heurter ceux que les tests
+      // d'écriture **créent**. Une collision transforme silencieusement un test
+      // de création en test de mise à jour — la règle appliquée n'est plus la
+      // même, et l'échec désigne le test de création, pas la donnée de départ.
+      // C'est arrivé ici avec `post-fcpe`, déjà pris par « un membre de la FCPE
+      // peut publier ».
+      await setDoc(
+        doc(db, 'posts', 'post-niveau-ce2'),
+        postDocument({
+          audience: { type: 'level', schoolId: 'ecole-elementaire', level: 'CE2' },
+          audienceKeys: ['level:ecole-elementaire:CE2'],
+          publishedAt: new Date('2026-09-02T10:00:00Z'),
+        }),
+      );
+      await setDoc(
+        doc(db, 'posts', 'post-niveau-cm2'),
+        postDocument({
+          audience: { type: 'level', schoolId: 'ecole-elementaire', level: 'CM2' },
+          audienceKeys: ['level:ecole-elementaire:CM2'],
+          publishedAt: new Date('2026-09-03T10:00:00Z'),
+        }),
+      );
+      await setDoc(
+        doc(db, 'posts', 'post-reserve-fcpe'),
+        postDocument({
+          audience: { type: 'fcpe' },
+          audienceKeys: [`fcpe:${TEST_ORG}`],
+          publishedAt: new Date('2026-09-04T10:00:00Z'),
+        }),
+      );
+
       // Publication épinglée avec une date de fin : exerce le cas « champ
       // facultatif présent » de `unchangedOptional`. Les autres publications du
       // harnais n'ont ni `pinnedUntil` ni `notifiedAt`, ce qui exerce le cas
@@ -505,6 +548,151 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
   });
 
   // -------------------------------------------------------------------------
+  // Lecture filtrée par les clés d'audience
+  // -------------------------------------------------------------------------
+  //
+  // Ce bloc répond au critère de sortie de la Phase 3 — « un parent ne voit que
+  // les publications de son audience » — et il faut le lire attentivement,
+  // parce que la réponse n'est pas celle qu'on attendrait.
+  //
+  // Les règles **ne lisent jamais `audienceKeys`**. `allow get` exige
+  // l'organisation, un compte actif et un statut publié ; `allow list` exige en
+  // plus que la requête contraigne `orgId` et `status`. Le ciblage est donc
+  // appliqué par la **requête du client** (`array-contains-any`), pas par la
+  // règle. C'est une contrainte structurelle, pas une négligence : une règle de
+  // requête doit être démontrable à partir des seules contraintes de la
+  // requête, et « les clés du lecteur recoupent celles du document » ne se
+  // démontre pas ainsi.
+  //
+  // Conséquence directe, encodée plus bas : le ciblage est un filtre de
+  // **pertinence**, pas une frontière de confidentialité. Les vraies frontières
+  // du système sont l'organisation, le statut du compte, les signalements, les
+  // enfants, et `visibility: 'fcpe'` — toutes vérifiées par une règle.
+
+  describe('Lecture filtrée par les clés d’audience', () => {
+    /**
+     * Type du Firestore que rend le harnais.
+     *
+     * Dérivé plutôt qu'importé de `firebase/firestore` :
+     * `@firebase/rules-unit-testing` type ses contextes avec l'espace de noms
+     * `firebase` (compat), alors que ce fichier utilise les fonctions
+     * modulaires. Les deux désignent le même objet à l'exécution, mais ce sont
+     * deux types distincts — les mélanger donne une erreur d'assignation qui ne
+     * dit rien de la cause.
+     */
+    type TestFirestore = ReturnType<RulesTestContext['firestore']>;
+
+    /**
+     * Clés d'un parent dont l'enfant est en CE2 à l'école élémentaire.
+     *
+     * Écrites en dur, comme les fixtures : les calculer avec
+     * `buildUserAudienceKeys` ferait passer le test même si le calcul était
+     * faux, et c'est précisément le calcul qu'on veut voir confronté à des
+     * documents réels.
+     */
+    const CLES_PARENT_CE2: readonly string[] = [
+      `org:${TEST_ORG}`,
+      'school:ecole-elementaire',
+      'level:ecole-elementaire:CE2',
+      'class:ce2-a',
+    ];
+
+    /** Clés d'un membre de la FCPE : les mêmes, plus la clé de son rôle. */
+    const CLES_FCPE: readonly string[] = [...CLES_PARENT_CE2, `fcpe:${TEST_ORG}`];
+
+    /** Requête du fil, telle que `fetchFeed` la construit. */
+    function filtre(db: TestFirestore, cles: readonly string[]) {
+      return query(
+        collection(db, 'posts'),
+        where('orgId', '==', TEST_ORG),
+        where('status', '==', 'published'),
+        where('audienceKeys', 'array-contains-any', [...cles]),
+      );
+    }
+
+    async function identifiantsLus(db: TestFirestore, cles: readonly string[]): Promise<string[]> {
+      const snapshot = await getDocs(filtre(db, cles));
+      return snapshot.docs.map((document) => document.id).sort();
+    }
+
+    it('la requête du fil rend la publication du niveau du lecteur', async () => {
+      expect(await identifiantsLus(parent.firestore(), CLES_PARENT_CE2)).toContain(
+        'post-niveau-ce2',
+      );
+    });
+
+    it('la requête du fil écarte la publication d’un autre niveau', async () => {
+      // Le cas qui compte : les deux publications sont lisibles par le même
+      // parent au sens des règles, et seule la requête les distingue.
+      expect(await identifiantsLus(parent.firestore(), CLES_PARENT_CE2)).not.toContain(
+        'post-niveau-cm2',
+      );
+    });
+
+    it('la requête du fil rend la publication générale', async () => {
+      expect(await identifiantsLus(parent.firestore(), CLES_PARENT_CE2)).toContain(
+        'post-own-published',
+      );
+    });
+
+    it('un parent ne reçoit pas la publication réservée à la FCPE', async () => {
+      expect(await identifiantsLus(parent.firestore(), CLES_PARENT_CE2)).not.toContain(
+        'post-reserve-fcpe',
+      );
+    });
+
+    it('un membre de la FCPE reçoit la publication qui lui est réservée', async () => {
+      // Le pendant positif : sans lui, une requête qui ne rendrait jamais rien
+      // passerait pour correcte.
+      expect(await identifiantsLus(fcpe.firestore(), CLES_FCPE)).toContain('post-reserve-fcpe');
+    });
+
+    it('le fil se charge en une seule requête, quel que soit le nombre de ciblages', async () => {
+      // C'est le bénéfice des clés dénormalisées : quatre ciblages différents
+      // tiennent dans un seul `array-contains-any`, donc une seule requête et
+      // une seule facture. Une lecture par ciblage coûterait quatre fois plus.
+      const snapshot = await getDocs(filtre(parent.firestore(), CLES_PARENT_CE2));
+      expect(snapshot.size).toBeGreaterThan(0);
+    });
+
+    // -----------------------------------------------------------------------
+    //  Limites assumées — ces deux tests décrivent le comportement réel
+    // -----------------------------------------------------------------------
+    //
+    // Ils ne défendent pas une intention : ils **rendent visible** ce que les
+    // règles autorisent aujourd'hui. Les supprimer parce qu'ils décrivent un
+    // comportement gênant reviendrait à effacer la seule trace du problème. Le
+    // jour où le modèle change, ce sont eux qu'il faut inverser.
+
+    it('limite assumée : un parent lit par identifiant une publication d’un autre niveau', async () => {
+      // `allow get` ne regarde ni `audience` ni `audienceKeys`. Un parent qui
+      // connaît l'identifiant — il l'obtient d'un lien partagé — atteint la
+      // publication. Impact faible : même organisation, aucun contenu
+      // personnel, et l'application ne propose jamais ce chemin.
+      await assertSucceeds(getDoc(doc(parent.firestore(), 'posts', 'post-niveau-cm2')));
+    });
+
+    it('limite assumée : un parent lit une publication réservée à la FCPE', async () => {
+      // **C'est le point à trancher.** L'écran de publication annonce
+      // « Cette publication ne sera visible que par les membres de la FCPE »
+      // (`AudienceField`), et les règles ne l'appliquent pas : `allow get`
+      // n'exige que l'organisation, un compte actif et un statut publié.
+      //
+      // Rendre le ciblage FCPE réellement étanche n'est pas une retouche de
+      // règle : il faudrait que la règle lise les clés du lecteur — donc un
+      // `get()` sur son profil, que Firestore ne sait pas démontrer à partir
+      // des contraintes d'une requête. Le fil devrait alors passer par une
+      // Cloud Function, ou les publications être réparties par audience.
+      // C'est un changement de modèle, pas un correctif.
+      //
+      // Tant que ce n'est pas tranché, l'écran ne devrait pas promettre
+      // l'étanchéité : le libellé de `AUDIENCE_TYPE_LABELS.fcpe` est en avance
+      // sur les règles.
+      await assertSucceeds(getDoc(doc(parent.firestore(), 'posts', 'post-reserve-fcpe')));
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // Écriture des publications
   // -------------------------------------------------------------------------
 
@@ -576,6 +764,53 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
       const db = fcpe.firestore();
       await assertFails(
         setDoc(doc(db, 'posts', 'post-pj-invalides'), postDocument({ attachments: 'aucune' })),
+      );
+    });
+
+    // `validPost()` exige que `audienceKeys` soit une liste non vide et bornée.
+    // Sans ces trois tests, retirer la contrainte ne ferait échouer personne :
+    // une publication sans clé d'audience ne serait visible par **aucun** fil,
+    // puisque `fetchFeed` filtre par `array-contains-any`, et une publication à
+    // cinquante clés dépasserait la limite de Firestore à la requête — un échec
+    // silencieux, découvert par un parent dont le fil ne se charge plus.
+    it('une publication sans clé d’audience est refusée', async () => {
+      const db = fcpe.firestore();
+      await assertFails(
+        setDoc(doc(db, 'posts', 'post-sans-cle'), postDocument({ audienceKeys: [] })),
+      );
+    });
+
+    it('une publication dont les clés d’audience ne sont pas une liste est refusée', async () => {
+      const db = fcpe.firestore();
+      await assertFails(
+        setDoc(
+          doc(db, 'posts', 'post-cle-invalide'),
+          postDocument({ audienceKeys: `org:${TEST_ORG}` }),
+        ),
+      );
+    });
+
+    it('une publication à plus de cinq clés d’audience est refusée', async () => {
+      const db = fcpe.firestore();
+      const trop = Array.from({ length: 6 }, (_value, index) => `class:classe-${index + 1}`);
+
+      await assertFails(
+        setDoc(doc(db, 'posts', 'post-trop-ciblee'), postDocument({ audienceKeys: trop })),
+      );
+    });
+
+    it('une publication ciblée sur un niveau est acceptée', async () => {
+      // Le pendant positif des trois tests ci-dessus : sans lui, une règle qui
+      // refuserait **toute** publication ciblée passerait pour correcte.
+      const db = fcpe.firestore();
+      await assertSucceeds(
+        setDoc(
+          doc(db, 'posts', 'post-niveau-valide'),
+          postDocument({
+            audience: { type: 'level', schoolId: 'ecole-elementaire', level: 'CE2' },
+            audienceKeys: ['level:ecole-elementaire:CE2'],
+          }),
+        ),
       );
     });
   });

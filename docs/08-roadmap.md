@@ -317,7 +317,39 @@ vitest. Il pointe maintenant sur un `tsconfig.test.json`, comme `@fl/shared`.
       `create()` ne l'écrit pas dans Firestore, rien ne le lit). Tous trois sont
       écrits ou acceptés sans être lus — les retirer ou les tenir est une
       décision de modèle, pas un oubli de plomberie.
-- [ ] Tests : création de publication, ciblage d'audience, lecture filtrée
+- [x] Tests : création de publication, ciblage d'audience, lecture filtrée
+      **Création.** Un parent ne publie pas ; un membre de la FCPE si ; une
+      publication ne peut être attribuée à quelqu'un d'autre, se déclarer un
+      autre rôle, naître épinglée, ni se passer de décision sur les
+      commentaires. Les clés d'audience sont désormais couvertes aussi — liste
+      non vide, de type liste, cinq clés au plus — **avec leur pendant positif** :
+      une publication ciblée sur un niveau est acceptée. Sans ce pendant, une
+      règle qui refuserait toute publication ciblée passerait pour correcte.
+      **Ciblage.** `buildAudienceKeys`, `buildUserAudienceKeys`,
+      `isVisibleForUserKeys` et `validateAudience` sont couverts dans
+      `@fl/shared`, y compris la limite de `array-contains-any` et le cas d'une
+      audience incomplète, qui ne produit aucune clé plutôt qu'une clé fausse.
+      **Lecture filtrée.** La requête du fil, telle que `fetchFeed` la
+      construit, rend la publication du niveau du lecteur, écarte celle d'un
+      autre niveau, et un membre de la FCPE reçoit en plus celle qui lui est
+      réservée — le tout en **une seule requête**, quel que soit le nombre de
+      ciblages. C'est le bénéfice des clés dénormalisées : quatre ciblages
+      tiennent dans un `array-contains-any`, là où une lecture par ciblage
+      coûterait quatre fois plus.
+      **Ce que ces tests ont mis au jour, et qui n'était écrit nulle part.**
+      Les règles ne lisent **jamais** `audienceKeys` : `allow get` exige
+      l'organisation, un compte actif et un statut publié ; `allow list` exige en
+      plus que la requête contraigne `orgId` et `status`. Le ciblage est donc
+      appliqué par la requête du client, pas par la règle — une contrainte
+      structurelle, puisque « les clés du lecteur recoupent celles du document »
+      ne se démontre pas à partir des contraintes d'une requête.
+      Deux tests de limite rendent ce fait visible au lieu de le laisser croire
+      fermé, et ils sont volontairement écrits comme des **constats**, pas comme
+      des intentions : un parent lit par identifiant une publication destinée à
+      un autre niveau, et — c'est le point gênant — un parent lit une publication
+      réservée à la FCPE, alors que l'écran annonce « Cette publication ne sera
+      visible que par les membres de la FCPE ». La question est portée dans
+      `docs/04-security.md` § 10 : retirer la promesse, ou la tenir.
 
 **Critère de sortie :** le fil se charge en une requête ; un parent ne voit
 que les publications de son audience.
