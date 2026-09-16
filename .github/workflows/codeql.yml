@@ -1,25 +1,65 @@
+# =============================================================================
+#  Analyse de sécurité statique
+# =============================================================================
+#
+#  Le dépôt est PUBLIC : son code est lisible par n'importe qui, y compris par
+#  des personnes cherchant une faille. CodeQL analyse le code JavaScript et
+#  TypeScript à la recherche de motifs dangereux (injection, données non
+#  validées, usage incorrect de la cryptographie, chemins non contrôlés).
+#
+#  Une fois par semaine, en plus des déclenchements sur `main` : une nouvelle
+#  règle d'analyse peut détecter un problème dans du code ancien.
+# =============================================================================
+
 name: CodeQL
 
 on:
   push:
-    branches: ['main']
+    branches: [main]
   pull_request:
-    branches: ['main']
+    branches: [main]
   schedule:
-    - cron: '31 4 * * 1'
+    # Chaque lundi à 3 h du matin (UTC).
+    - cron: "0 3 * * 1"
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
-  security-events: write
 
 jobs:
   analyze:
-    name: Analyze TypeScript
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    name: Analyser
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    permissions:
+      # Nécessaire pour publier les résultats dans l'onglet Security.
+      security-events: write
+      contents: read
+      actions: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ["javascript-typescript"]
+
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - uses: github/codeql-action/init@311b4ee155dcdab395044f00946f664bd51ff173 # v4
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v4
+
+      - name: Initialiser CodeQL
+        uses: github/codeql-action/init@v3
         with:
-          languages: javascript-typescript
-      - uses: github/codeql-action/analyze@311b4ee155dcdab395044f00946f664bd51ff173 # v4
+          languages: ${{ matrix.language }}
+          # La suite `security-extended` couvre davantage de motifs que la
+          # suite par défaut. Le surcoût d'analyse est acceptable pour un
+          # projet de cette taille.
+          queries: security-extended
+
+      - name: Analyser
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"

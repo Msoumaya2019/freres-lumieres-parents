@@ -1,0 +1,88 @@
+@import 'tailwindcss';
+
+/*
+ * Jetons de design.
+ *
+ * Les valeurs proviennent de `@fl/shared/src/theme.ts` et sont injectées au
+ * runtime par le layout racine sous forme de variables `--fl-*`. Tailwind v4
+ * fait ensuite le lien entre ses propres variables `--color-*` et celles-ci,
+ * ce qui donne des classes utilitaires (`bg-surface`, `text-muted`…) sans
+ * dupliquer la palette dans deux fichiers.
+ *
+ * Conséquence : modifier une couleur dans `@fl/shared` la change
+ * immédiatement ici ET dans l'application mobile.
+ */
+@theme {
+  --color-background: var(--fl-background);
+  --color-surface: var(--fl-surface);
+  --color-surface-muted: var(--fl-surface-muted);
+  --color-surface-elevated: var(--fl-surface-elevated);
+  --color-border: var(--fl-border);
+  --color-border-strong: var(--fl-border-strong);
+
+  --color-foreground: var(--fl-text-primary);
+  --color-secondary: var(--fl-text-secondary);
+  --color-muted: var(--fl-text-muted);
+  --color-on-primary: var(--fl-text-on-primary);
+
+  --color-primary: var(--fl-primary);
+  --color-primary-pressed: var(--fl-primary-pressed);
+  --color-primary-soft: var(--fl-primary-soft);
+  --color-accent: var(--fl-accent);
+  --color-accent-soft: var(--fl-accent-soft);
+
+  --color-success: var(--fl-success);
+  --color-success-soft: var(--fl-success-soft);
+  --color-warning: var(--fl-warning);
+  --color-warning-soft: var(--fl-warning-soft);
+  --color-danger: var(--fl-danger);
+  --color-danger-soft: var(--fl-danger-soft);
+  --color-info: var(--fl-info);
+  --color-info-soft: var(--fl-info-soft);
+  --color-urgent: var(--fl-urgent);
+  --color-urgent-soft: var(--fl-urgent-soft);
+
+  --radius-sm: var(--fl-radius-sm);
+  --radius-md: var(--fl-radius-md);
+  --radius-lg: var(--fl-radius-lg);
+  --radius-xl: var(--fl-radius-xl);
+}
+
+html {
+  color-scheme: light dark;
+}
+
+body {
+  background-color: var(--fl-background);
+  color: var(--fl-text-primary);
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    'Helvetica Neue',
+    Arial,
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/*
+ * Accessibilité : un anneau de focus toujours visible pour la navigation au
+ * clavier. L'administration est utilisée sur ordinateur, souvent au clavier.
+ */
+:focus-visible {
+  outline: 2px solid var(--fl-primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Respecte la préférence système de réduction des animations. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

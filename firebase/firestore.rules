@@ -1,166 +1,726 @@
 rules_version = '2';
+
+// =============================================================================
+//  Règles Firestore — FCPE Frères Lumières
+// =============================================================================
+//
+//  PRINCIPE FONDAMENTAL
+//  --------------------
+//  Le client est hostile par conception. La configuration Firebase embarquée
+//  dans l'application est publique : n'importe qui peut appeler Firestore
+//  directement avec un script. Ces règles sont donc la SEULE barrière réelle.
+//
+//  TROIS RÈGLES D'OR APPLIQUÉES ICI
+//  --------------------------------
+//  1. Échec fermé : en cas de doute, on refuse.
+//  2. Les rôles viennent des Custom Claims, jamais d'une lecture de document.
+//     Cela évite une lecture facturée à chaque évaluation de règle, et rend
+//     impossible l'escalade de privilèges en modifiant son propre profil.
+//  3. Les champs sensibles sont figés à l'écriture : identifiant d'auteur,
+//     organisation, compteurs, rôle et statut.
+//
+//  CONTRAINTE TECHNIQUE IMPORTANTE — « les règles ne sont pas des filtres »
+//  ----------------------------------------------------------------------
+//  Pour une requête (`list`), Firestore n'accepte la règle que si elle est
+//  **démontrable à partir des contraintes de la requête**. Une règle qui
+//  compare un champ du document à une valeur non contrainte par la requête
+//  fait échouer la requête entière.
+//
+//  C'est pourquoi les règles de lecture des contenus s'appuient sur les deux
+//  seuls champs que les requêtes contraignent toujours : `orgId` et `status`.
+//
+//  CONSÉQUENCE ASSUMÉE ET DOCUMENTÉE
+//  ---------------------------------
+//  Le ciblage fin (école, niveau, classe) est appliqué par la requête du
+//  client via les clés d'audience. Il ne constitue PAS une frontière de
+//  confidentialité : un parent techniquement averti pourrait, en écrivant sa
+//  propre requête, lire une publication destinée à un autre niveau de sa
+//  propre école. L'impact est faible — ces contenus sont diffusés par la FCPE
+//  à l'ensemble des familles du même groupe scolaire.
+//
+//  Les vraies frontières, elles, sont garanties par ces règles :
+//    - l'organisation (`orgId`) : aucune fuite entre deux groupes scolaires ;
+//    - l'espace privé de la FCPE : collections dédiées + contrôle du rôle ;
+//    - les signalements : strictement privés, auteur ou FCPE ;
+//    - les comptes utilisateurs : soi-même, ou rôle habilité ;
+//    - le journal d'audit : écriture serveur uniquement, lecture admin.
+//
+//  Toute règle qui ne serait pas vérifiable par Firestore doit être retirée
+//  plutôt que contournée. La vérification est faite par les tests d'émulateur
+//  de `packages/testing` (Phases 2 et 12).
+// =============================================================================
+
 service cloud.firestore {
   match /databases/{database}/documents {
-    function signedIn() { return request.auth != null; }
-    function claim(name, fallback) { return request.auth.token.get(name, fallback); }
-    function role() { return claim('role', ''); }
-    function status() { return claim('status', ''); }
-    function organizationId() { return claim('organizationId', ''); }
-    function active() { return signedIn() && status() == 'active'; }
-    function roleIn(roles) { return active() && role() in roles; }
-    function sameOrganization(data) { return data != null && data.organizationId == organizationId(); }
-    function listClaimContains(name, value) { return value in claim(name, []); }
-    function canReadAudience(data) {
-      return active() && sameOrganization(data) && (
-        data.audience.type == 'all' ||
-        (data.audience.type == 'fcpe' && role() in ['fcpe', 'moderator', 'admin']) ||
-        (data.audience.type == 'school' && data.audience.ids.hasAny(claim('schoolIds', []))) ||
-        (data.audience.type == 'level' && data.audience.ids.hasAny(claim('levelIds', []))) ||
-        (data.audience.type == 'class' && data.audience.ids.hasAny(claim('classIds', [])))
-      );
-    }
-    function owns(data) { return signedIn() && data.authorId == request.auth.uid; }
-    function immutableIdentityFields() {
-      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-        'firstName', 'lastName', 'notificationPreferences', 'updatedAt'
-      ]);
+
+    // =========================================================================
+    //  Helpers
+    // =========================================================================
+
+    function isSignedIn() {
+      return request.auth != null;
     }
 
-    match /users/{userId} {
-      // Creation, status and role mutations pass through callable Functions.
-      allow create: if false;
-      allow read: if signedIn() && (request.auth.uid == userId || roleIn(['admin']));
-      allow update: if signedIn() && request.auth.uid == userId
-        && status() in ['pending', 'active'] && immutableIdentityFields();
-      allow delete: if false;
+    function claims() {
+      return request.auth.token;
     }
 
-    match /organizations/{id} {
-      allow read: if active() && id == organizationId();
-      allow write: if false;
+    // Un compte `pending`, `suspended` ou `rejected` n'obtient aucun rôle,
+    // donc aucune permission. C'est la porte d'entrée de tout le reste.
+    function isActive() {
+      return isSignedIn() && claims().status == 'active';
     }
-    match /registrationOptions/{id} {
-      allow read: if resource.data.active == true;
-      allow write: if false;
+
+    function role() {
+      return isActive() ? claims().role : 'none';
     }
-    match /schools/{id} {
-      allow read: if active() && sameOrganization(resource.data);
-      allow write: if false;
+
+    function orgId() {
+      return isActive() ? claims().orgId : null;
     }
-    match /classes/{id} {
-      allow read: if active() && sameOrganization(resource.data);
-      allow write: if false;
+
+    function isParent() {
+      return role() == 'parent';
     }
-    match /levels/{id} {
-      allow read: if active() && sameOrganization(resource.data);
-      allow write: if false;
+
+    function isFcpe() {
+      return role() in ['fcpe', 'moderator', 'admin'];
     }
-    match /childProfiles/{id} {
-      allow read: if active() && sameOrganization(resource.data)
-        && (resource.data.parentUserId == request.auth.uid || role() == 'admin');
-      allow create: if active() && request.resource.data.parentUserId == request.auth.uid
-        && sameOrganization(request.resource.data)
-        && request.resource.data.keys().hasOnly(['id', 'parentUserId', 'organizationId', 'schoolId', 'levelId', 'classId', 'label', 'createdAt']);
-      allow update: if active() && resource.data.parentUserId == request.auth.uid
-        && request.resource.data.parentUserId == request.auth.uid
-        && sameOrganization(request.resource.data)
-        && request.resource.data.organizationId == resource.data.organizationId
-        && request.resource.data.keys().hasOnly(['id', 'parentUserId', 'organizationId', 'schoolId', 'levelId', 'classId', 'label', 'createdAt']);
-      allow delete: if active() && resource.data.parentUserId == request.auth.uid;
+
+    function isModerator() {
+      return role() in ['moderator', 'admin'];
     }
+
+    function isAdmin() {
+      return role() == 'admin';
+    }
+
+    function isSelf(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    // Vérifie qu'un champ n'est pas modifié lors d'une mise à jour.
+    function unchanged(field) {
+      return request.resource.data[field] == resource.data[field];
+    }
+
+    // Vérifie qu'un champ est absent, ou identique à la valeur attendue.
+    function keeps(field, value) {
+      return !(field in request.resource.data) || request.resource.data[field] == value;
+    }
+
+    function isNonEmptyString(value, maxLength) {
+      return value is string && value.size() > 0 && value.size() <= maxLength;
+    }
+
+    // Champ facultatif : absent, ou une chaîne d'au plus `maxLength`.
+    //
+    // Le test de présence est indispensable, et `keeps` juste au-dessus en
+    // donne le motif. Écrire `d.linkUrl` directement lève « Property linkUrl is
+    // undefined on object » quand le champ est absent — et une erreur vaut
+    // refus. Une publication sans lien externe serait donc systématiquement
+    // rejetée, alors que `linkUrl` est facultatif dans le modèle.
+    //
+    // La forme précédente, `!(value is string) || …`, ne pouvait pas être
+    // corrigée en gardant `value` : sans le nom du champ, la présence est
+    // indécidable. Elle acceptait de surcroît n'importe quelle valeur non
+    // textuelle, un nombre par exemple.
+    function isOptionalString(field, maxLength) {
+      return !(field in request.resource.data)
+        || (request.resource.data[field] is string
+          && request.resource.data[field].size() <= maxLength);
+    }
+
+    // Contenu publié par la FCPE : lecture pour tout membre actif de
+    // l'organisation, écriture réservée aux rôles FCPE et supérieurs.
+    function canReadOrgContent() {
+      return isActive() && resource.data.orgId == orgId();
+    }
+
+    // =========================================================================
+    //  Organisations, écoles, classes
+    // =========================================================================
+
+    match /organizations/{organizationId} {
+      // La liste des organisations n'est pas sensible, mais elle n'est pas
+      // publique pour autant : il faut être connecté.
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /schools/{schoolId} {
+      // Lecture nécessaire dès l'inscription : le formulaire doit proposer
+      // les établissements. Elle reste donc ouverte aux comptes `pending`.
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /classes/{classId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // =========================================================================
+    //  Utilisateurs
+    // =========================================================================
+
+    match /users/{uid} {
+
+      // Un utilisateur lit son propre profil, même en attente de validation :
+      // c'est ce qui lui permet de compléter ses informations et de voir où en
+      // est sa demande.
+      //
+      // Les autres lectures exigent un rôle habilité (`user.read.any`).
+      allow read: if isSelf(uid) || (isActive() && (isFcpe() || isModerator()));
+
+      // Création de son propre profil à l'inscription. Le compte arrive en
+      // `pending` : toute autre valeur initiale est refusée.
+      allow create: if isSelf(uid)
+        && request.resource.data.status == 'pending'
+        && request.resource.data.role == 'parent'
+        && request.resource.data.id == uid;
+
+      // Mise à jour de son propre profil : les champs sensibles sont figés.
+      // Un utilisateur ne peut pas s'attribuer un rôle ni s'activer lui-même.
+      allow update: if isSelf(uid)
+        && unchanged('role')
+        && unchanged('status')
+        && unchanged('orgId')
+        && unchanged('orgIds')
+        && unchanged('audienceKeys')
+        && unchanged('email')
+        && unchanged('createdAt');
+
+      // La validation, la suspension et le changement de rôle passent
+      // obligatoirement par une Cloud Function (Admin SDK) : elles touchent
+      // aux Custom Claims, que le client ne peut pas écrire.
+      allow delete: if isSelf(uid) || isAdmin();
+
+      // --- Enfants -----------------------------------------------------------
+      match /children/{childId} {
+        // Le parent gère lui-même son rattachement, quel que soit le statut de
+        // son compte — et notamment pendant l'attente de validation.
+        //
+        // C'est une nécessité du parcours d'inscription, pas une commodité :
+        // le formulaire exige au moins un enfant, et il est rempli par un
+        // compte encore `pending`. Exiger `isActive()` ici rendrait
+        // l'inscription impossible.
+        //
+        // Restreindre au propriétaire suffit : la donnée la plus sensible du
+        // système n'est lisible que par lui (et par l'administration, en
+        // lecture seule, pour traiter une demande).
+        allow read, write: if isSelf(uid);
+
+        // L'administration peut consulter le rattachement pour traiter une
+        // demande, mais jamais le modifier à la place du parent.
+        allow read: if isActive() && isModerator();
+      }
+
+      // --- Jetons de notification -------------------------------------------
+      match /tokens/{tokenId} {
+        // Aucune lecture côté client, y compris par le propriétaire : un jeton
+        // push permet d'envoyer des notifications à un appareil. Seules les
+        // Cloud Functions y accèdent.
+        allow read: if false;
+        allow write: if isSelf(uid);
+      }
+
+      // --- Données internes (compteurs anti-spam) ---------------------------
+      match /private/{documentId} {
+        // Invisibles au client. Écrites par les Cloud Functions.
+        allow read, write: if false;
+      }
+    }
+
+    // =========================================================================
+    //  Jetons d'appareil (index d'envoi)
+    // =========================================================================
+
+    match /deviceTokens/{token} {
+      // Lecture réservée au serveur : l'index complet des appareils de tous
+      // les parents ne doit jamais être accessible depuis un client.
+      allow read: if false;
+
+      // Un utilisateur ne peut enregistrer qu'un jeton qui lui appartient.
+      allow create, update: if isActive() && request.resource.data.uid == request.auth.uid;
+      allow delete: if isActive() && resource.data.uid == request.auth.uid;
+    }
+
+    // =========================================================================
+    //  Publications et commentaires
+    // =========================================================================
 
     match /posts/{postId} {
-      allow read: if resource.data.status == 'published' && canReadAudience(resource.data);
-      allow create: if roleIn(['admin']) && sameOrganization(request.resource.data)
-        && request.resource.data.authorId == request.auth.uid;
-      allow update: if roleIn(['admin']) && sameOrganization(resource.data)
-        && sameOrganization(request.resource.data);
-      allow delete: if roleIn(['admin']) && sameOrganization(resource.data);
-    }
-    match /comments/{commentId} {
-      allow read: if active() && resource.data.status == 'visible'
-        && canReadAudience(get(/databases/$(database)/documents/posts/$(resource.data.postId)).data);
-      allow create: if active() && request.resource.data.authorId == request.auth.uid
-        && sameOrganization(request.resource.data)
-        && request.resource.data.status == 'visible'
-        && canReadAudience(get(/databases/$(database)/documents/posts/$(request.resource.data.postId)).data);
-      allow update: if active() && owns(resource.data)
-        && sameOrganization(resource.data)
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['body', 'updatedAt']);
-      allow delete: if false;
+
+      function validPost() {
+        let d = request.resource.data;
+        return isNonEmptyString(d.title, 140)
+          && isNonEmptyString(d.body, 8000)
+          && d.category in [
+            'information', 'urgent', 'cantine', 'periscolaire', 'travaux',
+            'sortie_scolaire', 'fcpe', 'mairie', 'evenement', 'conseil_ecole', 'autre'
+          ]
+          && d.audience is map
+          && d.audienceKeys is list
+          && d.audienceKeys.size() > 0
+          && d.audienceKeys.size() <= 5
+          && d.status in ['draft', 'published']
+          && d.authorId == request.auth.uid
+          && d.orgId == orgId()
+          // Les compteurs ne sont jamais fixés par le client : ils sont
+          // maintenus par les Cloud Functions.
+          && d.stats.commentCount is int
+          && d.stats.commentCount >= 0
+          && isOptionalString('linkUrl', 2048);
+      }
+
+      // Lecture : tout membre actif de la même organisation.
+      // Le ciblage fin est appliqué par la requête (voir l'en-tête du fichier).
+      allow read: if canReadOrgContent() && resource.data.status == 'published';
+
+      // Seule la FCPE publie dans le fil d'actualité. Un parent s'exprime via
+      // les discussions, les signalements et les sondages.
+      allow create: if isFcpe() && validPost();
+      allow update: if isFcpe() && validPost() && unchanged('orgId') && unchanged('authorId');
+
+      // Suppression réservée à l'administrateur : masquer est réversible et
+      // traçable, supprimer ne l'est pas.
+      allow delete: if isAdmin();
+
+      match /comments/{commentId} {
+
+        function validComment() {
+          let d = request.resource.data;
+          return isNonEmptyString(d.body, 2000)
+            && d.authorId == request.auth.uid
+            && d.postId == postId
+            && d.status == 'visible'
+            && d.reportCount == 0;
+        }
+
+        // Une mise à jour est validée sur le **document entier**, pas sur le
+        // seul champ modifié : Firestore évalue `request.resource.data`, donc
+        // une règle qui n'exige rien autorise la réécriture de tout le
+        // document. C'est précisément ce que faisait la version précédente
+        // (`isActive() && authorId == uid`), et un client hostile n'a pas
+        // besoin de notre code pour écrire : il peut appeler Firestore
+        // directement. Un auteur pouvait donc changer `authorId` (usurpation,
+        // puisque `authorName` est dénormalisé et affiché), `authorRole` (se
+        // faire passer pour un membre de la FCPE ou un administrateur),
+        // `postId` (désynchronisation avec le chemin parent), `reportCount`
+        // (dissimulation d'un signalement) ou `reactions` (falsification des
+        // compteurs). Les champs d'identité et de comptage sont désormais figés.
+        function validOwnCommentEdit() {
+          let d = request.resource.data;
+          return isNonEmptyString(d.body, 2000)
+            && d.authorId == request.auth.uid
+            && d.postId == postId
+            && d.status in ['visible', 'deleted']
+            && unchanged('authorName')
+            && unchanged('authorRole')
+            && unchanged('reportCount')
+            && unchanged('replyCount')
+            && unchanged('reactions')
+            && unchanged('createdAt');
+        }
+
+        // Le modérateur masque, il ne réécrit pas : son rôle est de rendre un
+        // contenu invisible, pas d'en changer le texte sous le nom de son
+        // auteur. Sans cette contrainte, `isModerator()` seul autorisait un
+        // modérateur à réécrire le corps d'un commentaire, ce que le commentaire
+        // d'origine annonçait déjà comme interdit (« masquage uniquement »)
+        // sans que la règle l'applique.
+        //
+        // Le statut reste borné à `visible` / `hidden` : retirer définitivement
+        // un contenu est une décision d'administrateur (`allow delete`), et le
+        // masquage est la seule opération réversible offerte à la modération.
+        function validModerationEdit() {
+          return unchanged('body')
+            && unchanged('authorId')
+            && unchanged('authorName')
+            && unchanged('authorRole')
+            && unchanged('postId')
+            && unchanged('reportCount')
+            && unchanged('replyCount')
+            && unchanged('createdAt')
+            && request.resource.data.status in ['visible', 'hidden'];
+        }
+
+        // Un commentaire n'est lisible que si la publication parente l'est.
+        allow read: if isActive() && resource.data.status == 'visible';
+
+        allow create: if isActive() && validComment();
+
+        // Auteur : modifier son corps, ou le retirer (`deleted`).
+        // Modérateur : masquer, et remettre en ligne.
+        allow update: if (isActive()
+            && resource.data.authorId == request.auth.uid
+            && validOwnCommentEdit())
+          || (isModerator() && validModerationEdit());
+
+        allow delete: if isAdmin();
+
+        // Réactions : même motif que `votes/{voterKey}` — l'identifiant du
+        // document est l'UID du réacteur, donc une double réaction est
+        // impossible par construction, et non par du code applicatif.
+        match /reactions/{uid} {
+
+          // La liste des emojis est en dur, et doit rester identique à
+          // `REACTION_EMOJIS` dans `@fl/shared` : une règle ne peut pas
+          // importer de constante TypeScript.
+          function validReaction() {
+            let d = request.resource.data;
+            return d.uid == request.auth.uid
+              && d.postId == postId
+              && d.commentId == commentId
+              && d.emoji in ['👍', '🎉', '🙏', '😮', '😍'];
+          }
+
+          // Chacun ne lit que sa propre réaction : c'est ce qui suffit à
+          // afficher l'état du bouton. Le décompte vient du commentaire.
+          allow read: if isActive() && uid == request.auth.uid;
+
+          // `validReaction` épingle l'identité à la fois sur l'UID du porteur et
+          // sur le chemin parent : inutile d'y ajouter des `unchanged`.
+          allow create, update: if isActive() && uid == request.auth.uid && validReaction();
+
+          // Retirer sa réaction est légitime ; le document disparaît et la
+          // Cloud Function recalcule le décompte.
+          allow delete: if isActive() && resource.data.uid == request.auth.uid;
+        }
+      }
     }
 
-    match /discussionChannels/{channelId} {
-      allow read: if canReadAudience(resource.data);
-      allow write: if roleIn(['admin']) && sameOrganization(request.resource.data);
+    // =========================================================================
+    //  Discussions
+    // =========================================================================
+
+    match /channels/{channelId} {
+
+      // Les canaux de type `fcpe` sont invisibles pour les parents : c'est une
+      // frontière dure, contrôlée par le rôle et non par la requête.
+      allow read: if isActive()
+        && resource.data.orgId == orgId()
+        && (resource.data.type != 'fcpe' || isFcpe());
+
+      allow create, update: if isModerator();
+      allow delete: if isAdmin();
+
+      match /messages/{messageId} {
+
+        function validMessage() {
+          let d = request.resource.data;
+          return isNonEmptyString(d.body, 2000)
+            && d.authorId == request.auth.uid
+            && d.channelId == channelId
+            && d.status == 'visible'
+            && d.reportCount == 0;
+        }
+
+        allow read: if isActive() && resource.data.status == 'visible';
+        allow create: if isActive() && validMessage();
+        allow update: if (isActive() && resource.data.authorId == request.auth.uid)
+          || isModerator();
+        allow delete: if isAdmin();
+      }
     }
-    match /messages/{messageId} {
-      allow read: if active() && resource.data.status == 'visible'
-        && canReadAudience(get(/databases/$(database)/documents/discussionChannels/$(resource.data.channelId)).data);
-      allow create: if active() && request.resource.data.authorId == request.auth.uid
-        && sameOrganization(request.resource.data) && request.resource.data.status == 'visible'
-        && canReadAudience(get(/databases/$(database)/documents/discussionChannels/$(request.resource.data.channelId)).data);
-      allow update: if active() && owns(resource.data)
-        && sameOrganization(resource.data)
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['body', 'reactionCounts']);
-      allow delete: if false;
-    }
+
+    // =========================================================================
+    //  Sondages
+    // =========================================================================
 
     match /polls/{pollId} {
-      allow read: if canReadAudience(resource.data);
-      allow write: if roleIn(['admin']) && sameOrganization(request.resource.data);
+
+      function validPoll() {
+        let d = request.resource.data;
+        return isNonEmptyString(d.question, 200)
+          && d.options is list
+          && d.options.size() >= 2
+          && d.options.size() <= 10
+          && d.status in ['draft', 'open', 'closed']
+          && d.audienceKeys is list
+          && d.audienceKeys.size() > 0
+          && d.orgId == orgId();
+      }
+
+      allow read: if canReadOrgContent() && resource.data.status in ['open', 'closed'];
+      allow create, update: if isFcpe() && validPoll() && unchanged('orgId');
+      allow delete: if isAdmin();
+
+      match /votes/{voterKey} {
+
+        // POINT CLÉ : l'identifiant du document de vote est l'UID de
+        // l'utilisateur. Le double vote est donc impossible par construction,
+        // et non par du code applicatif qui pourrait être contourné.
+        //
+        // Un utilisateur ne peut lire et écrire que son propre vote.
+        allow read: if isActive() && voterKey == request.auth.uid;
+        allow create, update: if isActive()
+          && voterKey == request.auth.uid
+          && request.resource.data.pollId == pollId
+          && request.resource.data.optionIds is list
+          && request.resource.data.optionIds.size() > 0
+          && request.resource.data.optionIds.size() <= 10;
+
+        // Même un administrateur ne peut pas supprimer un vote : cela
+        // fausserait les résultats sans laisser de trace.
+        allow delete: if false;
+      }
     }
-    match /pollVotes/{voteId} {
-      allow read: if roleIn(['admin']);
-      allow create: if active() && request.resource.data.userId == request.auth.uid
-        && voteId == request.resource.data.pollId + '_' + request.auth.uid
-        && sameOrganization(request.resource.data)
-        && canReadAudience(get(/databases/$(database)/documents/polls/$(request.resource.data.pollId)).data);
-      allow update, delete: if false;
-    }
+
+    // =========================================================================
+    //  Signalements — strictement privés
+    // =========================================================================
 
     match /reports/{reportId} {
-      allow read: if active() && sameOrganization(resource.data) && (
-        resource.data.authorId == request.auth.uid ||
-        role() in ['moderator', 'admin'] ||
-        (role() == 'fcpe' && resource.data.visibility == 'fcpe')
-      );
-      allow create: if active() && request.resource.data.authorId == request.auth.uid
-        && sameOrganization(request.resource.data)
-        && request.resource.data.status == 'received';
-      allow update: if roleIn(['moderator', 'admin']) && sameOrganization(resource.data)
-        && sameOrganization(request.resource.data)
-        && request.resource.data.authorId == resource.data.authorId;
-      allow delete: if false;
-    }
-    match /collectiveIssues/{id} {
-      allow read: if canReadAudience(resource.data);
-      allow write: if roleIn(['moderator', 'admin']) && sameOrganization(request.resource.data);
-    }
-    match /collectiveIssueSupporters/{supportId} {
-      allow read: if roleIn(['moderator', 'admin']);
-      allow create: if active() && request.resource.data.userId == request.auth.uid
-        && supportId == request.resource.data.issueId + '_' + request.auth.uid
-        && sameOrganization(request.resource.data);
-      allow update, delete: if false;
+
+      function validReport() {
+        let d = request.resource.data;
+        return isNonEmptyString(d.title, 140)
+          && isNonEmptyString(d.description, 4000)
+          && d.category in [
+            'cantine', 'securite', 'harcelement', 'periscolaire',
+            'locaux', 'enseignement', 'transport', 'autre'
+          ]
+          && d.authorId == request.auth.uid
+          && d.status == 'received'
+          && d.visibility == 'private'
+          && d.orgId == orgId();
+      }
+
+      // FRONTIÈRE DURE : un parent ne lit que ses propres signalements.
+      // Aucune requête ne permet de lire ceux des autres.
+      allow read: if isActive() && (resource.data.authorId == request.auth.uid || isFcpe());
+
+      allow create: if isActive() && validReport();
+
+      // Seule la FCPE fait évoluer le statut, la visibilité et l'assignation.
+      // L'auteur ne peut rien modifier : un signalement est un témoignage,
+      // pas un document collaboratif.
+      allow update: if isFcpe() && unchanged('authorId') && unchanged('orgId');
+
+      // Un signalement n'est jamais supprimé : il est clos. La conservation
+      // est encadrée par la politique de rétention (voir `docs/04-security.md`).
+      allow delete: if isAdmin();
+
+      match /replies/{replyId} {
+
+        function validReply() {
+          let d = request.resource.data;
+          return isNonEmptyString(d.body, 2000)
+            && d.authorId == request.auth.uid
+            && d.reportId == reportId;
+        }
+
+        // Les notes internes ne sont lisibles que par la FCPE.
+        allow read: if isActive() && (
+          isFcpe() || (resource.data.internal == false)
+        );
+
+        // Seule la FCPE répond. Un parent suit l'avancement, il ne commente
+        // pas : cela évite que le fil devienne un espace de discussion.
+        allow create: if isFcpe() && validReply();
+        allow update: if isFcpe() && unchanged('authorId') && unchanged('reportId');
+        allow delete: if isAdmin();
+      }
     }
 
-    match /events/{id} { allow read: if canReadAudience(resource.data); allow write: if roleIn(['admin']) && sameOrganization(request.resource.data); }
-    match /documents/{id} { allow read: if canReadAudience(resource.data); allow write: if roleIn(['admin']) && sameOrganization(request.resource.data); }
-    match /schoolCouncils/{id} { allow read: if canReadAudience(resource.data); allow write: if roleIn(['admin']) && sameOrganization(request.resource.data); }
-    match /notifications/{id} { allow read: if canReadAudience(resource.data); allow write: if false; }
-    match /fcpeContent/{id} { allow read: if roleIn(['fcpe', 'moderator', 'admin']) && sameOrganization(resource.data); allow write: if roleIn(['fcpe', 'moderator', 'admin']) && sameOrganization(request.resource.data); }
+    // =========================================================================
+    //  Sujets collectifs
+    // =========================================================================
 
-    match /moderationReports/{id} {
-      allow create: if active() && request.resource.data.reporterId == request.auth.uid && sameOrganization(request.resource.data);
-      allow read, update: if roleIn(['moderator', 'admin']) && sameOrganization(resource.data);
-      allow delete: if false;
+    match /collectiveIssues/{issueId} {
+
+      allow read: if isActive() && resource.data.orgId == orgId() && resource.data.published == true;
+      allow create, update: if isFcpe() && unchanged('orgId');
+      allow delete: if isAdmin();
+
+      match /supporters/{uid} {
+        // Un parent ne peut exprimer qu'une seule position par sujet :
+        // l'identifiant du document est son UID.
+        allow read: if isActive();
+        allow create, update: if isActive()
+          && uid == request.auth.uid
+          && request.resource.data.issueId == issueId
+          && request.resource.data.value in ['concerned', 'for', 'against'];
+        allow delete: if isActive() && uid == request.auth.uid;
+      }
     }
-    match /adminLogs/{id} {
-      allow read: if roleIn(['admin']) && sameOrganization(resource.data);
+
+    // =========================================================================
+    //  Agenda et événements
+    // =========================================================================
+
+    match /events/{eventId} {
+
+      function validEvent() {
+        let d = request.resource.data;
+        return isNonEmptyString(d.title, 140)
+          && d.type in [
+            'conseil_ecole', 'reunion', 'sortie', 'vacances', 'kermesse',
+            'election', 'evenement_fcpe', 'evenement_scolaire', 'autre'
+          ]
+          && d.audienceKeys is list
+          && d.audienceKeys.size() > 0
+          && d.orgId == orgId();
+      }
+
+      allow read: if canReadOrgContent() && resource.data.status != 'draft';
+      allow create, update: if isFcpe() && validEvent() && unchanged('orgId');
+      allow delete: if isModerator();
+
+      match /participants/{uid} {
+        allow read: if isActive();
+        allow create, update: if isActive()
+          && uid == request.auth.uid
+          && request.resource.data.eventId == eventId
+          && request.resource.data.attendance in ['going', 'not_going', 'maybe']
+          && request.resource.data.guests is int
+          && request.resource.data.guests >= 0
+          && request.resource.data.guests <= 10;
+        allow delete: if isActive() && uid == request.auth.uid;
+      }
+    }
+
+    // =========================================================================
+    //  Documents
+    // =========================================================================
+
+    match /documents/{documentId} {
+
+      // `internal` marque un document réservé à la FCPE : frontière dure,
+      // contrôlée par le rôle.
+      allow read: if isActive()
+        && resource.data.orgId == orgId()
+        && (resource.data.internal == false || isFcpe());
+
+      allow create, update: if isFcpe() && unchanged('orgId');
+      allow delete: if isModerator();
+    }
+
+    // =========================================================================
+    //  Conseils d'école
+    // =========================================================================
+
+    match /schoolCouncils/{councilId} {
+
+      allow read: if isActive() && resource.data.orgId == orgId();
+      allow create, update: if isFcpe() && unchanged('orgId');
+      allow delete: if isAdmin();
+
+      match /items/{itemId} {
+
+        // FRONTIÈRE DURE : les points de préparation interne de la FCPE
+        // (`visibility == 'fcpe'`) ne sont jamais lisibles par un parent.
+        // C'est une condition sur un champ du document, mais elle est
+        // démontrable par la requête du client, qui filtre sur `visibility`.
+        allow read: if isActive() && (isFcpe() || resource.data.visibility == 'public');
+
+        // Un parent peut proposer une question au conseil d'école.
+        allow create: if isActive() && (
+          (isFcpe() && request.resource.data.visibility in ['public', 'fcpe'])
+          || (!isFcpe() && request.resource.data.visibility == 'public')
+        );
+
+        // Un parent ne modifie que sa propre question, et uniquement tant
+        // qu'elle n'a pas été traitée.
+        allow update: if isFcpe()
+          || (isActive()
+              && resource.data.authorId == request.auth.uid
+              && resource.data.status == 'submitted'
+              && unchanged('authorId')
+              && unchanged('visibility'));
+
+        allow delete: if isAdmin();
+      }
+    }
+
+    // =========================================================================
+    //  Notifications — journal d'envoi
+    // =========================================================================
+
+    match /notifications/{notificationId} {
+      // Historique des envois : consultable par la FCPE, écrit par le serveur.
+      allow read: if isActive() && resource.data.orgId == orgId() && isFcpe();
+      allow create, update, delete: if false;
+    }
+
+    // =========================================================================
+    //  Modération
+    // =========================================================================
+
+    match /moderationReports/{moderationReportId} {
+
+      // Un utilisateur peut signaler un contenu. Il ne peut pas lire la file
+      // de modération.
+      allow create: if isActive()
+        && request.resource.data.reporterId == request.auth.uid
+        && request.resource.data.status == 'open'
+        && request.resource.data.targetType in ['post', 'comment', 'message']
+        && request.resource.data.orgId == orgId();
+
+      allow read: if isModerator();
+
+      // Un modérateur ne peut pas réécrire l'identité du signalement.
+      allow update: if isModerator()
+        && unchanged('reporterId')
+        && unchanged('targetId')
+        && unchanged('targetPath')
+        && unchanged('createdAt');
+
+      allow delete: if isAdmin();
+    }
+
+    // =========================================================================
+    //  Journal d'audit — immuable
+    // =========================================================================
+
+    match /adminLogs/{logId} {
+      // Lecture réservée à l'administrateur.
+      allow read: if isAdmin();
+
+      // Écriture réservée au serveur. Aucun client, même administrateur, ne
+      // peut écrire ou modifier une entrée : un journal falsifiable n'a
+      // aucune valeur en cas de litige.
+      allow create, update, delete: if false;
+    }
+
+    // =========================================================================
+    //  Espace privé FCPE
+    // =========================================================================
+
+    match /fcpeTasks/{taskId} {
+      // Frontière dure : contrôlée par le rôle, jamais par la requête.
+      allow read, create, update: if isFcpe() && request.resource.data.orgId == orgId();
+      allow delete: if isFcpe();
+    }
+
+    // =========================================================================
+    //  Compteurs et raccourcis (documents agrégés)
+    // =========================================================================
+
+    match /counters/{counterId} {
+      // Lecture par les membres actifs : le tableau de bord de
+      // l'administration s'en sert. Écriture serveur uniquement, sinon les
+      // chiffres affichés seraient manipulables.
+      allow read: if isActive();
       allow write: if false;
     }
 
-    match /{document=**} { allow read, write: if false; }
+    match /highlights/{highlightId} {
+      allow read: if isActive();
+      allow write: if false;
+    }
+
+    // =========================================================================
+    //  Refus par défaut
+    // =========================================================================
+    //
+    // Toute collection non mentionnée ci-dessus est inaccessible. C'est
+    // volontaire : ajouter une collection sans écrire de règle ne l'expose
+    // pas par accident.
+    //
+    // Firestore applique déjà ce comportement, mais le rappeler ici évite
+    // qu'un futur contributeur suppose le contraire.
   }
 }

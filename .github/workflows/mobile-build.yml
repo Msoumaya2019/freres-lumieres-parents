@@ -1,0 +1,179 @@
+# =============================================================================
+#  Builds mobiles iOS et Android via Expo Application Services
+# =============================================================================
+#
+#  DÉCLENCHEMENT MANUEL UNIQUEMENT.
+#
+#  Un build natif iOS + Android consomme du quota EAS et plusieurs dizaines de
+#  minutes. Le lancer automatiquement à chaque push serait un gaspillage : la
+#  majorité des commits ne mérite pas un binaire.
+#
+#  La CI standard (`ci.yml`) tourne à chaque pull request et vérifie déjà que
+#  le bundle se construit. Ce workflow-ci produit les binaires installables.
+#
+#  Utilisation : Actions → Mobile Build → Run workflow
+# =============================================================================
+
+name: Mobile Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: "Plateforme à construire"
+        required: true
+        default: android
+        type: choice
+        options:
+          - android
+          - ios
+          - all
+      profile:
+        description: "Profil EAS"
+        required: true
+        default: preview
+        type: choice
+        options:
+          - preview
+          - production
+      submit:
+        description: "Soumettre aux stores après le build (profil production uniquement)"
+        required: false
+        default: false
+        type: boolean
+
+  # Déclenchement automatique sur un tag de version, par exemple v1.0.0.
+  # C'est la voie recommandée pour une publication réelle.
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: mobile-build-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: EAS Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    outputs:
+      platform: ${{ steps.target.outputs.platform }}
+      profile: ${{ steps.target.outputs.profile }}
+
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v4
+
+      - name: Installer Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.22.2"
+          cache: npm
+
+      - name: Installer les dépendances
+        run: npm ci
+
+      - name: Compiler les packages partagés
+        run: npm run build:packages
+
+      - name: Installer EAS CLI
+        run: npm install --global eas-cli
+
+      - name: Vérifier la présence du jeton Expo
+        # Message explicite plutôt qu'un échec obscur : le jeton se configure
+        # dans Settings → Secrets and variables → Actions → EXPO_TOKEN.
+        run: |
+          if [ -z "${{ secrets.EXPO_TOKEN }}" ]; then
+            echo "::error::Le secret EXPO_TOKEN n'est pas configuré."
+            echo "Ajoutez-le dans Settings → Secrets and variables → Actions."
+            echo "Il se crée sur https://expo.dev/accounts/[compte]/settings/access-tokens"
+            exit 1
+          fi
+
+      - name: Déterminer la plateforme
+        id: target
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            # Sur un tag, on construit les deux plateformes en production.
+            echo "platform=all" >> "$GITHUB_OUTPUT"
+            echo "profile=production" >> "$GITHUB_OUTPUT"
+          else
+            echo "platform=${{ inputs.platform }}" >> "$GITHUB_OUTPUT"
+            echo "profile=${{ inputs.profile }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Lancer le build EAS
+        working-directory: apps/mobile
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        # `--non-interactive` : aucun prompt, ce qui est indispensable en CI.
+        # Les identifiants iOS et Android sont gérés par EAS et ne transitent
+        # jamais par ce dépôt.
+        run: |
+          eas build \
+            --platform ${{ steps.target.outputs.platform }} \
+            --profile ${{ steps.target.outputs.profile }} \
+            --non-interactive \
+            --no-wait
+
+      - name: Résumé
+        run: |
+          {
+            echo "### Build lancé"
+            echo ""
+            echo "| Paramètre | Valeur |"
+            echo "|---|---|"
+            echo "| Plateforme | \`${{ steps.target.outputs.platform }}\` |"
+            echo "| Profil | \`${{ steps.target.outputs.profile }}\` |"
+            echo "| Commit | \`${{ github.sha }}\` |"
+            echo ""
+            echo "Suivez l'avancement sur https://expo.dev/accounts/[compte]/projects/freres-lumieres/builds"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------
+  #  Soumission aux stores — uniquement pour le profil production
+  # ---------------------------------------------------------------------------
+  submit:
+    name: Soumission aux stores
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: build
+    if: ${{ github.event_name == 'push' || inputs.submit == true }}
+    environment: production
+
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v4
+
+      - name: Installer Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.22.2"
+          cache: npm
+
+      - name: Installer les dépendances
+        run: npm ci
+
+      - name: Installer EAS CLI
+        run: npm install --global eas-cli
+
+      - name: Soumettre aux stores
+        working-directory: apps/mobile
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          # La soumission automatique n'est activée que si les identifiants
+          # correspondants existent. Sinon, on s'arrête proprement : une
+          # publication sur les stores doit rester un acte délibéré.
+          if [ -z "${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT }}" ] && [ -z "${{ secrets.APPLE_APP_STORE_CONNECT_API_KEY }}" ]; then
+            echo "::warning::Aucun identifiant de soumission configuré. Étape ignorée."
+            exit 0
+          fi
+          eas submit \
+            --platform ${{ needs.build.outputs.platform || 'all' }} \
+            --profile production \
+            --non-interactive

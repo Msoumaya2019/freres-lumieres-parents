@@ -1,43 +1,44 @@
-import eslint from '@eslint/js';
-import reactHooks from 'eslint-plugin-react-hooks';
+import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 
+/**
+ * Configuration ESLint de base du monorepo.
+ *
+ * Volontairement minimale : elle ne fait pas de vérification de types
+ * (celle-ci est assurée par `npm run typecheck`), ce qui la rend rapide
+ * en CI. Chaque application peut l'étendre avec ses propres règles
+ * (par exemple `eslint-config-next` pour l'admin).
+ */
 export default tseslint.config(
   {
     ignores: [
-      '**/.expo/**',
-      '**/.next/**',
-      '**/coverage/**',
+      '**/node_modules/**',
       '**/dist/**',
       '**/lib/**',
-      '**/node_modules/**',
-      'work/**',
-      'outputs/**',
-      'apps/mobile/ios/**',
-      'apps/mobile/android/**',
-      '.firebase/**',
+      '**/.next/**',
+      '**/.expo/**',
+      '**/coverage/**',
+      '**/*.config.js',
+      '**/*.config.mjs',
+      '**/next-env.d.ts',
+      '**/expo-env.d.ts',
     ],
   },
-  eslint.configs.recommended,
-  ...tseslint.configs.recommendedTypeChecked,
+  js.configs.recommended,
+  ...tseslint.configs.recommended,
   {
-    files: ['**/*.{ts,tsx}'],
-    languageOptions: {
-      parserOptions: {
-        projectService: true,
-        tsconfigRootDir: import.meta.dirname,
-      },
-    },
-    plugins: { 'react-hooks': reactHooks },
     rules: {
-      ...reactHooks.configs.recommended.rules,
-      '@typescript-eslint/consistent-type-imports': 'error',
-      '@typescript-eslint/no-floating-promises': 'error',
-      '@typescript-eslint/no-misused-promises': 'error',
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
+      ],
+      '@typescript-eslint/consistent-type-imports': [
+        'error',
+        { prefer: 'type-imports', fixStyle: 'inline-type-imports' },
+      ],
+      'no-console': ['warn', { allow: ['warn', 'error', 'info'] }],
+      eqeqeq: ['error', 'always'],
+      'prefer-const': 'error',
     },
-  },
-  {
-    files: ['**/*.config.{js,mjs,cjs}', 'eslint.config.mjs'],
-    extends: [tseslint.configs.disableTypeChecked],
   },
 );

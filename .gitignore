@@ -1,58 +1,112 @@
-# Dependencies and generated output
-node_modules/
-work/
-outputs/
-.pnpm-store/
-.expo/
-.next/
-dist/
-lib/
-coverage/
-*.tsbuildinfo
-apps/mobile/ios/
-apps/mobile/android/
-apps/mobile/expo-env.d.ts
+# ---------------------------------------------------------------------------
+# .gitignore — dépôt PUBLIC
+# Règle d'or : tout ce qui suit ne doit JAMAIS être commité.
+# En cas de doute, on ignore. Il vaut mieux une variable à documenter
+# qu'un secret exposé publiquement.
+# ---------------------------------------------------------------------------
 
-# Firebase local state
-.firebase/
-firebase-debug.log*
-firestore-debug.log*
-ui-debug.log*
-
-# Environment and secrets (keep examples)
+# --- Secrets et environnement ---------------------------------------------
 .env
 .env.*
 !.env.example
-!.env.*.example
-*.local
+*.env.local
+*.env.*.local
+.env.development
+.env.production
+.env.test
+
+# --- Comptes de service / clés privées Firebase & Google -------------------
+serviceAccount*.json
 *service-account*.json
-*serviceAccount*.json
-firebase-adminsdk*.json
+*firebase-adminsdk*.json
 google-services.json
 GoogleService-Info.plist
-credentials.json
-secrets/
+google-services-*.json
+GoogleService-Info-*.plist
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+.firebase/
+firebase-export-*/
+firebase-export-metadata.json
 
-# Signing material
+# --- Signature mobile / certificats ---------------------------------------
 *.p12
 *.p8
-*.cer
+*.pem
+*.key
 *.mobileprovision
+*.provisionprofile
 *.jks
 *.keystore
+credentials.json
+*.cer
+*.csr
+*.certSigningRequest
 
-# Builds and archives
-*.ipa
-*.apk
-*.aab
-*.xcarchive
-Payload/
+# --- Tokens et credentials CI ---------------------------------------------
+.npmrc.local
+.sentryclirc
 
-# Editors and operating systems
+# --- Node ------------------------------------------------------------------
+node_modules/
+.npm/
+.pnpm-store/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnp.*
+*.tsbuildinfo
+
+# --- Expo / React Native ---------------------------------------------------
+.expo/
+.expo-shared/
+dist/
+web-build/
+ios/
+android/
+*.orig.*
+*.jks
+expo-env.d.ts
+
+# --- Next.js ---------------------------------------------------------------
+.next/
+out/
+.vercel
+.turbo
+
+# --- Cloud Functions -------------------------------------------------------
+functions/lib/
+functions/.env
+functions/.env.*
+!functions/.env.example
+
+# --- Tests / couverture ----------------------------------------------------
+coverage/
+.nyc_output/
+test-results/
+playwright-report/
+.firebase-emulator-data/
+
+# --- Éditeurs / OS ---------------------------------------------------------
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
 .DS_Store
 Thumbs.db
-.idea/
-.vscode/
+desktop.ini
 *.swp
-*.tmp
+*~
+
+# --- Divers ----------------------------------------------------------------
+.tmp/
+tmp/
+.cache/
 *.log
+
+# --- Outils d'assistance au développement ---------------------------------
+# Mémoire de session et données locales de l'assistant : n'a rien à faire
+# dans un dépôt public.
+.workbuddy-ai/
+.claude/

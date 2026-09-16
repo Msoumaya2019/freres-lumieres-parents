@@ -1,68 +1,219 @@
+# =============================================================================
+#  Intégration continue
+# =============================================================================
+#
+#  Déclenché à chaque push et à chaque pull request.
+#
+#  Principe : **si une étape échoue, la CI échoue.** Une pull request ne peut
+#  pas être fusionnée dans `main` tant que ce workflow n'est pas vert — ce qui
+#  suppose d'avoir activé la protection de branche (voir README, section CI).
+#
+#  Aucun secret n'est nécessaire : le build de l'administration fonctionne
+#  sans configuration Firebase, ce qui est une contrainte de conception
+#  volontaire (voir `apps/admin/src/lib/env.ts`).
+# =============================================================================
+
 name: CI
 
 on:
   push:
-    branches: ['main', 'feature/**', 'fix/**', 'chore/**']
+    branches: ["**"]
   pull_request:
+    branches: [main]
 
-permissions:
-  contents: read
-
+# Annule les exécutions précédentes sur la même branche : inutile de faire
+# tourner trois fois la même CI après trois commits rapprochés.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
+env:
+  # Version LTS fixe : une montée de version de Node ne doit jamais casser
+  # la CI sans qu'on l'ait décidé.
+  NODE_VERSION: "22.22.2"
+
 jobs:
+  # ---------------------------------------------------------------------------
+  #  Qualité du code : formatage, lint, types, tests unitaires
+  # ---------------------------------------------------------------------------
   quality:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    name: Format · Lint · Types · Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
     steps:
-      - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v4
 
-      - name: Set up pnpm
-        uses: pnpm/action-setup@f520eceda224fe1a4aed5a2a27a194379a409996 # v6
+      - name: Installer Node.js
+        uses: actions/setup-node@v4
         with:
-          version: 11.19.0
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
 
-      - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - name: Installer les dépendances
+        # `npm ci` exige un lockfile à jour et ne le modifie jamais : c'est ce
+        # qui garantit que la CI teste exactement les versions installées.
+        run: npm ci
+
+      - name: Compiler les packages partagés
+        # Indispensable avant le typecheck : les applications importent les
+        # packages compilés (dossier `dist`).
+        run: npm run build:packages
+
+      - name: Vérifier le formatage
+        run: npm run format:check
+
+      - name: ESLint
+        run: npm run lint
+
+      - name: Vérification des types
+        run: npm run typecheck
+
+      - name: Tests unitaires
+        run: npm run test
+
+  # ---------------------------------------------------------------------------
+  #  Build de l'interface d'administration
+  # ---------------------------------------------------------------------------
+  build-admin:
+    name: Build Web Admin
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: quality
+
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v4
+
+      - name: Installer Node.js
+        uses: actions/setup-node@v4
         with:
-          node-version: 22.23.2
-          cache: pnpm
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
 
-      - name: Set up Java for Firebase emulators
-        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+      - name: Installer les dépendances
+        run: npm ci
+
+      - name: Compiler les packages partagés
+        run: npm run build:packages
+
+      - name: Build de production
+        # Le build doit fonctionner SANS aucune variable d'environnement :
+        # c'est ce qui permet à la CI de tourner sans secret. L'interface
+        # affiche un écran de configuration explicite si elles manquent.
+        run: npm run build -w @fl/admin
+
+      - name: Archiver le build
+        uses: actions/upload-artifact@v4
+        with:
+          name: admin-build
+          path: apps/admin/.next
+          retention-days: 3
+          if-no-files-found: warn
+
+  # ---------------------------------------------------------------------------
+  #  Vérification de l'application Expo
+  # ---------------------------------------------------------------------------
+  mobile-check:
+    name: Vérification Expo
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: quality
+
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v4
+
+      - name: Installer Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Installer les dépendances
+        run: npm ci
+
+      - name: Compiler les packages partagés
+        run: npm run build:packages
+
+      - name: Vérification de la configuration Expo
+        working-directory: apps/mobile
+        run: npx expo config --type public > /dev/null
+
+      - name: Exporter le bundle Android
+        # Un export Metro résout l'intégralité des imports (monorepo, packages
+        # partagés, TypeScript) sans exiger le SDK Android ni Xcode, et en
+        # moins d'une minute. Un build natif complet n'apporterait rien de
+        # plus à chaque pull request.
+        working-directory: apps/mobile
+        run: npx expo export --platform android --output-dir /tmp/expo-export
+
+  # ---------------------------------------------------------------------------
+  #  Compilation des Cloud Functions
+  # ---------------------------------------------------------------------------
+  build-functions:
+    name: Build Cloud Functions
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: quality
+
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v4
+
+      - name: Installer Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Installer les dépendances
+        run: npm ci
+
+      - name: Compiler les packages partagés
+        run: npm run build:packages
+
+      - name: Compiler les fonctions
+        run: npm run build -w @fl/functions
+
+  # ---------------------------------------------------------------------------
+  #  Tests des règles de sécurité, sur émulateur Firebase
+  # ---------------------------------------------------------------------------
+  rules:
+    name: Tests des règles Firebase
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: quality
+
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v4
+
+      - name: Installer Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Installer Java (requis par les émulateurs Firebase)
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: "21"
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - name: Installer les dépendances
+        run: npm ci
 
-      - name: Check formatting
-        run: pnpm format:check
+      - name: Compiler les packages partagés
+        run: npm run build:packages
 
-      - name: Lint
-        run: pnpm lint
-
-      - name: Typecheck
-        run: pnpm typecheck
-
-      - name: Unit tests
-        run: pnpm test
-
-      - name: Firestore and Storage rules tests
-        run: pnpm test:rules:emulated
-
-      - name: Auth and user lifecycle integration tests
-        run: pnpm test:phase2:emulated
-
-      - name: Verify Expo dependency matrix
-        run: pnpm expo:check
-
-      - name: Verify public Expo configuration
-        run: pnpm expo:config
-
-      - name: Build every workspace
-        run: pnpm build
+      - name: Tester les règles sur émulateur
+        # Les émulateurs Firebase remplacent la base réelle : aucun quota
+        # n'est consommé, et aucune donnée de production n'est touchée.
+        run: npm run rules:test
+        env:
+          GCLOUD_PROJECT: freres-lumieres-dev

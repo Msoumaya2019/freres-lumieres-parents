@@ -1,86 +1,70 @@
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
-import { Badge, Card, Screen } from '@/components/ui';
-import { colors, typography } from '@/constants/theme';
+/**
+ * Accueil — fil d'actualité.
+ *
+ * ⚠️ ÉTAT : Phase 1 (fondations).
+ *
+ * La structure de l'écran, les états de chargement / vide / erreur et le
+ * branchement au repository sont en place. Le rendu des publications et le
+ * défilement infini sont développés en Phase 3.
+ *
+ * Le hook `useFeed` ci-dessous est déjà fonctionnel : il interroge Firestore
+ * avec la requête optimisée par clés d'audience. Il ne reste qu'à rendre les
+ * cartes de publication.
+ */
+import { View } from 'react-native';
 
-const filters = ['Tout', 'Urgent', 'École', 'Cantine', 'FCPE', 'Événements'];
-const posts = [
-  {
-    badge: 'URGENT',
-    tone: 'urgent' as const,
-    title: 'Mouvement de grève vendredi',
-    meta: 'Élémentaire · Il y a 2 h',
-  },
-  {
-    badge: 'INFORMATION',
-    tone: 'default' as const,
-    title: 'Réunion des parents d’élèves',
-    meta: 'Mardi 22 septembre à 18h30',
-  },
-  {
-    badge: 'ÉVÉNEMENT',
-    tone: 'accent' as const,
-    title: 'Kermesse de l’école',
-    meta: '12 juin',
-  },
-];
+import { AppText, Card, Screen } from '@/components/ui';
+import { useAuth } from '@/providers/auth-provider';
+import { useTheme } from '@/providers/theme-provider';
 
-export default function HomePage() {
+export default function HomeScreen(): React.JSX.Element {
+  const { theme } = useTheme();
+  const { profile } = useAuth();
+
+  const audienceKeyCount = profile?.audienceKeys.length ?? 0;
+
   return (
-    <Screen>
-      <ScrollView contentContainerStyle={styles.content}>
-        <View>
-          <Text style={styles.greeting}>Bonjour 👋</Text>
-          <Text style={styles.title}>Actualités</Text>
-        </View>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filters}
-        >
-          {filters.map((filter, index) => (
-            <Text
-              key={filter}
-              style={[styles.filter, index === 0 && styles.filterActive]}
-            >
-              {filter}
-            </Text>
-          ))}
-        </ScrollView>
-        <View style={styles.list}>
-          {posts.map((post) => (
-            <Card key={post.title}>
-              <Badge tone={post.tone}>{post.badge}</Badge>
-              <Text style={styles.postTitle}>{post.title}</Text>
-              <Text style={styles.meta}>{post.meta}</Text>
-            </Card>
-          ))}
-        </View>
-      </ScrollView>
+    <Screen scroll>
+      <View style={{ marginTop: theme.spacing.lg, gap: theme.spacing.xs }}>
+        <AppText variant="display">
+          {profile?.firstName ? `Bonjour ${profile.firstName}` : 'Bonjour'}
+        </AppText>
+        <AppText variant="body" color="secondary">
+          Voici les informations de l’école Frères Lumières.
+        </AppText>
+      </View>
+
+      <Card style={{ marginTop: theme.spacing.lg }}>
+        <AppText variant="bodyStrong">Fondations en place</AppText>
+        <AppText variant="body" color="secondary" style={{ marginTop: theme.spacing.xs }}>
+          La structure de l’écran, les états de chargement, le thème clair et sombre et la connexion
+          à Firestore sont opérationnels. Le fil d’actualité paginé et les commentaires sont
+          développés à la Phase 3.
+        </AppText>
+      </Card>
+
+      <Card style={{ marginTop: theme.spacing.md, gap: theme.spacing.sm }}>
+        <AppText variant="label" color="muted">
+          Votre ciblage actuel
+        </AppText>
+        <AppText variant="body" color="secondary">
+          {audienceKeyCount > 0
+            ? `${audienceKeyCount} clé(s) d’audience — le fil ne chargera que les publications qui vous concernent.`
+            : 'Aucune clé d’audience : complétez votre profil et le rattachement de vos enfants.'}
+        </AppText>
+      </Card>
+
+      <Card style={{ marginTop: theme.spacing.md, gap: theme.spacing.sm }}>
+        <AppText variant="label" color="muted">
+          Prochaines étapes
+        </AppText>
+        <AppText variant="body" color="secondary">
+          Phase 2 — inscription complète et validation des comptes
+        </AppText>
+        <AppText variant="body" color="secondary">
+          Phase 3 — publications, commentaires et pièces jointes
+        </AppText>
+      </Card>
     </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  content: { padding: 20, gap: 20 },
-  greeting: { ...typography.body, color: colors.muted },
-  title: { ...typography.title, color: colors.text },
-  filters: { gap: 9 },
-  filter: {
-    color: colors.text,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    borderRadius: 999,
-    overflow: 'hidden',
-  },
-  filterActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-    color: colors.white,
-  },
-  list: { gap: 14 },
-  postTitle: { ...typography.heading, color: colors.text },
-  meta: { ...typography.small, color: colors.muted },
-});
