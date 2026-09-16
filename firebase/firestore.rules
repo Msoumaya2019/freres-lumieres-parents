@@ -417,10 +417,54 @@ service cloud.firestore {
             && d.reportCount == 0;
         }
 
+        // Même correctif que pour les commentaires, et pour la même raison :
+        // une mise à jour est validée sur le **document entier** après fusion,
+        // donc une règle qui n'exige rien autorise la réécriture de tout. La
+        // version précédente (`authorId == uid || isModerator()`) laissait un
+        // auteur modifier `authorId` (usurpation — `authorName` est dénormalisé
+        // et affiché), `authorRole` (se faire passer pour la FCPE), `channelId`
+        // (désynchronisation avec le chemin parent), `reportCount`
+        // (dissimulation d'un signalement) ou `reactions`.
+        //
+        // `replyToId` et `replyToPreview` sont facultatifs et ne sont donc pas
+        // couverts : `unchanged()` lève une erreur sur un champ absent, et une
+        // erreur vaut refus — tout message sans réponse serait rejeté. Un auteur
+        // peut donc encore rattacher son message à un autre. Ce n'est pas une
+        // frontière de confidentialité (même canal, même audience), seulement un
+        // défaut d'intégrité, assumé tant que la messagerie n'est pas écrite.
+        function validOwnMessageEdit() {
+          let d = request.resource.data;
+          return isNonEmptyString(d.body, 2000)
+            && d.authorId == request.auth.uid
+            && d.channelId == channelId
+            && d.status in ['visible', 'deleted']
+            && unchanged('authorName')
+            && unchanged('authorRole')
+            && unchanged('attachments')
+            && unchanged('reactions')
+            && unchanged('reportCount')
+            && unchanged('createdAt');
+        }
+
+        // Modération : masquer, jamais réécrire. Le corps et l'auteur sont figés.
+        function validModerationEdit() {
+          return unchanged('body')
+            && unchanged('authorId')
+            && unchanged('authorName')
+            && unchanged('authorRole')
+            && unchanged('channelId')
+            && unchanged('attachments')
+            && unchanged('reportCount')
+            && unchanged('createdAt')
+            && request.resource.data.status in ['visible', 'hidden'];
+        }
+
         allow read: if isActive() && resource.data.status == 'visible';
         allow create: if isActive() && validMessage();
-        allow update: if (isActive() && resource.data.authorId == request.auth.uid)
-          || isModerator();
+        allow update: if (isActive()
+            && resource.data.authorId == request.auth.uid
+            && validOwnMessageEdit())
+          || (isModerator() && validModerationEdit());
         allow delete: if isAdmin();
       }
     }

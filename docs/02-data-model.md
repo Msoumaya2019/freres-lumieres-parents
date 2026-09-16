@@ -209,6 +209,12 @@ idempotent (un même appareil ne crée jamais deux entrées).
 `authorId`, `authorName`, `authorRole`, `body`, `parentId?`, `replyCount`,
 `reactions` (map emoji → compteur), `status`, `reportCount`, `createdAt`.
 
+`status` est un `ModeratedStatus` — `visible` | `hidden` | `deleted` — et non un
+`ContentStatus` : un commentaire ne connaît ni le brouillon ni l'archivage, et
+son état normal s'appelle `visible`. C'est aussi la valeur que filtrent la règle
+de lecture et `fetchComments` ; seul cet état compte donc dans
+`posts.stats.commentCount` (voir `functions/src/triggers/counters.ts`).
+
 En sous-collection : les commentaires ne sont jamais lus hors du contexte
 d'une publication, et la règle d'accès hérite naturellement de celle du post.
 
@@ -244,6 +250,17 @@ supprime que la sienne — c'est ce qui suffit à afficher l'état du bouton.
 > `stats` évite une requête par canal pour afficher l'aperçu du dernier
 > message. Sur 13 canaux, c'est 13 lectures économisées à chaque ouverture
 > de l'écran Discussions.
+
+#### `channels/{channelId}/messages/{messageId}`
+
+`channelId`, `authorId`, `authorName`, `authorRole`, `body`, `attachments`,
+`replyToId?`, `replyToPreview?`, `reactions`, `status`, `reportCount`, `createdAt`.
+
+`status` est un `ModeratedStatus` — `visible` | `hidden` | `deleted` — comme pour
+un commentaire : seule la valeur `visible` est lisible. La mise à jour suit le
+même régime à deux branches que les commentaires : l'auteur modifie son corps,
+`isModerator()` masque, et l'identité comme les compteurs sont figés par
+`unchanged()` (voir `04-security.md`).
 
 ### `polls/{pollId}` et `polls/{pollId}/votes/{voterKey}`
 

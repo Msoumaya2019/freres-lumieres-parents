@@ -152,6 +152,47 @@ function reactionDocument(overrides: Record<string, unknown> = {}) {
   };
 }
 
+/** Canal de discussion minimal mais complet. */
+function channelDocument(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'channel-1',
+    name: 'Vie de l’école',
+    type: 'school',
+    orgId: TEST_ORG,
+    audience: { type: 'all' },
+    audienceKeys: [`org:${TEST_ORG}`],
+    order: 1,
+    readOnly: false,
+    status: 'published',
+    stats: { messageCount: 0 },
+    createdAt: new Date('2026-09-01T08:00:00Z'),
+    ...overrides,
+  };
+}
+
+/**
+ * Message de canal, tel qu'un client l'écrirait.
+ *
+ * Comme pour les commentaires, `attachments` et `reactions` sont présents même
+ * vides : la règle de mise à jour les compare avec `unchanged()`, qui lève une
+ * erreur sur un champ absent.
+ */
+function messageDocument(overrides: Record<string, unknown> = {}) {
+  return {
+    channelId: 'channel-1',
+    authorId: UID.parent,
+    authorName: 'Camille Durand',
+    authorRole: 'parent',
+    body: 'Bonjour à tous.',
+    attachments: [],
+    reactions: {},
+    status: 'visible',
+    reportCount: 0,
+    createdAt: new Date('2026-09-04T08:00:00Z'),
+    ...overrides,
+  };
+}
+
 describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
   beforeAll(async () => {
     testEnv = await createRulesTestEnvironment();
@@ -240,6 +281,23 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
           UID.otherParent,
         ),
         reactionDocument({ uid: UID.otherParent }),
+      );
+
+      // Un canal et trois messages, dont un déjà signalé : sert à vérifier
+      // qu'un auteur ne peut ni usurper une identité, ni s'attribuer un rôle,
+      // ni effacer la trace d'un signalement.
+      await setDoc(doc(db, 'channels', 'channel-1'), channelDocument());
+      await setDoc(
+        doc(db, 'channels', 'channel-1', 'messages', 'message-du-parent'),
+        messageDocument(),
+      );
+      await setDoc(
+        doc(db, 'channels', 'channel-1', 'messages', 'message-de-la-fcpe'),
+        messageDocument({ authorId: UID.fcpe, authorName: 'FCPE', authorRole: 'fcpe' }),
+      );
+      await setDoc(
+        doc(db, 'channels', 'channel-1', 'messages', 'message-signale'),
+        messageDocument({ reportCount: 2 }),
       );
 
       await setDoc(doc(db, 'adminLogs', 'log-1'), {
@@ -819,6 +877,131 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
 
     it('personne ne retire la réaction d’un autre', async () => {
       await assertFails(deleteDoc(reaction(parent, UID.otherParent)));
+    });
+  });
+
+  describe('Messages', () => {
+    it('un membre actif lit un message visible', async () => {
+      await assertSucceeds(
+        getDoc(doc(parent.firestore(), 'channels', 'channel-1', 'messages', 'message-du-parent')),
+      );
+    });
+
+    it('un compte en attente ne lit aucun message', async () => {
+      await assertFails(
+        getDoc(doc(pending.firestore(), 'channels', 'channel-1', 'messages', 'message-du-parent')),
+      );
+    });
+
+    it('un membre actif écrit un message', async () => {
+      await assertSucceeds(
+        setDoc(
+          doc(parent.firestore(), 'channels', 'channel-1', 'messages', 'message-nouveau'),
+          messageDocument(),
+        ),
+      );
+    });
+
+    it('on n’écrit pas un message sous une autre identité', async () => {
+      await assertFails(
+        setDoc(
+          doc(parent.firestore(), 'channels', 'channel-1', 'messages', 'message-usurpe'),
+          messageDocument({ authorId: UID.otherParent }),
+        ),
+      );
+    });
+
+    it('l’auteur modifie le corps de son message', async () => {
+      await assertSucceeds(
+        updateDoc(
+          doc(parent.firestore(), 'channels', 'channel-1', 'messages', 'message-du-parent'),
+          { body: 'Bonjour, texte corrigé.' },
+        ),
+      );
+    });
+
+    it('l’auteur retire son propre message', async () => {
+      await assertSucceeds(
+        updateDoc(
+          doc(parent.firestore(), 'channels', 'channel-1', 'messages', 'message-du-parent'),
+          { status: 'deleted' },
+        ),
+      );
+    });
+
+    // Les quatre tests suivants reproduisent, pour les messages, la faille qui
+    // existait sur les commentaires : `allow update` n'exigeait rien sur le
+    // document écrit, et Firestore évalue le document **entier** après fusion.
+    it('l’auteur ne peut pas réécrire son message sous une autre identité', async () => {
+      await assertFails(
+        updateDoc(
+          doc(parent.firestore(), 'channels', 'channel-1', 'messages', 'message-du-parent'),
+          { authorId: UID.otherParent, authorName: 'Quelqu’un d’autre' },
+        ),
+      );
+    });
+
+    it('l’auteur ne peut pas s’attribuer un rôle', async () => {
+      await assertFails(
+        updateDoc(
+          doc(parent.firestore(), 'channels', 'channel-1', 'messages', 'message-du-parent'),
+          { authorRole: 'admin' },
+        ),
+      );
+    });
+
+    it('l’auteur ne peut pas rattacher son message à un autre canal', async () => {
+      await assertFails(
+        updateDoc(
+          doc(parent.firestore(), 'channels', 'channel-1', 'messages', 'message-du-parent'),
+          { channelId: 'channel-2' },
+        ),
+      );
+    });
+
+    it('l’auteur ne peut pas effacer un signalement', async () => {
+      await assertFails(
+        updateDoc(doc(parent.firestore(), 'channels', 'channel-1', 'messages', 'message-signale'), {
+          reportCount: 0,
+        }),
+      );
+    });
+
+    it('un modérateur masque le message d’un autre', async () => {
+      await assertSucceeds(
+        updateDoc(
+          doc(moderator.firestore(), 'channels', 'channel-1', 'messages', 'message-du-parent'),
+          { status: 'hidden' },
+        ),
+      );
+    });
+
+    it('un modérateur ne peut pas réécrire le corps', async () => {
+      // La modération masque, elle ne réécrit pas les propos d'un parent.
+      await assertFails(
+        updateDoc(
+          doc(moderator.firestore(), 'channels', 'channel-1', 'messages', 'message-du-parent'),
+          { body: 'Propos remplacés.' },
+        ),
+      );
+    });
+
+    it('un modérateur ne peut pas changer l’auteur', async () => {
+      await assertFails(
+        updateDoc(
+          doc(moderator.firestore(), 'channels', 'channel-1', 'messages', 'message-du-parent'),
+          { authorId: UID.moderator },
+        ),
+      );
+    });
+
+    it('un parent ne masque pas le message d’un autre', async () => {
+      await assertFails(
+        updateDoc(
+          doc(parent.firestore(), 'channels', 'channel-1', 'messages', 'message-de-la-fcpe'),
+          { status: 'hidden' },
+        ),
+      );
     });
   });
 

@@ -48,8 +48,24 @@ export type PostCategory =
   | 'conseil_ecole'
   | 'autre';
 
-/** Cycle de vie d'un contenu modérable (publication, commentaire, message). */
+/** Cycle de vie d'un contenu publié par la FCPE (publication, événement, document). */
 export type ContentStatus = 'draft' | 'published' | 'hidden' | 'deleted' | 'archived';
+
+/**
+ * Cycle de vie d'un contenu écrit par un membre (commentaire, message).
+ *
+ * Volontairement distinct de `ContentStatus`, qui ne décrit pas ce cas : un
+ * commentaire ne connaît ni le brouillon ni l'archivage — il naît visible ou
+ * n'existe pas — et son état normal s'appelle `visible`, mot absent de
+ * `ContentStatus`. Les règles Firestore s'appuient sur ce vocabulaire
+ * (`resource.data.status == 'visible'` pour la lecture) et les requêtes du
+ * client le filtrent à l'identique (`fetchComments`).
+ *
+ * Typer un commentaire en `ContentStatus` autorisait donc à écrire
+ * `comment.status === 'published'` : du code qui compile, passe la revue, et ne
+ * peut jamais être vrai. C'était le cas jusqu'ici.
+ */
+export type ModeratedStatus = 'visible' | 'hidden' | 'deleted';
 
 // ---------------------------------------------------------------------------
 // Audiences

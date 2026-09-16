@@ -128,10 +128,19 @@ export const onReportWritten = onDocumentWritten(
  *
  * ## Ce qui est compté
  *
- * Un commentaire supprimé est un **masquage** (`status: 'deleted'`), pas un
- * `delete` : sans le test sur `status`, masquer un commentaire ne décrémenterait
- * rien et le fil annoncerait un décompte trop élevé. La fonction compare l'état
- * avant et après plutôt que de recompter, comme `onReportWritten`.
+ * Un commentaire compte **s'il est visible** — exactement ce que `fetchComments`
+ * affiche (`where('status', '==', 'visible')`) et ce que la règle de lecture
+ * autorise. Un commentaire masqué par un modérateur (`hidden`) ou retiré par son
+ * auteur (`deleted`) ne compte donc plus : les compter annoncerait « 5
+ * commentaires » sous une publication qui n'en montre que 3.
+ *
+ * C'est une correction. La première version n'excluait que `deleted` et comptait
+ * donc les commentaires masqués : défendable dans l'idée qu'un masquage est
+ * réversible, faux au regard de la requête du fil. Le test
+ * `counters.test.ts` épingle désormais les trois états.
+ *
+ * Le delta est calculé à partir de l'état avant et après, jamais par recomptage,
+ * comme `onReportWritten`.
  *
  * ## Cascade
  *
@@ -145,7 +154,7 @@ export const onCommentWritten = onDocumentWritten(
     const before = event.data?.before.data();
     const after = event.data?.after.data();
 
-    const delta = (isCountedComment(after) ? 1 : 0) - (isCountedComment(before) ? 1 : 0);
+    const delta = commentCountDelta(before, after);
     if (delta === 0) return;
 
     const postId = event.params.postId;
@@ -192,12 +201,11 @@ export const onCommentReactionWritten = onDocumentWritten(
     const before = event.data?.before.data();
     const after = event.data?.after.data();
 
-    const beforeEmoji = reactionEmoji(before);
-    const afterEmoji = reactionEmoji(after);
+    const deltas = reactionDeltas(before, after);
 
-    // `unchanged` couvre le cas le plus fréquent : une réécriture identique
-    // (retry du client, fusion de deux écritures) ne doit rien modifier.
-    if (beforeEmoji === afterEmoji) return;
+    // Couvre le cas le plus fréquent : une réécriture identique (retry du
+    // client, fusion de deux écritures) ne doit rien modifier.
+    if (Object.keys(deltas).length === 0) return;
 
     const { postId, commentId } = event.params;
     const comment = adminDb().doc(paths.comment(postId, commentId));
@@ -211,25 +219,60 @@ export const onCommentReactionWritten = onDocumentWritten(
     }
 
     const updates: Record<string, FieldValue> = {};
-    if (beforeEmoji) updates[`reactions.${beforeEmoji}`] = FieldValue.increment(-1);
-    if (afterEmoji) updates[`reactions.${afterEmoji}`] = FieldValue.increment(1);
-
-    if (Object.keys(updates).length === 0) return;
+    for (const [emoji, delta] of Object.entries(deltas)) {
+      updates[`reactions.${emoji}`] = FieldValue.increment(delta);
+    }
 
     await comment.set(updates, { merge: true });
 
     logger.info('[onCommentReactionWritten] Décompte mis à jour', {
       postId,
       commentId,
-      beforeEmoji,
-      afterEmoji,
+      deltas,
     });
   },
 );
 
-/** Un commentaire compte tant qu'il n'est pas masqué. Un document absent ne compte pas. */
-function isCountedComment(data: DocumentData | undefined): boolean {
-  return data?.status !== undefined && data.status !== 'deleted';
+/**
+ * Variation du nombre de commentaires affichés.
+ *
+ * Extraite du déclencheur pour être testable sans émulateur : c'est ici que vit
+ * la règle métier — « seuls les commentaires visibles comptent » — et non dans
+ * la plomberie Firestore. C'est précisément cette règle qui était fausse dans la
+ * première version, et rien ne l'aurait signalé.
+ */
+export function commentCountDelta(
+  before: DocumentData | undefined,
+  after: DocumentData | undefined,
+): number {
+  return (isVisibleComment(after) ? 1 : 0) - (isVisibleComment(before) ? 1 : 0);
+}
+
+/**
+ * Variation du décompte par emoji.
+ *
+ * Retourne `{}` quand rien ne change. Un emoji hors liste est ignoré plutôt que
+ * compté : `@fl/shared` et les règles partagent la même liste, et une clé
+ * inventée ne doit pas apparaître dans le cache d'affichage.
+ */
+export function reactionDeltas(
+  before: DocumentData | undefined,
+  after: DocumentData | undefined,
+): Record<string, number> {
+  const previous = reactionEmoji(before);
+  const next = reactionEmoji(after);
+
+  if (previous === next) return {};
+
+  const deltas: Record<string, number> = {};
+  if (previous) deltas[previous] = (deltas[previous] ?? 0) - 1;
+  if (next) deltas[next] = (deltas[next] ?? 0) + 1;
+  return deltas;
+}
+
+/** Un commentaire n'est compté que s'il est visible — comme la requête du fil. */
+function isVisibleComment(data: DocumentData | undefined): boolean {
+  return data?.status === 'visible';
 }
 
 /** Emoji d'une réaction, ou `null` si absent ou hors liste. */

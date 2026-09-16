@@ -41,6 +41,7 @@ import type {
   FcpeTaskPriority,
   FcpeTaskStatus,
   IssueSupportValue,
+  ModeratedStatus,
   ModerationAction,
   ModerationReason,
   ModerationStatus,
@@ -286,7 +287,7 @@ export interface Comment extends Auditable {
   /** Réponses reçues, compteur dénormalisé. */
   replyCount: number;
   reactions: Readonly<Record<string, number>>;
-  status: ContentStatus;
+  status: ModeratedStatus;
   reportCount: number;
 }
 
@@ -333,7 +334,7 @@ export interface ChannelMessage extends Auditable {
   replyToId?: MessageId;
   replyToPreview?: string;
   reactions: Readonly<Record<string, number>>;
-  status: ContentStatus;
+  status: ModeratedStatus;
   reportCount: number;
 }
 

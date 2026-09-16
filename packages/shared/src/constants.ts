@@ -20,6 +20,7 @@ import type {
   FcpeTaskPriority,
   FcpeTaskStatus,
   IssueSupportValue,
+  ModeratedStatus,
   ModerationAction,
   ModerationReason,
   ModerationStatus,
@@ -126,6 +127,21 @@ export const CONTENT_STATUSES = [
   'deleted',
   'archived',
 ] as const satisfies readonly ContentStatus[];
+
+/**
+ * États d'un contenu écrit par un membre (commentaire, message).
+ *
+ * Distincts de `CONTENT_STATUSES` : un commentaire n'est ni brouillon ni
+ * archivé, et son état normal s'appelle `visible`. Ces trois valeurs sont
+ * recopiées dans `firebase/firestore.rules` (`d.status == 'visible'` pour la
+ * création, `in ['visible', 'hidden']` pour la modération) — une règle ne peut
+ * pas importer de constante TypeScript.
+ */
+export const MODERATED_STATUSES = [
+  'visible',
+  'hidden',
+  'deleted',
+] as const satisfies readonly ModeratedStatus[];
 
 export const AUDIENCE_TYPES = [
   'all',
