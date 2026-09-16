@@ -259,43 +259,25 @@ vitest. Il pointe maintenant sur un `tsconfig.test.json`, comme `@fl/shared`.
       rechargement suivant — sans quoi le bouton semblerait ne rien faire.
 - [ ] Compression des images avant upload
 - [x] Écran admin : créer, modifier, épingler une publication
-      **Le trou de règle annoncé ici est fermé.** La question à trancher — _un
-      membre de la FCPE peut-il épingler la publication d'un autre ?_ — était
-      déjà répondue par la matrice de permissions : `post.pin` est réservé à
-      `moderator` / `admin`. Un membre `fcpe` publie, mais n'épingle pas, **pas
-      même sa propre publication**. `allow update` est donc dédoublé :
-      - branche « auteur » (`isFcpe()` + `authorId == uid`) : corrige son texte,
-        et voit figés son identité, `stats`, `pinned`, `pinnedUntil`,
-        `notifiedAt` ;
-      - branche « modération » (`isModerator()`) : n'agit que sur `pinned`,
-        `pinnedUntil` et `status`, tout le reste figé — y compris `title`,
-        `body` et `attachments`. Un modérateur masque, il ne réécrit pas.
-
-      Deux défauts symétriques ont été corrigés au passage, tous deux du même
-      genre — une restriction qui n'existait que dans l'interface :
-      - `allow create` acceptait `pinned: true` d'un simple membre `fcpe` ;
-      - `authorRole` était libre, alors que le fil en affiche un badge : un
-        membre pouvait se présenter comme administrateur. Il est désormais
-        comparé au Custom Claim (`authorRole == role()`), à la création
-        seulement — à la mise à jour il est figé, et un membre promu entre-temps
-        doit pouvoir corriger ses anciennes publications.
-
-      **La lecture est scindée en `get` et `list`**, et ce n'est pas un détail :
-      une règle de requête doit être démontrable à partir des contraintes de la
-      requête. `get` est élargi à l'auteur (pour rouvrir un brouillon) et à la
-      modération (pour revenir sur un masquage) ; `list` reste borné à
-      `status == 'published'`. Conséquence assumée : **aucune liste ne peut
-      remonter un brouillon.**
-
-      L'éditeur n'offre donc **ni brouillon, ni épinglage, ni notification** :
-      un brouillon enregistré disparaîtrait aussitôt écrit, épingler est un acte
-      de modération qui se fait depuis la liste, et `notify` n'est lu par
-      personne. Trois cases à cocher qui ne feraient rien valent moins que trois
-      explications.
-      L'écran liste les publications de l'organisation **toutes audiences
-      confondues**, ce que le fil mobile ne peut pas faire : il filtre sur les
-      clés d'audience de celui qui regarde. Nouvelle requête, donc nouvel index
-      `orgId, status, publishedAt`.
+      **Le trou de règle annoncé ici est fermé.** La question laissée ouverte —
+      _un membre de la FCPE peut-il épingler la publication d'un autre ?_ —
+      était déjà tranchée par la matrice de permissions : `post.pin` est réservé
+      à `moderator` et `admin`. Un membre publie, mais n'épingle pas, pas même
+      son propre texte. `allow update` est dédoublé comme pour les commentaires :
+      la branche « auteur » corrige son texte, son identité, ses compteurs et son
+      épinglage étant figés ; la branche « modération » ne touche qu'à `pinned`,
+      `pinnedUntil` et `status`, tout le contenu figé — un modérateur masque, il
+      ne réécrit pas. Deux restrictions qui ne vivaient que dans l'interface sont
+      tombées au passage : `allow create` acceptait `pinned: true` d'un simple
+      membre, et `authorRole` était libre alors que le fil en affiche un badge.
+      La lecture est scindée en `get` (publié, auteur, ou modération) et `list`
+      (borné à `published`), parce qu'une règle de requête doit être démontrable
+      à partir des contraintes : **aucune liste ne peut donc remonter un
+      brouillon**. L'éditeur n'offre ni brouillon, ni épinglage, ni notification
+      — ce dernier point parce que `notify` n'est lu par personne. Enfin l'écran
+      liste les publications **toutes audiences confondues**, ce que le fil
+      mobile ne peut pas faire puisqu'il filtre sur les clés de celui qui
+      regarde : nouvelle requête, donc nouvel index `orgId, status, publishedAt`.
 - [x] Compteurs dénormalisés (`commentCount`, réactions d'un commentaire)
       **Trois déclencheurs** dans `functions/src/triggers/counters.ts` :
       signalements, `commentCount` d'une publication, décompte des réactions

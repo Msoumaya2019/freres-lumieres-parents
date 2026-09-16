@@ -122,6 +122,31 @@ chaque pull request.
 fonctionne sur les runners GitHub (Java préinstallé), et c'est le seul moyen
 de vérifier réellement les règles de sécurité avant la production.
 
+### Un document qui ne bloque pas l'étape de formatage
+
+L'étape 5 est celle qui échoue pour une raison qui n'a rien à voir avec le
+contenu : Prettier **ne converge pas** sur une entrée de liste qui contient
+**deux blocs de paragraphe de plusieurs lignes**. Il réclame alors une
+indentation toujours plus profonde pour le second bloc — 10 espaces, puis 14 au
+passage suivant — et `format:check` la signale à chaque exécution, quoi qu'on
+écrive.
+
+Le symptôme est trompeur : `prettier --write` annonce avoir réécrit le fichier,
+et `format:check` le signale aussitôt après. Ni les fins de ligne, ni l'encodage,
+ni une liste imbriquée ne sont en cause.
+
+La convention des documents de ce dépôt — **un seul bloc par entrée** — est donc
+aussi la seule qui tienne. Un paragraphe long est sans danger, et deux
+paragraphes d'une ligne chacun également.
+
+### La porte se lance sur l'état final
+
+`format:check` valide l'instant où on l'exécute, pas le contenu du commit.
+Éditer un fichier **après** l'avoir lancé, puis pousser sans relancer, fait
+échouer la CI sur un document qu'on croyait propre — et comme les travaux
+suivants déclarent `needs:`, ils sont **annulés en cascade** derrière. Un run
+entier a été perdu ainsi, pour un seul fichier.
+
 ### Protection de branche
 
 À activer dans `Settings → Branches → Branch protection rules` pour `main` :
