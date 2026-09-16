@@ -64,7 +64,9 @@ la CI**, et qu'il faut la surveiller de près.
 **Objectif :** un parent peut créer un compte, un administrateur peut le
 valider, et un compte non validé ne voit rien.
 
-- [ ] Configuration des deux projets Firebase (dev / prod) + émulateurs
+- [ ] Configuration des deux projets Firebase (dev / prod) + émulateurs — les
+      alias sont déclarés (`.firebaserc`) et les émulateurs vérifiés ; **les deux
+      projets restent à créer dans la console Firebase** (authentification requise)
 - [x] `packages/firebase` : initialisation, chemins, converters, repositories `users`
 - [x] Écran de connexion, d'inscription multi-étapes, de mot de passe oublié
 - [x] Formulaire d'inscription : identité, e-mail, mot de passe, enfants (école, classe)
@@ -77,7 +79,8 @@ valider, et un compte non validé ne voit rien.
 - [x] Client typé des fonctions d'administration (`@fl/firebase/functions/admin`)
 - [x] Tests : matrice de permissions, audiences, formatage, contrat des schémas
 - [x] Tests : Custom Claims (forme du jeton, replis d'échec fermé)
-- [ ] Tests des règles exécutés réellement — **réservé à la CI** (JDK 21 requis)
+- [x] Tests des règles exécutés réellement — **42 tests verts en CI**, émulateur
+      Firestore, 4 s (exécution `35109556293`)
 
 **Critère de sortie :** un compte `pending` reçoit `permission-denied` sur
 toute lecture de publication, y compris via un script direct.

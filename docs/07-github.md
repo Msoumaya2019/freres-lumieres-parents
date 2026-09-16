@@ -304,7 +304,17 @@ fréquente lors des publications — autant la déléguer.
 | développement | `freres-lumieres-dev`  | émulateurs, tests, données fictives |
 | production    | `freres-lumieres-prod` | données réelles                     |
 
-Le fichier `.firebaserc` définit les alias `dev` et `prod`.
+Le fichier `.firebaserc` définit les alias `dev` et `prod`. **Les alias vivent
+là et nulle part ailleurs** : `firebase-tools` ne lit que ce fichier
+(`lib/rc.js`, `projectUtils.js`, `commands/use.js`), jamais une clé `projects`
+de `firebase.json`. Une telle clé y serait inerte — elle donnerait l'illusion
+que la configuration est faite, alors que `firebase deploy` échouerait faute de
+projet actif et que `firebase use prod` viserait un projet littéralement nommé
+« prod ».
+
+Sans `.firebaserc`, les émulateurs démarrent quand même, mais sous le projet de
+démonstration `demo-no-project` : acceptable pour un essai isolé, trompeur pour
+un test qui croit viser `dev`.
 
 **Le développement n'utilise jamais la base de production.** Par défaut, les
 applications se connectent aux **émulateurs locaux**

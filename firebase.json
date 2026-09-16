@@ -1,10 +1,5 @@
 {
   "$schema": "https://json.schemastore.org/firebase-json",
-  "projects": {
-    "default": "freres-lumieres-dev",
-    "dev": "freres-lumieres-dev",
-    "prod": "freres-lumieres-prod"
-  },
   "firestore": {
     "rules": "firebase/firestore.rules",
     "indexes": "firebase/firestore.indexes.json"
