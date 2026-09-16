@@ -58,7 +58,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
   useEffect(() => {
     if (loading) return;
     const inAuthGroup = segments[0] === '(auth)';
-    const onStatus = inAuthGroup && String(segments[1]) === 'status';
+    const routeSegments: readonly string[] = segments;
+    const onStatus = inAuthGroup && routeSegments[1] === 'status';
     if (!firebaseUser && !inAuthGroup) router.replace('/(auth)/login');
     else if (firebaseUser && profile?.status === 'active' && inAuthGroup)
       router.replace('/(tabs)');
