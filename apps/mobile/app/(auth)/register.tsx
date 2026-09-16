@@ -23,8 +23,12 @@ interface ChildDraft {
   schoolId: string;
   levelId: string;
 }
+const configuredOrganizationId: unknown =
+  process.env.EXPO_PUBLIC_REGISTRATION_ORGANIZATION_ID;
 const organizationId =
-  process.env.EXPO_PUBLIC_REGISTRATION_ORGANIZATION_ID ?? 'freres-lumieres';
+  typeof configuredOrganizationId === 'string' && configuredOrganizationId
+    ? configuredOrganizationId
+    : 'freres-lumieres';
 
 export default function RegisterPage() {
   const [config, setConfig] = useState<RegistrationConfig | null>(null);
