@@ -25,7 +25,7 @@ import {
 } from 'firebase/firestore';
 
 import { buildAudienceKeys, isReactionEmoji, postInputSchema, type PostInput } from '@fl/shared';
-import type { Comment, Post, UserRole } from '@fl/types';
+import type { Comment, Post, PostCategory, UserRole } from '@fl/types';
 
 import { invalidArgument, toAppError } from '../errors.js';
 import { paginate, type FirestorePage } from '../pagination.js';
@@ -39,6 +39,15 @@ export interface FeedParams {
   orgId: string;
   /** Clés d'audience de l'utilisateur, calculées depuis son profil. */
   audienceKeys: readonly string[];
+  /**
+   * Filtre par catégorie, appliqué **par la requête** et non après coup.
+   *
+   * Filtrer côté client sur la page déjà chargée donnerait un état vide
+   * trompeur : « aucune publication en cantine » alors que la page suivante en
+   * contient. Le filtre doit donc faire partie de la requête, ce qui impose
+   * l'index composite correspondant (`firestore.indexes.json`).
+   */
+  category?: PostCategory;
   cursor?: QueryDocumentSnapshot | null;
   pageSize?: number;
 }
@@ -122,7 +131,7 @@ export function createPostRepository(db: Firestore): PostRepository {
   }
 
   function fetchFeed(params: FeedParams): Promise<FirestorePage<Post>> {
-    const { orgId, audienceKeys, cursor = null, pageSize = FEED_PAGE_SIZE } = params;
+    const { orgId, audienceKeys, category, cursor = null, pageSize = FEED_PAGE_SIZE } = params;
 
     if (audienceKeys.length === 0) {
       // Échec fermé : sans clé d'audience, aucune publication n'est visible.
@@ -141,6 +150,7 @@ export function createPostRepository(db: Firestore): PostRepository {
           // Le cœur du dispositif : une seule requête pour toutes les
           // audiences, grâce aux clés dénormalisées.
           where('audienceKeys', 'array-contains-any', [...audienceKeys]),
+          ...(category ? [where('category', '==', category)] : []),
           orderBy('publishedAt', 'desc'),
         ),
       mapDocument: mapPost,

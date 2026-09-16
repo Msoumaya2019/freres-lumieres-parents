@@ -1,30 +1,51 @@
 /**
  * Accueil — fil d'actualité.
  *
- * ⚠️ ÉTAT : Phase 1 (fondations).
+ * ## Ce qui défile, et ce qui ne défile pas
  *
- * La structure de l'écran, les états de chargement / vide / erreur et le
- * branchement au repository sont en place. Le rendu des publications et le
- * défilement infini sont développés en Phase 3.
+ * Le titre et le bandeau de catégories restent fixes ; les publications
+ * défilent dessous. Un filtre qu'il faut faire défiler pour atteindre n'est
+ * jamais utilisé : un parent qui ne voit pas le filtre conclut que l'application
+ * n'en a pas.
  *
- * Le hook `useFeed` ci-dessous est déjà fonctionnel : il interroge Firestore
- * avec la requête optimisée par clés d'audience. Il ne reste qu'à rendre les
- * cartes de publication.
+ * ## Les épinglés ne sont pas filtrés
+ *
+ * « À la une » vient d'une requête séparée, sans filtre de catégorie. Une
+ * information épinglée par la FCPE — une fermeture d'école, par exemple — doit
+ * rester visible même si le parent consulte la rubrique « Cantine ». Le filtre
+ * ne s'applique qu'au fil chronologique.
  */
+import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import { useCallback } from 'react';
 import { View } from 'react-native';
 
-import { AppText, Card, Screen } from '@/components/ui';
+import { POST_CATEGORY_LABELS, appErrorMessage } from '@fl/shared';
+import type { Post } from '@fl/types';
+
+import { CategoryFilter } from '@/components/feed/category-filter';
+import { FeedList } from '@/components/feed/feed-list';
+import { AppText, Screen } from '@/components/ui';
+import { EmptyState, ErrorState, LoadingView } from '@/components/ui/state-views';
+import { useFeed } from '@/hooks/use-feed';
 import { useAuth } from '@/providers/auth-provider';
 import { useTheme } from '@/providers/theme-provider';
 
 export default function HomeScreen(): React.JSX.Element {
   const { theme } = useTheme();
   const { profile } = useAuth();
+  const router = useRouter();
+  const feed = useFeed();
 
-  const audienceKeyCount = profile?.audienceKeys.length ?? 0;
+  const handlePressPost = useCallback(
+    (post: Post) => {
+      router.push(`/post/${post.id}`);
+    },
+    [router],
+  );
 
   return (
-    <Screen scroll>
+    <Screen>
       <View style={{ marginTop: theme.spacing.lg, gap: theme.spacing.xs }}>
         <AppText variant="display">
           {profile?.firstName ? `Bonjour ${profile.firstName}` : 'Bonjour'}
@@ -34,37 +55,81 @@ export default function HomeScreen(): React.JSX.Element {
         </AppText>
       </View>
 
-      <Card style={{ marginTop: theme.spacing.lg }}>
-        <AppText variant="bodyStrong">Fondations en place</AppText>
-        <AppText variant="body" color="secondary" style={{ marginTop: theme.spacing.xs }}>
-          La structure de l’écran, les états de chargement, le thème clair et sombre et la connexion
-          à Firestore sont opérationnels. Le fil d’actualité paginé et les commentaires sont
-          développés à la Phase 3.
-        </AppText>
-      </Card>
+      <View style={{ marginTop: theme.spacing.md }}>
+        <CategoryFilter value={feed.category} onChange={feed.setCategory} />
+      </View>
 
-      <Card style={{ marginTop: theme.spacing.md, gap: theme.spacing.sm }}>
-        <AppText variant="label" color="muted">
-          Votre ciblage actuel
-        </AppText>
-        <AppText variant="body" color="secondary">
-          {audienceKeyCount > 0
-            ? `${audienceKeyCount} clé(s) d’audience — le fil ne chargera que les publications qui vous concernent.`
-            : 'Aucune clé d’audience : complétez votre profil et le rattachement de vos enfants.'}
-        </AppText>
-      </Card>
-
-      <Card style={{ marginTop: theme.spacing.md, gap: theme.spacing.sm }}>
-        <AppText variant="label" color="muted">
-          Prochaines étapes
-        </AppText>
-        <AppText variant="body" color="secondary">
-          Phase 2 — inscription complète et validation des comptes
-        </AppText>
-        <AppText variant="body" color="secondary">
-          Phase 3 — publications, commentaires et pièces jointes
-        </AppText>
-      </Card>
+      {feed.error ? (
+        <ErrorState
+          message={appErrorMessage(feed.error)}
+          technicalDetail={feed.error.message}
+          onRetry={feed.retry}
+        />
+      ) : feed.status === 'ready' ? (
+        <FeedList
+          posts={feed.posts}
+          pinned={feed.pinned}
+          hasMore={feed.hasMore}
+          loadingMore={feed.loadingMore}
+          refreshing={feed.refreshing}
+          loadMoreError={feed.loadMoreError}
+          onRefresh={feed.refresh}
+          onLoadMore={feed.loadMore}
+          onPressPost={handlePressPost}
+          header={null}
+          emptyState={
+            <FeedEmptyState category={feed.category} hasPinned={feed.pinned.length > 0} />
+          }
+        />
+      ) : (
+        <LoadingView message="Chargement des publications…" />
+      )}
     </Screen>
+  );
+}
+
+/**
+ * Message affiché quand le fil est vide.
+ *
+ * Trois cas distincts, parce qu'ils appellent trois réactions différentes : une
+ * catégorie vide se règle en changeant de filtre, un fil vide alors que des
+ * publications sont épinglées veut dire qu'on a tout vu, et un fil entièrement
+ * vide est simplement une école qui n'a rien publié.
+ */
+function FeedEmptyState({
+  category,
+  hasPinned,
+}: {
+  category: Post['category'] | null;
+  hasPinned: boolean;
+}): React.JSX.Element {
+  const icon = <Ionicons name="newspaper-outline" size={40} color="#9AA3B2" />;
+
+  if (category) {
+    return (
+      <EmptyState
+        icon={icon}
+        title={`Aucune publication en ${POST_CATEGORY_LABELS[category].toLowerCase()}`}
+        description="Essayez une autre catégorie, ou revenez à « Tout » pour voir l’ensemble du fil."
+      />
+    );
+  }
+
+  if (hasPinned) {
+    return (
+      <EmptyState
+        icon={icon}
+        title="C’est tout pour l’instant"
+        description="Les prochaines publications apparaîtront ici."
+      />
+    );
+  }
+
+  return (
+    <EmptyState
+      icon={icon}
+      title="Aucune publication pour le moment"
+      description="Les informations publiées par l’école et la FCPE apparaîtront ici."
+    />
   );
 }

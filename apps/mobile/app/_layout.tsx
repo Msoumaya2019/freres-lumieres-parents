@@ -23,6 +23,17 @@ import { ThemeProvider, useTheme } from '@/providers/theme-provider';
 // L'écran de lancement reste affiché jusqu'à ce que la session soit connue.
 void SplashScreen.preventAutoHideAsync();
 
+/**
+ * Routes de détail ouvertes par-dessus les onglets.
+ *
+ * La redirection ci-dessous renvoie vers `(tabs)` tout ce qui n'est pas un
+ * onglet. Sans cette exception, ouvrir une publication la refermerait aussitôt.
+ * La liste est explicite plutôt que déduite d'un préfixe : une route oubliée
+ * ici se voit tout de suite, alors qu'une exception trop large laisserait
+ * passer n'importe quelle route ajoutée plus tard.
+ */
+const DETAIL_ROUTES: readonly string[] = ['post'];
+
 export default function RootLayout(): React.JSX.Element {
   return (
     <ThemeProvider>
@@ -72,6 +83,17 @@ function RootNavigator(): React.JSX.Element {
             headerTintColor: theme.colors.textPrimary,
           }}
         />
+        <Stack.Screen
+          name="post/[id]"
+          options={{
+            // En-tête natif : il apporte la flèche de retour et le geste de
+            // retour, sans qu'aucun écran ait à les réimplémenter.
+            headerShown: true,
+            title: 'Publication',
+            headerStyle: { backgroundColor: theme.colors.surface },
+            headerTintColor: theme.colors.textPrimary,
+          }}
+        />
         <Stack.Screen name="+not-found" />
       </Stack>
     </>
@@ -112,6 +134,7 @@ function useAuthRedirect({
     const inPendingGroup = currentGroup === '(pending)';
     const inTabsGroup = currentGroup === '(tabs)';
     const onConfigurationScreen = currentGroup === 'configuration';
+    const onDetailScreen = DETAIL_ROUTES.includes(currentGroup ?? '');
 
     if (status === 'unconfigured') {
       if (!onConfigurationScreen) router.replace('/configuration');
@@ -145,6 +168,6 @@ function useAuthRedirect({
       return;
     }
 
-    if (!inTabsGroup) router.replace('/(tabs)');
+    if (!inTabsGroup && !onDetailScreen) router.replace('/(tabs)');
   }, [status, accountStatus, profileResolved, segments, router]);
 }

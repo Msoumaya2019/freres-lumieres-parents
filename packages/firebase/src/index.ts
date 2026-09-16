@@ -19,6 +19,7 @@ export * from './config.js';
 export * from './converters.js';
 export * from './errors.js';
 export * from './pagination.js';
+export * from './storage.js';
 
 export * from './repositories/users.js';
 export * from './repositories/posts.js';

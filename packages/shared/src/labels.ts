@@ -7,6 +7,8 @@
  *     dupliquer ce fichier en `labels.en.ts` et d'indexer par locale.
  */
 import type {
+  AppError,
+  AppErrorCode,
   AudienceType,
   ChannelType,
   ClassLevel,
@@ -322,4 +324,38 @@ export function audienceLabel(audience: {
     case 'fcpe':
       return AUDIENCE_TYPE_LABELS.fcpe;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Erreurs
+// ---------------------------------------------------------------------------
+
+/**
+ * Message affichable à un parent, pour chaque code d'erreur.
+ *
+ * `AppError.message` est destiné aux journaux : il peut contenir un nom de
+ * collection, un code Firebase ou une phrase en anglais. L'afficher tel quel
+ * devant un parent ne lui apprend rien et l'inquiète. La traduction s'appuie
+ * donc sur le seul champ stable de l'erreur — son code — et se fait ici, une
+ * fois, pour le mobile comme pour l'administration.
+ *
+ * Le type est exhaustif : ajouter un code à `AppErrorCode` sans lui donner de
+ * message ici ne compile pas.
+ */
+export const APP_ERROR_MESSAGES: Record<AppErrorCode, string> = {
+  unauthenticated: 'Votre session a expiré. Reconnectez-vous pour continuer.',
+  'permission-denied': "Vous n'avez pas accès à cette information.",
+  'not-found': 'Cette information n’existe plus ou a été retirée.',
+  'already-exists': 'Cet élément existe déjà.',
+  'invalid-argument': 'La saisie est incomplète ou incorrecte.',
+  'failed-precondition': "L'action n'est pas possible en l'état.",
+  'resource-exhausted': 'Trop de demandes en peu de temps. Réessayez dans un instant.',
+  'rate-limited': 'Trop de tentatives. Patientez quelques minutes avant de réessayer.',
+  network: 'Connexion impossible. Vérifiez votre réseau, puis réessayez.',
+  unknown: 'Une erreur inattendue est survenue. Réessayez dans un instant.',
+};
+
+/** Message français associé à une erreur, sûr à afficher tel quel. */
+export function appErrorMessage(error: AppError): string {
+  return APP_ERROR_MESSAGES[error.code];
 }

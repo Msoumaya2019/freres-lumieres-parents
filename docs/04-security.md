@@ -215,6 +215,16 @@ Les chemins contiennent l'identifiant de l'organisation et le propriétaire,
 ce qui rend les règles simples et empêche de deviner l'emplacement d'un
 fichier d'une autre organisation.
 
+### L'URL de téléchargement n'est jamais stockée
+
+`Attachment.storagePath` porte le **chemin** du fichier, jamais son URL. Une URL
+de téléchargement Firebase contient un jeton qui rend le fichier lisible par
+quiconque la possède, **sans repasser par les règles Storage**. L'écrire dans
+Firestore reviendrait à publier la pièce jointe à tous ceux qui peuvent lire le
+document — y compris ceux que le ciblage par audience exclut du fil. Le chemin
+seul est durable ; l'URL est redemandée à l'affichage, et les règles Storage
+s'appliquent à ce moment-là (`packages/firebase/src/storage.ts`).
+
 ---
 
 ## 5. App Check

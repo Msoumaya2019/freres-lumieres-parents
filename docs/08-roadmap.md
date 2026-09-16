@@ -225,12 +225,31 @@ vitest. Il pointe maintenant sur un `tsconfig.test.json`, comme `@fl/shared`.
 
 ## Phase 3 — Accueil, publications, commentaires
 
-- [ ] Fil d'actualité paginé (10 par page, scroll infini)
-- [ ] Filtres par catégorie
-- [ ] Épinglage en tête
-- [ ] Détail d'une publication, pièces jointes, lien externe
+- [x] Fil d'actualité paginé (10 par page, scroll infini)
+      `useFeed` porte l'empreinte de la demande — organisation, catégorie, clés
+      d'audience — et un numéro de génération : changer deux fois de catégorie
+      en une seconde ne peut pas afficher la réponse de la première.
+- [x] Filtres par catégorie
+      Le filtre est appliqué **par la requête**, pas sur la page chargée : un
+      filtre client annoncerait « aucune publication en cantine » alors que la
+      page suivante en contient. Cela impose l'index composite
+      `orgId, status, category, audienceKeys, publishedAt` — les champs
+      d'égalité d'abord, le champ tableau ensuite, le tri en dernier.
+- [x] Épinglage en tête
+      Requête séparée, **non filtrée par catégorie** : une information épinglée
+      doit rester visible même quand le parent consulte une rubrique précise.
+      Les épinglés sont retirés du fil chronologique, sinon ils apparaîtraient
+      deux fois sur le même écran.
+- [x] Détail d'une publication, pièces jointes, lien externe
+      Les pièces jointes s'ouvrent via une URL de téléchargement demandée **au
+      moment du toucher** et jamais stockée (voir `docs/04-security.md`). Seuls
+      les liens `http`/`https` sont ouverts, même si le schéma les valide déjà.
 - [ ] Commentaires, réponses à un commentaire, réactions
-      _(modèle, règles et compteurs faits — voir ci-dessous ; les écrans restent à faire)_
+      _(modèle, règles et compteurs faits ; **lecture** faite : liste paginée,
+      réponses indentées ; restent l'écriture d'un commentaire et les réactions)_
+      Limite assumée : les réponses sont indentées dans la liste chronologique
+      au lieu d'être rattachées à leur parent, ce qui demanderait de charger le
+      parent — absent de la page une fois sur deux.
 - [ ] Compression des images avant upload
 - [ ] Écran admin : créer, modifier, épingler une publication
       **Trou connu dans les règles :** `allow update` sur `posts/{postId}` exige
