@@ -99,6 +99,30 @@ describe('Firestore security rules', () => {
     await assertFails(updateDoc(doc(db, 'users/parent-1'), { role: 'admin' }));
   });
 
+  it('keeps profile creation server-only while exposing active registration options', async () => {
+    await env.withSecurityRulesDisabled(async (context) =>
+      setDoc(doc(context.firestore(), 'registrationOptions/org-1'), {
+        active: true,
+        organizationId: 'org-1',
+        schools: [],
+      }),
+    );
+    const anonymous = env.unauthenticatedContext().firestore();
+    await assertSucceeds(getDoc(doc(anonymous, 'registrationOptions/org-1')));
+    const signedIn = env
+      .authenticatedContext('new-parent', { email: 'new@example.test' })
+      .firestore();
+    await assertFails(
+      setDoc(doc(signedIn, 'users/new-parent'), {
+        id: 'new-parent',
+        email: 'new@example.test',
+        role: 'parent',
+        status: 'pending',
+        organizationId: 'org-1',
+      }),
+    );
+  });
+
   it('blocks pending and suspended users from participation', async () => {
     await seed();
     for (const status of ['pending', 'suspended']) {

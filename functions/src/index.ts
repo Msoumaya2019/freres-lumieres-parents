@@ -34,6 +34,28 @@ function stringArrayField(
     : [];
 }
 
+function requiredText(
+  data: Record<string, unknown>,
+  key: string,
+  maxLength: number,
+): string {
+  const value = stringField(data, key).trim();
+  if (!value || value.length > maxLength)
+    throw new HttpsError('invalid-argument', `${key} est invalide.`);
+  return value;
+}
+
+function requiredId(data: Record<string, unknown>, key: string): string {
+  const value = requiredText(data, key, 128);
+  if (!/^[A-Za-z0-9_-]+$/.test(value))
+    throw new HttpsError('invalid-argument', `${key} est invalide.`);
+  return value;
+}
+
+function unique(values: string[]): string[] {
+  return [...new Set(values)];
+}
+
 function requireActiveRole(
   auth: { token: Record<string, unknown>; uid: string } | undefined,
   allowed: Role[],
@@ -93,29 +115,229 @@ async function claimsForUser(uid: string, role: Role, status: Status) {
   };
 }
 
-export const approveUser = onCall<Record<string, unknown>>(async (request) => {
-  const actor = requireActiveRole(request.auth, ['admin']);
+export const registerParentProfile = onCall<Record<string, unknown>>(
+  async (request) => {
+    if (!request.auth)
+      throw new HttpsError('unauthenticated', 'Authentification requise.');
+
+    const uid = request.auth.uid;
+    const authUser = await getAuth().getUser(uid);
+    const email = authUser.email;
+    if (!email)
+      throw new HttpsError('failed-precondition', 'Adresse email manquante.');
+
+    const data = asRecord(request.data);
+    const firstName = requiredText(data, 'firstName', 80);
+    const lastName = requiredText(data, 'lastName', 80);
+    const organizationId = requiredId(data, 'organizationId');
+    const rawChildren = data.children;
+    if (
+      !Array.isArray(rawChildren) ||
+      rawChildren.length < 1 ||
+      rawChildren.length > 5
+    )
+      throw new HttpsError(
+        'invalid-argument',
+        'Entre un et cinq enfants sont requis.',
+      );
+
+    const children = rawChildren.map((rawChild) => {
+      const child = asRecord(rawChild);
+      const rawClassId = stringField(child, 'classId').trim();
+      return {
+        schoolId: requiredId(child, 'schoolId'),
+        levelId: requiredId(child, 'levelId'),
+        classId: rawClassId ? requiredId(child, 'classId') : undefined,
+      };
+    });
+
+    const db = getFirestore();
+    const userRef = db.doc(`users/${uid}`);
+    const claims = await db.runTransaction(async (transaction) => {
+      const existing = await transaction.get(userRef);
+      if (existing.exists) {
+        const profile = asRecord(existing.data());
+        const rawRole = stringField(profile, 'role');
+        const rawStatus = stringField(profile, 'status');
+        return {
+          role: roles.includes(rawRole as Role) ? (rawRole as Role) : 'parent',
+          status: statuses.includes(rawStatus as Status)
+            ? (rawStatus as Status)
+            : 'pending',
+          organizationId: stringField(profile, 'organizationId'),
+          schoolIds: stringArrayField(profile, 'schoolIds'),
+          levelIds: stringArrayField(profile, 'levelIds'),
+          classIds: stringArrayField(profile, 'classIds'),
+        };
+      }
+
+      const optionsRef = db.doc(`registrationOptions/${organizationId}`);
+      const optionsSnapshot = await transaction.get(optionsRef);
+      const options = asRecord(optionsSnapshot.data());
+      if (!optionsSnapshot.exists || options.active !== true)
+        throw new HttpsError(
+          'failed-precondition',
+          'Inscriptions indisponibles.',
+        );
+
+      const schools = Array.isArray(options.schools) ? options.schools : [];
+      for (const child of children) {
+        const school = schools
+          .map(asRecord)
+          .find((entry) => stringField(entry, 'id') === child.schoolId);
+        const levels =
+          school && Array.isArray(school.levels) ? school.levels : [];
+        if (
+          !school ||
+          !levels
+            .map(asRecord)
+            .some((entry) => stringField(entry, 'id') === child.levelId)
+        ) {
+          throw new HttpsError(
+            'invalid-argument',
+            'Établissement ou niveau invalide.',
+          );
+        }
+      }
+
+      for (const child of children) {
+        if (!child.classId) continue;
+        const classSnapshot = await transaction.get(
+          db.doc(`classes/${child.classId}`),
+        );
+        const classData = asRecord(classSnapshot.data());
+        if (
+          !classSnapshot.exists ||
+          classData.active !== true ||
+          stringField(classData, 'organizationId') !== organizationId ||
+          stringField(classData, 'schoolId') !== child.schoolId ||
+          stringField(classData, 'levelId') !== child.levelId
+        ) {
+          throw new HttpsError('invalid-argument', 'Classe invalide.');
+        }
+      }
+
+      const now = FieldValue.serverTimestamp();
+      const schoolIds = unique(children.map((child) => child.schoolId));
+      const levelIds = unique(children.map((child) => child.levelId));
+      const classIds = unique(
+        children.flatMap((child) => (child.classId ? [child.classId] : [])),
+      );
+      transaction.create(userRef, {
+        id: uid,
+        firstName,
+        lastName,
+        email: email.toLowerCase(),
+        role: 'parent',
+        status: 'pending',
+        organizationId,
+        schoolIds,
+        levelIds,
+        classIds,
+        notificationPreferences: {},
+        createdAt: now,
+        updatedAt: now,
+      });
+      for (const child of children) {
+        const childRef = db.collection('childProfiles').doc();
+        transaction.create(childRef, {
+          id: childRef.id,
+          parentUserId: uid,
+          organizationId,
+          schoolId: child.schoolId,
+          levelId: child.levelId,
+          ...(child.classId ? { classId: child.classId } : {}),
+          createdAt: now,
+        });
+      }
+      return {
+        role: 'parent' as const,
+        status: 'pending' as const,
+        organizationId,
+        schoolIds,
+        levelIds,
+        classIds,
+      };
+    });
+
+    await getAuth().setCustomUserClaims(uid, claims);
+    return { ok: true, status: claims.status };
+  },
+);
+
+async function changeUserStatus(
+  actor: { token: Record<string, unknown>; uid: string },
+  uid: string,
+  status: Status,
+) {
+  if (uid === actor.uid)
+    throw new HttpsError(
+      'invalid-argument',
+      'Vous ne pouvez pas modifier votre propre statut.',
+    );
   const organizationId = actorOrganizationId(actor);
-  const data = asRecord(request.data);
-  const uid = stringField(data, 'uid');
-  if (!uid)
-    throw new HttpsError('invalid-argument', 'Identifiant utilisateur requis.');
-  const { ref } = await requireTargetInOrganization(
+  const { ref, target } = await requireTargetInOrganization(
     'users',
     uid,
     organizationId,
   );
-  await ref.update({
-    status: 'active',
-    updatedAt: FieldValue.serverTimestamp(),
-  });
+  const rawRole = target.role;
+  const role: Role =
+    typeof rawRole === 'string' && roles.includes(rawRole as Role)
+      ? (rawRole as Role)
+      : 'parent';
+  await ref.update({ status, updatedAt: FieldValue.serverTimestamp() });
   await getAuth().setCustomUserClaims(
     uid,
-    await claimsForUser(uid, 'parent', 'active'),
+    await claimsForUser(uid, role, status),
   );
-  await logAdminAction(actor.uid, organizationId, 'USER_APPROVED', 'user', uid);
+  const actions: Record<Status, string> = {
+    pending: 'USER_SET_PENDING',
+    active:
+      target.status === 'suspended' ? 'USER_REACTIVATED' : 'USER_APPROVED',
+    suspended: 'USER_SUSPENDED',
+    rejected: 'USER_REJECTED',
+  };
+  await logAdminAction(
+    actor.uid,
+    organizationId,
+    actions[status],
+    'user',
+    uid,
+    {
+      previousStatus: target.status,
+      status,
+    },
+  );
+}
+
+export const approveUser = onCall<Record<string, unknown>>(async (request) => {
+  const actor = requireActiveRole(request.auth, ['admin']);
+  const data = asRecord(request.data);
+  const uid = stringField(data, 'uid');
+  if (!uid)
+    throw new HttpsError('invalid-argument', 'Identifiant utilisateur requis.');
+  await changeUserStatus(actor, uid, 'active');
   return { ok: true };
 });
+
+export const setUserStatus = onCall<Record<string, unknown>>(
+  async (request) => {
+    const actor = requireActiveRole(request.auth, ['admin']);
+    const data = asRecord(request.data);
+    const uid = stringField(data, 'uid');
+    const status = data.status;
+    if (
+      !uid ||
+      typeof status !== 'string' ||
+      !statuses.includes(status as Status)
+    ) {
+      throw new HttpsError('invalid-argument', 'Statut utilisateur invalide.');
+    }
+    await changeUserStatus(actor, uid, status as Status);
+    return { ok: true };
+  },
+);
 
 export const setUserRole = onCall<Record<string, unknown>>(async (request) => {
   const actor = requireActiveRole(request.auth, ['admin']);

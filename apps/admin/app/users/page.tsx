@@ -1,9 +1,5 @@
-import { SectionPage } from '../_components/section-page';
+import { UsersManager } from '@/components/users-manager';
+
 export default function Page() {
-  return (
-    <SectionPage
-      title="Utilisateurs"
-      description="Valider les inscriptions et gérer les accès."
-    />
-  );
+  return <UsersManager />;
 }

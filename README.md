@@ -4,7 +4,7 @@
 
 Application iOS/Android destinée aux parents des écoles Frères Lumières à Montmagny, accompagnée d’une interface Web d’administration FCPE. Le dépôt est conçu pour être public sans exposer de secret ni de donnée réelle.
 
-> État : Phase 1 — architecture et fondations. Les écrans affichent uniquement des données fictives; la Phase 2 n’a pas commencé.
+> État : Phase 2 — authentification, inscription parent, validation des comptes et gestion des utilisateurs. Les modules éditoriaux restent réservés aux phases suivantes.
 
 ## Architecture
 
@@ -41,6 +41,7 @@ pnpm lint
 pnpm typecheck
 pnpm test                # tests unitaires rapides
 pnpm test:rules:emulated # lance Firestore/Storage et les tests de Rules
+pnpm test:phase2:emulated # teste Auth + Functions + cycle d'approbation
 pnpm build
 pnpm emulators
 pnpm seed:demo           # lance Auth/Firestore, injecte le jeu fictif puis s'arrête
@@ -56,7 +57,7 @@ pnpm --filter @flp/mobile ios
 pnpm --filter @flp/mobile web
 ```
 
-Routes Phase 1 : Connexion, Inscription, Accueil, Discussions, Créer, Agenda et Profil. Safe Area, thème système, navigation par onglets et bases d’accessibilité sont présents.
+Les parcours Connexion, Mot de passe oublié, Inscription, Statut du compte et Profil sont fonctionnels. Une session active ouvre les onglets; un compte en attente, suspendu ou refusé reste sur l’écran de statut. La direction visuelle est centralisée dans `apps/mobile/constants/theme.ts` : fond crème, vert profond, couleurs sémantiques par catégorie, typographie et élévations réutilisables. Les modules Accueil, Discussions, Créer et Agenda restent des fondations de navigation jusqu’aux phases métier correspondantes.
 
 Les dossiers `ios/` et `android/` sont générés par Expo Prebuild et ne sont pas versionnés. Les personnalisations natives futures devront utiliser des config plugins.
 
@@ -68,6 +69,8 @@ pnpm --filter @flp/admin dev
 
 Routes : `/login`, `/dashboard`, `/publications`, `/users`, `/moderation`, `/reports`, `/polls`, `/events`, `/documents`, `/school-councils`, `/settings`.
 
+La connexion admin et la route `/users` sont fonctionnelles. L’interface permet la recherche, le filtrage, l’approbation, la suspension, le refus, la réactivation et le changement de rôle. Les mutations passent par des Cloud Functions; le garde client améliore la navigation mais ne constitue pas une frontière de sécurité.
+
 ## Firebase et émulateurs
 
 ```bash
@@ -78,7 +81,7 @@ Pour créer séparément un jeu de démonstration éphémère, exécuter `pnpm s
 
 L’UI Emulator est disponible sur `http://127.0.0.1:4000`. Le seed refuse de s’exécuter sans hôtes Auth/Firestore Emulator et sans identifiant `demo-*`.
 
-Environnements prévus : `freres-lumieres-dev` et `freres-lumieres-prod`. Aucun projet réel n’est lié en Phase 1.
+Le seed crée un administrateur actif, un parent actif, un parent en attente, les écoles, niveaux et options publiques d’inscription de démonstration. Environnements prévus : `freres-lumieres-dev` et `freres-lumieres-prod`. Aucun projet réel n’est lié automatiquement.
 
 ## Tests et qualité
 
@@ -86,6 +89,7 @@ Environnements prévus : `freres-lumieres-dev` et `freres-lumieres-prod`. Aucun
 - ESLint flat config et Prettier.
 - Tests unitaires de la matrice de permissions.
 - Tests Firestore/Storage Rules avec Emulator Suite.
+- Test d’intégration du cycle inscription → attente → approbation avec Auth, Firestore et Functions Emulator.
 - CI : format, lint, types, tests, règles, Expo config et builds.
 
 ## Build iOS non signé

@@ -28,6 +28,40 @@ export const userSchema = z.object({
   updatedAt: dateValue,
 });
 
+export const loginSchema = z.object({
+  email: z.email('Saisissez une adresse email valide.').trim().max(254),
+  password: z.string().min(1, 'Saisissez votre mot de passe.'),
+});
+
+export const childRegistrationSchema = z.object({
+  schoolId: id,
+  levelId: id,
+  classId: id.optional(),
+});
+
+export const registrationProfileSchema = z.object({
+  firstName: z.string().trim().min(2).max(80),
+  lastName: z.string().trim().min(2).max(80),
+  organizationId: id,
+  children: z.array(childRegistrationSchema).min(1).max(5),
+});
+
+export const registrationSchema = registrationProfileSchema.extend({
+  email: z.email('Saisissez une adresse email valide.').trim().max(254),
+  password: z
+    .string()
+    .min(12, 'Le mot de passe doit contenir au moins 12 caractères.')
+    .max(128)
+    .regex(/[a-z]/, 'Ajoutez une lettre minuscule.')
+    .regex(/[A-Z]/, 'Ajoutez une lettre majuscule.')
+    .regex(/[0-9]/, 'Ajoutez un chiffre.'),
+});
+
+export type RegistrationInput = z.infer<typeof registrationSchema>;
+export type RegistrationProfileInput = z.infer<
+  typeof registrationProfileSchema
+>;
+
 export const postSchema = z.object({
   id,
   organizationId: id,

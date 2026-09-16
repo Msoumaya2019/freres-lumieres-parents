@@ -11,7 +11,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { colors, shadow, typography } from '@/constants/theme';
+import { colors, radii, shadow, typography } from '@/constants/theme';
 
 export function Screen({ children }: PropsWithChildren) {
   return <SafeAreaView style={styles.screen}>{children}</SafeAreaView>;
@@ -20,8 +20,25 @@ export function Screen({ children }: PropsWithChildren) {
 export function Card({
   children,
   style,
-}: PropsWithChildren<{ style?: ViewStyle }>) {
-  return <View style={[styles.card, style]}>{children}</View>;
+  tone = 'default',
+}: PropsWithChildren<{
+  style?: ViewStyle;
+  tone?: 'default' | 'success' | 'warning' | 'danger' | 'warm';
+}>) {
+  return (
+    <View
+      style={[
+        styles.card,
+        tone === 'success' && styles.cardSuccess,
+        tone === 'warning' && styles.cardWarning,
+        tone === 'danger' && styles.cardDanger,
+        tone === 'warm' && styles.cardWarm,
+        style,
+      ]}
+    >
+      {children}
+    </View>
+  );
 }
 
 export function Badge({
@@ -45,26 +62,37 @@ export function Button({
   label,
   onPress,
   secondary = false,
+  disabled = false,
+  loading = false,
 }: {
   label: string;
   onPress?: () => void;
   secondary?: boolean;
+  disabled?: boolean;
+  loading?: boolean;
 }) {
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityState={{ disabled: disabled || loading, busy: loading }}
+      disabled={disabled || loading}
       onPress={onPress}
       style={({ pressed }) => [
         styles.button,
         secondary && styles.buttonSecondary,
+        (disabled || loading) && styles.buttonDisabled,
         pressed && styles.pressed,
       ]}
     >
-      <Text
-        style={[styles.buttonText, secondary && styles.buttonSecondaryText]}
-      >
-        {label}
-      </Text>
+      {loading ? (
+        <ActivityIndicator color={secondary ? colors.primary : colors.white} />
+      ) : (
+        <Text
+          style={[styles.buttonText, secondary && styles.buttonSecondaryText]}
+        >
+          {label}
+        </Text>
+      )}
     </Pressable>
   );
 }
@@ -157,13 +185,17 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
   card: {
     backgroundColor: colors.surface,
-    borderRadius: 18,
+    borderRadius: radii.lg,
     borderWidth: 1,
     borderColor: colors.border,
     padding: 18,
     gap: 8,
     ...shadow,
   },
+  cardSuccess: { backgroundColor: colors.infoSoft, borderColor: '#CAE4D4' },
+  cardWarning: { backgroundColor: colors.accentSoft, borderColor: '#F3D98D' },
+  cardDanger: { backgroundColor: colors.urgentSoft, borderColor: '#F4C5CA' },
+  cardWarm: { backgroundColor: colors.peachSoft, borderColor: colors.peach },
   badge: {
     alignSelf: 'flex-start',
     backgroundColor: colors.primarySoft,
@@ -179,13 +211,14 @@ const styles = StyleSheet.create({
   badgeAccent: { backgroundColor: '#FFF2D9', color: '#7B4D08' },
   button: {
     minHeight: 50,
-    borderRadius: 14,
+    borderRadius: radii.md,
     backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 18,
   },
   buttonSecondary: { backgroundColor: colors.primarySoft },
+  buttonDisabled: { opacity: 0.55 },
   buttonText: { color: colors.white, fontSize: 16, fontWeight: '700' },
   buttonSecondaryText: { color: colors.primary },
   pressed: { opacity: 0.76 },
@@ -195,7 +228,7 @@ const styles = StyleSheet.create({
     minHeight: 50,
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 14,
+    borderRadius: radii.md,
     paddingHorizontal: 15,
     backgroundColor: colors.surface,
     color: colors.text,

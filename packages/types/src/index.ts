@@ -68,6 +68,28 @@ export interface ClassGroup {
   active: boolean;
 }
 
+export interface SchoolLevel {
+  id: EntityId;
+  organizationId: EntityId;
+  schoolId: EntityId;
+  name: string;
+  order: number;
+  active: boolean;
+}
+
+export interface RegistrationOption {
+  id: EntityId;
+  name: string;
+  levels: Array<{ id: EntityId; name: string }>;
+}
+
+export interface RegistrationConfig {
+  organizationId: EntityId;
+  organizationName: string;
+  active: boolean;
+  schools: RegistrationOption[];
+}
+
 export interface Post {
   id: EntityId;
   organizationId: EntityId;
@@ -253,6 +275,9 @@ export interface Notification {
 export type AdminLogAction =
   | 'USER_APPROVED'
   | 'USER_SUSPENDED'
+  | 'USER_REACTIVATED'
+  | 'USER_REJECTED'
+  | 'USER_SET_PENDING'
   | 'ROLE_CHANGED'
   | 'POST_HIDDEN'
   | 'POST_DELETED'

@@ -14,6 +14,7 @@
 | Collection                  | Rôle                                     | Accès principal                                       | Pagination/index                    |
 | --------------------------- | ---------------------------------------- | ----------------------------------------------------- | ----------------------------------- |
 | `users`                     | profil, rôle miroir, statut, préférences | soi-même; admin en lecture; mutation sensible serveur | statut + date                       |
+| `registrationOptions`       | écoles/niveaux ouverts à l’inscription   | lecture publique active; écriture serveur             | identifiant organisation            |
 | `organizations`             | tenant                                   | membres actifs                                        | slug                                |
 | `schools`                   | établissements                           | membres de l’organisation                             | organisation                        |
 | `classes`                   | classes/année scolaire                   | membres de l’organisation                             | école + année                       |
@@ -47,6 +48,12 @@ type Audience =
 ```
 
 Les requêtes clientes doivent inclure les contraintes compatibles avec les règles. Firestore ne filtre pas après coup : une requête potentiellement capable de retourner un document interdit est rejetée.
+
+## Inscription minimale
+
+`registrationOptions/{organizationId}` est la seule donnée lisible avant authentification, et uniquement si `active == true`. Elle ne contient que le nom public de l’organisation, les écoles et les niveaux proposés. La Function d’inscription revalide chaque identifiant contre ce document; une classe optionnelle doit en plus exister dans `classes` et correspondre à la même organisation, école et niveau.
+
+Le profil enfant ne contient aucun nom : `parentUserId`, `organizationId`, `schoolId`, `levelId` et éventuellement `classId`. La création directe de `users` est interdite par les Rules afin d’éviter l’auto-attribution d’audiences.
 
 ## Pagination
 

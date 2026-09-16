@@ -1,4 +1,4 @@
-# Architecture — Phase 1
+# Architecture — Phase 2
 
 ## Décision
 
@@ -15,7 +15,21 @@ functions         Cloud Functions Node.js 22
 firebase          règles et index
 ```
 
-Les besoins fonctionnels du cahier des charges sont conservés. Les phases suivantes les implémenteront sans remplacer les fondations de sécurité.
+Les besoins fonctionnels du cahier des charges sont conservés. La Phase 2 rend opérationnels l’authentification, l’inscription et le cycle de validation sans remplacer les fondations de sécurité.
+
+## Parcours d’identité
+
+1. Firebase Auth crée l’identité email/mot de passe.
+2. La Function `registerParentProfile` valide les options d’inscription et crée atomiquement le profil parent `pending` et les rattachements enfants minimaux.
+3. Le client persiste la session dans AsyncStorage, observe le profil et dirige l’utilisateur vers les onglets ou l’écran de statut.
+4. Un administrateur actif approuve, suspend, refuse ou réactive le compte via une Function callable.
+5. La Function met à jour le document, reconstruit les Custom Claims depuis Firestore et journalise l’action.
+
+Une nouvelle invocation d’inscription pour un profil existant reprend les données serveur pour les claims : les audiences fournies par le client ne peuvent pas écraser un profil existant. Toute classe optionnelle est vérifiée côté serveur contre son organisation, son école et son niveau.
+
+## Design system mobile
+
+La direction graphique est centralisée dans `apps/mobile/constants/theme.ts`. Les écrans de Phase 2 utilisent les mêmes tokens de couleurs, espacements, rayons, typographie, ombres et états sémantiques. Cette évolution reste strictement présentative : les règles métier, les routes protégées et les contrôles serveur sont indépendants du thème.
 
 ## Choix majeurs et impacts
 

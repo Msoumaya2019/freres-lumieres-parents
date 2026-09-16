@@ -55,6 +55,9 @@ jobs:
       - name: Firestore and Storage rules tests
         run: pnpm test:rules:emulated
 
+      - name: Auth and user lifecycle integration tests
+        run: pnpm test:phase2:emulated
+
       - name: Verify Expo dependency matrix
         run: pnpm expo:check
 

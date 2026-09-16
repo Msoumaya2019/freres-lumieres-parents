@@ -5,6 +5,7 @@
     "lib": ["dom", "dom.iterable", "esnext"],
     "module": "esnext",
     "moduleResolution": "bundler",
+    "paths": { "@/*": ["./*"] },
     "noEmit": true,
     "plugins": [{ "name": "next" }],
     "target": "ES2017"

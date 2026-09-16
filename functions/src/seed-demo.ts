@@ -25,6 +25,7 @@ const users = [
     firstName: 'Mohamed',
     lastName: 'Parent',
     role: 'parent',
+    status: 'active',
   },
   {
     uid: 'demo-admin',
@@ -32,6 +33,15 @@ const users = [
     firstName: 'Camille',
     lastName: 'Admin',
     role: 'admin',
+    status: 'active',
+  },
+  {
+    uid: 'demo-pending',
+    email: 'pending@example.test',
+    firstName: 'Sofia',
+    lastName: 'En attente',
+    role: 'parent',
+    status: 'pending',
   },
 ];
 
@@ -48,7 +58,7 @@ for (const user of users) {
   }
   await auth.setCustomUserClaims(user.uid, {
     role: user.role,
-    status: 'active',
+    status: user.status,
     organizationId,
     schoolIds: ['elementary'],
     levelIds: ['ce1'],
@@ -57,7 +67,7 @@ for (const user of users) {
   await db.doc(`users/${user.uid}`).set({
     ...user,
     id: user.uid,
-    status: 'active',
+    status: user.status,
     organizationId,
     schoolIds: ['elementary'],
     levelIds: ['ce1'],
@@ -81,6 +91,56 @@ await db.doc('schools/elementary').set({
   type: 'elementary',
   active: true,
 });
+await db.doc('schools/kindergarten').set({
+  id: 'kindergarten',
+  organizationId,
+  name: 'École maternelle Frères Lumières',
+  type: 'kindergarten',
+  active: true,
+});
+
+const registrationSchools = [
+  {
+    id: 'kindergarten',
+    name: 'École maternelle Frères Lumières',
+    levels: [
+      { id: 'ps', name: 'Petite Section' },
+      { id: 'ms', name: 'Moyenne Section' },
+      { id: 'gs', name: 'Grande Section' },
+    ],
+  },
+  {
+    id: 'elementary',
+    name: 'École élémentaire Frères Lumières',
+    levels: [
+      { id: 'cp', name: 'CP' },
+      { id: 'ce1', name: 'CE1' },
+      { id: 'ce2', name: 'CE2' },
+      { id: 'cm1', name: 'CM1' },
+      { id: 'cm2', name: 'CM2' },
+    ],
+  },
+];
+
+await db.doc(`registrationOptions/${organizationId}`).set({
+  organizationId,
+  organizationName: 'Groupe scolaire Frères Lumières',
+  active: true,
+  schools: registrationSchools,
+  updatedAt: FieldValue.serverTimestamp(),
+});
+
+for (const school of registrationSchools) {
+  for (const [order, level] of school.levels.entries()) {
+    await db.doc(`levels/${level.id}`).set({
+      ...level,
+      organizationId,
+      schoolId: school.id,
+      order,
+      active: true,
+    });
+  }
+}
 await db.doc('posts/demo-greve').set({
   id: 'demo-greve',
   organizationId,

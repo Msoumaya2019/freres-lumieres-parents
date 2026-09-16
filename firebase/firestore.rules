@@ -27,12 +27,8 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow create: if signedIn() && request.auth.uid == userId
-        && request.resource.data.id == userId
-        && request.resource.data.role == 'parent'
-        && request.resource.data.status == 'pending'
-        && request.resource.data.email == request.auth.token.email
-        && request.resource.data.keys().hasOnly(['id', 'firstName', 'lastName', 'email', 'role', 'status', 'organizationId', 'schoolIds', 'levelIds', 'classIds', 'notificationPreferences', 'createdAt', 'updatedAt']);
+      // Creation, status and role mutations pass through callable Functions.
+      allow create: if false;
       allow read: if signedIn() && (request.auth.uid == userId || roleIn(['admin']));
       allow update: if signedIn() && request.auth.uid == userId
         && status() in ['pending', 'active'] && immutableIdentityFields();
@@ -43,11 +39,19 @@ service cloud.firestore {
       allow read: if active() && id == organizationId();
       allow write: if false;
     }
+    match /registrationOptions/{id} {
+      allow read: if resource.data.active == true;
+      allow write: if false;
+    }
     match /schools/{id} {
       allow read: if active() && sameOrganization(resource.data);
       allow write: if false;
     }
     match /classes/{id} {
+      allow read: if active() && sameOrganization(resource.data);
+      allow write: if false;
+    }
+    match /levels/{id} {
       allow read: if active() && sameOrganization(resource.data);
       allow write: if false;
     }

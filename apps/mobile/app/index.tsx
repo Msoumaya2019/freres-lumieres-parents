@@ -1,5 +1,9 @@
-import { Redirect } from 'expo-router';
+import { LoadingState, Screen } from '@/components/ui';
 
 export default function IndexPage() {
-  return <Redirect href="/(tabs)" />;
+  return (
+    <Screen>
+      <LoadingState label="Ouverture de votre espace…" />
+    </Screen>
+  );
 }

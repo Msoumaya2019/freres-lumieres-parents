@@ -37,3 +37,5 @@ La matrice exécutable se trouve dans `packages/shared`. Firestore et Storage tr
 ```
 
 Seules les Cloud Functions écrivent ces claims. Après une approbation ou un changement de rôle, le client doit forcer le rafraîchissement du token. Le document `users/{uid}` reste la source métier; les claims sont une projection d’autorisation compacte.
+
+L’état `pending` est posé à l’inscription; `suspended` et `rejected` coupent immédiatement les permissions applicatives au prochain rafraîchissement du token. L’administration peut approuver, réactiver, suspendre ou refuser un autre compte de la même organisation. Un administrateur ne peut pas modifier son propre statut depuis cette Function.
