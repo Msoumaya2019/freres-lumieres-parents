@@ -113,8 +113,22 @@ service cloud.firestore {
       return value is string && value.size() > 0 && value.size() <= maxLength;
     }
 
-    function isOptionalString(value, maxLength) {
-      return !(value is string) || value.size() <= maxLength;
+    // Champ facultatif : absent, ou une chaîne d'au plus `maxLength`.
+    //
+    // Le test de présence est indispensable, et `keeps` juste au-dessus en
+    // donne le motif. Écrire `d.linkUrl` directement lève « Property linkUrl is
+    // undefined on object » quand le champ est absent — et une erreur vaut
+    // refus. Une publication sans lien externe serait donc systématiquement
+    // rejetée, alors que `linkUrl` est facultatif dans le modèle.
+    //
+    // La forme précédente, `!(value is string) || …`, ne pouvait pas être
+    // corrigée en gardant `value` : sans le nom du champ, la présence est
+    // indécidable. Elle acceptait de surcroît n'importe quelle valeur non
+    // textuelle, un nombre par exemple.
+    function isOptionalString(field, maxLength) {
+      return !(field in request.resource.data)
+        || (request.resource.data[field] is string
+          && request.resource.data[field].size() <= maxLength);
     }
 
     // Contenu publié par la FCPE : lecture pour tout membre actif de
@@ -257,7 +271,7 @@ service cloud.firestore {
           // maintenus par les Cloud Functions.
           && d.stats.commentCount is int
           && d.stats.commentCount >= 0
-          && isOptionalString(d.linkUrl, 2048);
+          && isOptionalString('linkUrl', 2048);
       }
 
       // Lecture : tout membre actif de la même organisation.

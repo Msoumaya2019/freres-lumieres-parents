@@ -2,12 +2,29 @@
  * Tests des règles Firestore.
  *
  * Chaque test correspond à une frontière de sécurité annoncée dans
- * `docs/04-security.md`. Si l'un d'eux échoue, ce n'est pas le test qu'il faut
- * corriger : c'est la règle.
+ * `docs/04-security.md`.
  *
- * Les cas de refus sont testés au même titre que les cas d'autorisation. Un
- * test qui ne vérifierait que les autorisations continuerait de passer si la
- * règle était supprimée — il ne protégerait donc rien.
+ * ## Quand un test échoue
+ *
+ * Un échec signifie que **la règle et le test ne disent pas la même chose** —
+ * pas que la règle a tort. Il faut trancher en regardant le modèle de domaine :
+ *
+ *  - la règle est trop permissive ou trop stricte au regard de
+ *    `@fl/types` → corriger la règle ;
+ *  - le fixture ne décrit pas une donnée valide → corriger le fixture.
+ *
+ * Ce fichier a déjà connu le second cas : `postDocument()` omettait le champ
+ * `audience`, obligatoire sur `Post`. Le seul test d'écriture qui attendait un
+ * succès échouait donc, alors que les règles étaient justes. Les supprimer
+ * aurait été la mauvaise réaction.
+ *
+ * ## Les cas de refus se testent aussi
+ *
+ * Un test qui ne vérifierait que les autorisations continuerait de passer si la
+ * règle était supprimée — il ne protégerait donc rien. Attention toutefois :
+ * `assertFails` passe dès que l'écriture est refusée, **quelle qu'en soit la
+ * raison**. Un fixture invalide rend donc un test de refus complaisant. D'où
+ * l'importance que chaque fixture soit une donnée réellement valide.
  *
  * ## Exécution
  *
@@ -81,6 +98,15 @@ function postDocument(overrides: Record<string, unknown> = {}) {
     status: 'published',
     orgId: TEST_ORG,
     authorId: UID.fcpe,
+    // `audience` et `audienceKeys` doivent être cohérents : les règles exigent
+    // les deux, et `buildAudienceKeys({ type: 'all' }, orgId)` produit
+    // exactement la clé ci-dessous.
+    //
+    // La correspondance est écrite en dur plutôt que calculée en appelant
+    // `buildAudienceKeys`. Un fixture qui dériverait ses valeurs du code
+    // applicatif passerait au vert même si ce code était faux : le test ne
+    // prouverait alors plus rien sur la donnée réellement écrite.
+    audience: { type: 'all' },
     audienceKeys: [`org:${TEST_ORG}`],
     stats: { commentCount: 0, reactionCount: 0 },
     publishedAt: new Date('2026-09-01T10:00:00Z'),
@@ -312,6 +338,25 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
 
     it('un parent ne peut pas se donner un rôle supérieur', async () => {
       await assertFails(updateDoc(doc(parent.firestore(), 'users', UID.parent), { role: 'admin' }));
+    });
+
+    it('un nouveau compte ne peut pas créer son profil déjà activé', async () => {
+      // L'escalade la plus directe, et elle ne passe pas par `update` : créer
+      // d'emblée un profil `active` au lieu de le modifier ensuite. Les règles
+      // de création exigent `status == 'pending'` et `role == 'parent'`, quel
+      // que soit ce que le client envoie.
+      const db = testEnv.authenticatedContext('nouveau-compte', CLAIMS.pending).firestore();
+      await assertFails(setDoc(doc(db, 'users', 'nouveau-compte'), userDocument('nouveau-compte')));
+    });
+
+    it('un nouveau compte peut créer son profil en attente de validation', async () => {
+      // Le pendant positif, et le premier pas de l'inscription : si cette
+      // écriture échouait, personne ne pourrait s'inscrire. Un test de refus
+      // seul ne détecterait pas une règle devenue trop stricte.
+      const db = testEnv.authenticatedContext('nouveau-compte', CLAIMS.pending).firestore();
+      await assertSucceeds(
+        setDoc(doc(db, 'users', 'nouveau-compte'), userDocument('nouveau-compte', 'pending')),
+      );
     });
 
     it('un parent peut modifier ses informations personnelles', async () => {
