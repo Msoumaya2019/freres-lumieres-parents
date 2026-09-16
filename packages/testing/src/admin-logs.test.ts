@@ -94,6 +94,16 @@ const NB_OBSERVEES = 60;
 const NB_TEMOINS = 15;
 const TOTAL = NB_OBSERVEES + NB_TEMOINS;
 
+/**
+ * Nombre de cibles distinctes visées par les entrées.
+ *
+ * Volontairement petit : plusieurs entrées doivent partager la même cible,
+ * sinon le filtre « tout ce qui est arrivé à cette ressource » ne serait
+ * éprouvé que sur des ensembles d'un seul élément, où un filtre absent se
+ * confond avec un filtre juste.
+ */
+const NB_CIBLES = 5;
+
 /** Instant de référence. Les entrées s'échelonnent à la minute, donc uniques. */
 const ORIGINE = Date.UTC(2026, 8, 1, 8, 0, 0);
 
@@ -112,6 +122,12 @@ function rangDe(entree: AdminLog): number {
  */
 function rangsAttendus(premier: number, nombre: number): number[] {
   return Array.from({ length: nombre }, (_, index) => premier + nombre - 1 - index);
+}
+
+/** Rangs visés par une cible donnée, du plus récent au plus ancien. */
+function rangsDeCible(cible: number): number[] {
+  const nombre = TOTAL / NB_CIBLES;
+  return Array.from({ length: nombre }, (_, index) => (nombre - 1 - index) * NB_CIBLES + cible);
 }
 
 describe.skipIf(!EMULATOR_AVAILABLE)('Repository du journal d’audit', () => {
@@ -140,7 +156,10 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Repository du journal d’audit', () => {
           actorRole: 'admin',
           action: observee ? ACTION_OBSERVEE : ACTION_TEMOIN,
           targetType: 'user',
-          targetId: `cible-${String(rang)}`,
+          // Cinq cibles seulement, pour que plusieurs entrées partagent la
+          // même : un compte qui a reçu plusieurs décisions est le cas réel
+          // d'une fiche de détail, et c'est celui qui doit être éprouvé.
+          targetId: `cible-${rang % NB_CIBLES}`,
           metadata: { rang },
           // Le serveur écrit un horodatage ; ici il est explicite, pour que
           // l'ordre attendu soit une donnée du test et non une coïncidence.
@@ -276,6 +295,63 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Repository du journal d’audit', () => {
         const depot = depotDe(context.firestore());
 
         const page = await depot.list({ kind: 'action', action: ACTION_ABSENTE });
+
+        expect(page.items).toEqual([]);
+        expect(page.hasMore).toBe(false);
+        expect(page.nextCursor).toBeNull();
+      });
+    });
+  });
+
+  describe('filtré par ressource visée', () => {
+    /** Ce qu'une fiche de compte demande : tout ce qui est arrivé à ce compte. */
+    const filtreCible: AdminLogFilter = {
+      kind: 'target',
+      targetType: 'user',
+      targetId: 'cible-0',
+    };
+
+    it('rend toutes les entrées d’une même cible, et elles seules', async () => {
+      const { ids, rangs } = await parcourir(filtreCible);
+
+      expect(ids).toHaveLength(TOTAL / NB_CIBLES);
+      expect(rangs).toEqual(rangsDeCible(0));
+    });
+
+    it('suit la cible demandée plutôt qu’une cible figée', async () => {
+      // Comme pour l'action : un identifiant codé en dur passerait le test
+      // précédent sans difficulté.
+      const { rangs } = await parcourir({
+        kind: 'target',
+        targetType: 'user',
+        targetId: 'cible-1',
+      });
+
+      expect(rangs).toEqual(rangsDeCible(1));
+    });
+
+    it('distingue le type de ressource, pas seulement son identifiant', async () => {
+      // Deux ressources de types différents peuvent porter le même
+      // identifiant : sans le type dans la requête, une publication
+      // afficherait l'historique d'un compte.
+      const { ids } = await parcourir({
+        kind: 'target',
+        targetType: 'post',
+        targetId: 'cible-0',
+      });
+
+      expect(ids).toEqual([]);
+    });
+
+    it('rend une page vide et annonce la fin pour une cible inconnue', async () => {
+      await testEnv.withSecurityRulesDisabled(async (context) => {
+        const depot = depotDe(context.firestore());
+
+        const page = await depot.list({
+          kind: 'target',
+          targetType: 'user',
+          targetId: 'cible-inexistante',
+        });
 
         expect(page.items).toEqual([]);
         expect(page.hasMore).toBe(false);

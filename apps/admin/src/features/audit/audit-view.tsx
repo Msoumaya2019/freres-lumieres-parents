@@ -29,7 +29,12 @@
 import type { QueryDocumentSnapshot } from 'firebase/firestore';
 import { useEffect, useMemo, useState } from 'react';
 
-import { createAdminLogRepository, userMessage, type AdminLogFilter } from '@fl/firebase';
+import {
+  appendPage,
+  createAdminLogRepository,
+  userMessage,
+  type AdminLogFilter,
+} from '@fl/firebase';
 import {
   ADMIN_ACTIONS,
   USER_ROLE_LABELS,
@@ -87,8 +92,15 @@ export function AuditView(): React.JSX.Element {
 
   const cle = fingerprint(filter);
 
+  // Le rôle est vérifié avant de lancer la requête, et pas seulement avant
+  // l'affichage : sans cela, un membre de la FCPE qui ouvre `/journal`
+  // déclencherait une lecture que les règles refusent — une requête perdue et
+  // une erreur de permission dans la console, pour un écran qui n'affichera
+  // jamais rien d'autre que le panneau ci-dessous.
+  const canRead = hasPermission(role, 'audit.read');
+
   useEffect(() => {
-    if (!repository) return;
+    if (!repository || !canRead) return;
 
     let cancelled = false;
     // L'empreinte est calculée ici, à partir de `filter` : l'effet ne dépend
@@ -116,7 +128,7 @@ export function AuditView(): React.JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, [repository, filter, reloadToken]);
+  }, [repository, canRead, filter, reloadToken]);
 
   /**
    * La page affichée est celle du filtre courant.
@@ -153,7 +165,7 @@ export function AuditView(): React.JSX.Element {
               ...previous,
               // Le journal est en ajout seul : un doublon reste possible si une
               // entrée est écrite pendant la pagination.
-              items: dedupe(previous.items, next.items),
+              items: appendPage(previous.items, next),
               cursor: next.nextCursor,
               hasMore: next.hasMore,
             }
@@ -169,7 +181,7 @@ export function AuditView(): React.JSX.Element {
   // Le menu masque déjà la section aux rôles sans `audit.read`, mais une
   // adresse saisie à la main y mène quand même. Mieux vaut une phrase qu'un
   // écran vide, ou qu'une erreur de permission brute.
-  if (!hasPermission(role, 'audit.read')) {
+  if (!canRead) {
     return (
       <div className="rounded-lg border border-border bg-surface p-6">
         <h1 className="text-lg font-semibold text-foreground">Journal réservé</h1>
@@ -275,12 +287,6 @@ export function AuditView(): React.JSX.Element {
       ) : null}
     </div>
   );
-}
-
-/** Ajoute une page à la suite, sans réintroduire un identifiant déjà présent. */
-function dedupe(current: readonly AdminLog[], next: readonly AdminLog[]): AdminLog[] {
-  const seen = new Set(current.map((entry) => entry.id));
-  return [...current, ...next.filter((entry) => !seen.has(entry.id))];
 }
 
 // ---------------------------------------------------------------------------

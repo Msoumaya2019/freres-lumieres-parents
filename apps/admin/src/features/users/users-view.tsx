@@ -27,6 +27,7 @@
  * dizaines de documents et garantit que ce qui est affiché existe vraiment.
  */
 import type { QueryDocumentSnapshot } from 'firebase/firestore';
+import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 
 import {
@@ -38,19 +39,12 @@ import {
 import { CLASS_LEVEL_LABELS, USER_STATUS_LABELS, formatDateTime, hasPermission } from '@fl/shared';
 import type { UserProfile, UserStatus } from '@fl/types';
 
+import { UserStatusBadge } from '@/components/user-status-badge';
 import { initializeFirebase } from '@/lib/firebase';
 import { useAdminAuth } from '@/providers/auth-provider';
 
 /** Statuts proposés comme filtres, dans l'ordre du cycle de vie d'un compte. */
 const FILTERS: readonly UserStatus[] = ['pending', 'active', 'suspended', 'rejected'];
-
-/** Style de la pastille de statut, aligné sur les jetons de thème. */
-const STATUS_TONES: Record<UserStatus, string> = {
-  pending: 'bg-warning-soft text-warning',
-  active: 'bg-success-soft text-success',
-  suspended: 'bg-danger-soft text-danger',
-  rejected: 'bg-surface-muted text-muted',
-};
 
 /** Une page de la file, rattachée au filtre qui l'a produite. */
 interface QueuePage {
@@ -423,12 +417,15 @@ function UserCard({
     <article className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4 sm:flex-row sm:items-start sm:justify-between">
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
-          <p className="font-semibold text-foreground">
+          {/* Le nom mène à la fiche : la file suffit à traiter une demande,
+              mais pas à en vérifier une. */}
+          <Link
+            href={`/utilisateurs/${user.id}`}
+            className="font-semibold text-foreground underline-offset-4 hover:underline"
+          >
             {user.firstName} {user.lastName}
-          </p>
-          <span className={`rounded px-2 py-0.5 text-xs font-medium ${STATUS_TONES[user.status]}`}>
-            {USER_STATUS_LABELS[user.status]}
-          </span>
+          </Link>
+          <UserStatusBadge status={user.status} />
         </div>
 
         <p className="mt-1 truncate text-sm text-secondary">{user.email}</p>

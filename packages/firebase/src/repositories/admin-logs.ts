@@ -16,16 +16,19 @@
  * découvre qu'en production, devant un écran vide.
  *
  * Le filtre est donc une union fermée dont chaque variante correspond à un
- * index. Aujourd'hui seul `action` est proposé à l'écran ; `actorId` et
- * `targetType + targetId` — « tout ce qui est arrivé à ce compte » — sont prêts
- * pour les fiches de détail, et s'ajoutent ici en trois lignes le jour venu.
+ * index. Deux sont utilisées : `action` par la consultation du journal, et
+ * `targetType + targetId` par la fiche d'un compte, qui affiche ce qui lui est
+ * arrivé. `actorId` — « ce qu'a fait cet administrateur » — reste disponible
+ * pour une future fiche d'équipe, et s'ajoute ici en trois lignes.
  */
 import {
   collection,
   orderBy,
   query,
   where,
+  type DocumentData,
   type Firestore,
+  type Query,
   type QueryDocumentSnapshot,
 } from 'firebase/firestore';
 
@@ -42,7 +45,9 @@ export type AdminLogFilter =
   /** Tout le journal, de la plus récente entrée à la plus ancienne. */
   | { readonly kind: 'all' }
   /** Les entrées d'un type d'action donné. */
-  | { readonly kind: 'action'; readonly action: AdminAction };
+  | { readonly kind: 'action'; readonly action: AdminAction }
+  /** Tout ce qui est arrivé à une ressource : un compte, une publication… */
+  | { readonly kind: 'target'; readonly targetType: string; readonly targetId: string };
 
 export interface AdminLogRepository {
   /** Page du journal, de l'entrée la plus récente à la plus ancienne. */
@@ -59,6 +64,22 @@ export function createAdminLogRepository(db: Firestore): AdminLogRepository {
     return { ...(snapshot.data() as Omit<AdminLog, 'id'>), id: snapshot.id };
   }
 
+  function buildQuery(filter: AdminLogFilter): Query<DocumentData> {
+    switch (filter.kind) {
+      case 'action':
+        return query(logsCollection, where('action', '==', filter.action), orderBy('at', 'desc'));
+      case 'target':
+        return query(
+          logsCollection,
+          where('targetType', '==', filter.targetType),
+          where('targetId', '==', filter.targetId),
+          orderBy('at', 'desc'),
+        );
+      case 'all':
+        return query(logsCollection, orderBy('at', 'desc'));
+    }
+  }
+
   function list(
     filter: AdminLogFilter,
     cursor: QueryDocumentSnapshot | null = null,
@@ -66,10 +87,7 @@ export function createAdminLogRepository(db: Firestore): AdminLogRepository {
     return paginate<AdminLog>({
       pageSize: ADMIN_LOGS_PAGE_SIZE,
       cursor,
-      buildQuery: () =>
-        filter.kind === 'action'
-          ? query(logsCollection, where('action', '==', filter.action), orderBy('at', 'desc'))
-          : query(logsCollection, orderBy('at', 'desc')),
+      buildQuery: () => buildQuery(filter),
       mapDocument: mapLog,
     });
   }
