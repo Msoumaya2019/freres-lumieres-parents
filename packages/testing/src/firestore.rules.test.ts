@@ -115,6 +115,31 @@ function postDocument(overrides: Record<string, unknown> = {}) {
   };
 }
 
+/**
+ * Commentaire minimal mais complet, tel que le produit `addComment()` du
+ * repository `posts`.
+ *
+ * `reactions` et `replyCount` sont présents même vides : la règle de mise à
+ * jour les compare avec `unchanged()`, et `unchanged` sur un champ absent lève
+ * une erreur — une erreur vaut refus. Un fixture qui les omettrait ferait donc
+ * échouer des tests pourtant légitimes.
+ */
+function commentDocument(overrides: Record<string, unknown> = {}) {
+  return {
+    postId: 'post-own-published',
+    authorId: UID.parent,
+    authorName: 'Camille Durand',
+    authorRole: 'parent',
+    body: 'Merci pour l’information.',
+    replyCount: 0,
+    reactions: {},
+    status: 'visible',
+    reportCount: 0,
+    createdAt: new Date('2026-09-02T08:00:00Z'),
+    ...overrides,
+  };
+}
+
 describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
   beforeAll(async () => {
     testEnv = await createRulesTestEnvironment();
@@ -161,6 +186,21 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
       await setDoc(
         doc(db, 'posts', 'post-other-org'),
         postDocument({ orgId: TEST_OTHER_ORG, audienceKeys: [`org:${TEST_OTHER_ORG}`] }),
+      );
+
+      await setDoc(
+        doc(db, 'posts', 'post-own-published', 'comments', 'comment-du-parent'),
+        commentDocument(),
+      );
+      await setDoc(
+        doc(db, 'posts', 'post-own-published', 'comments', 'comment-de-la-fcpe'),
+        commentDocument({ authorId: UID.fcpe, authorName: 'FCPE', authorRole: 'fcpe' }),
+      );
+      // Un commentaire déjà signalé : sert à vérifier que son auteur ne peut
+      // pas remettre `reportCount` à zéro pour effacer la trace.
+      await setDoc(
+        doc(db, 'posts', 'post-own-published', 'comments', 'comment-signale'),
+        commentDocument({ reportCount: 2 }),
       );
 
       await setDoc(doc(db, 'adminLogs', 'log-1'), {
@@ -485,6 +525,150 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
     it('un parent ne lit pas le vote d’un autre', async () => {
       await assertFails(
         getDoc(doc(parent.firestore(), 'polls', 'poll-1', 'votes', UID.otherParent)),
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Commentaires
+  //
+  // Aucun test ne couvrait ces règles, et c'est précisément là qu'elles étaient
+  // fausses : `allow update` autorisait un auteur — ou un modérateur — à
+  // réécrire n'importe quel champ du document. Ces tests portent donc surtout
+  // sur ce qui doit rester **immuable**.
+  // -------------------------------------------------------------------------
+
+  describe('Commentaires', () => {
+    it('un membre actif lit un commentaire visible', async () => {
+      await assertSucceeds(
+        getDoc(
+          doc(parent.firestore(), 'posts', 'post-own-published', 'comments', 'comment-du-parent'),
+        ),
+      );
+    });
+
+    it('un compte en attente ne lit aucun commentaire', async () => {
+      await assertFails(
+        getDoc(
+          doc(pending.firestore(), 'posts', 'post-own-published', 'comments', 'comment-du-parent'),
+        ),
+      );
+    });
+
+    it('un membre actif commente une publication', async () => {
+      await assertSucceeds(
+        setDoc(
+          doc(parent.firestore(), 'posts', 'post-own-published', 'comments', 'comment-nouveau'),
+          commentDocument(),
+        ),
+      );
+    });
+
+    it('on ne commente pas sous une autre identité', async () => {
+      await assertFails(
+        setDoc(
+          doc(parent.firestore(), 'posts', 'post-own-published', 'comments', 'comment-usurpe'),
+          commentDocument({ authorId: UID.otherParent }),
+        ),
+      );
+    });
+
+    it('l’auteur modifie le corps de son commentaire', async () => {
+      await assertSucceeds(
+        updateDoc(
+          doc(parent.firestore(), 'posts', 'post-own-published', 'comments', 'comment-du-parent'),
+          { body: 'Merci, texte corrigé.' },
+        ),
+      );
+    });
+
+    it('l’auteur retire son propre commentaire', async () => {
+      await assertSucceeds(
+        updateDoc(
+          doc(parent.firestore(), 'posts', 'post-own-published', 'comments', 'comment-du-parent'),
+          { status: 'deleted' },
+        ),
+      );
+    });
+
+    it('l’auteur ne peut pas réécrire son commentaire sous une autre identité', async () => {
+      // `authorName` est dénormalisé et affiché : changer `authorId` ferait
+      // apparaître le commentaire sous le nom d'un autre parent.
+      await assertFails(
+        updateDoc(
+          doc(parent.firestore(), 'posts', 'post-own-published', 'comments', 'comment-du-parent'),
+          { authorId: UID.otherParent, authorName: 'Quelqu’un d’autre' },
+        ),
+      );
+    });
+
+    it('l’auteur ne peut pas s’attribuer un rôle', async () => {
+      // Sans cette contrainte, n'importe quel parent pouvait afficher une
+      // pastille « FCPE » ou « administrateur » sous son commentaire.
+      await assertFails(
+        updateDoc(
+          doc(parent.firestore(), 'posts', 'post-own-published', 'comments', 'comment-du-parent'),
+          { authorRole: 'admin' },
+        ),
+      );
+    });
+
+    it('l’auteur ne peut pas rattacher son commentaire à une autre publication', async () => {
+      await assertFails(
+        updateDoc(
+          doc(parent.firestore(), 'posts', 'post-own-published', 'comments', 'comment-du-parent'),
+          { postId: 'post-own-draft' },
+        ),
+      );
+    });
+
+    it('l’auteur ne peut pas effacer un signalement', async () => {
+      await assertFails(
+        updateDoc(
+          doc(parent.firestore(), 'posts', 'post-own-published', 'comments', 'comment-signale'),
+          { reportCount: 0 },
+        ),
+      );
+    });
+
+    it('un parent ne modifie pas le commentaire d’un autre', async () => {
+      await assertFails(
+        updateDoc(
+          doc(parent.firestore(), 'posts', 'post-own-published', 'comments', 'comment-de-la-fcpe'),
+          { body: 'Propos détournés.' },
+        ),
+      );
+    });
+
+    it('un modérateur masque un commentaire', async () => {
+      await assertSucceeds(
+        updateDoc(
+          doc(
+            moderator.firestore(),
+            'posts',
+            'post-own-published',
+            'comments',
+            'comment-du-parent',
+          ),
+          { status: 'hidden' },
+        ),
+      );
+    });
+
+    it('un modérateur ne réécrit pas le corps d’un commentaire', async () => {
+      // Il masque ; réécrire le texte sous le nom de son auteur n'est pas son
+      // rôle, et le commentaire de la règle l'annonçait déjà.
+      await assertFails(
+        updateDoc(
+          doc(
+            moderator.firestore(),
+            'posts',
+            'post-own-published',
+            'comments',
+            'comment-du-parent',
+          ),
+          { body: 'Propos détournés.' },
+        ),
       );
     });
   });

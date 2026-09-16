@@ -298,15 +298,65 @@ service cloud.firestore {
             && d.reportCount == 0;
         }
 
+        // Une mise à jour est validée sur le **document entier**, pas sur le
+        // seul champ modifié : Firestore évalue `request.resource.data`, donc
+        // une règle qui n'exige rien autorise la réécriture de tout le
+        // document. C'est précisément ce que faisait la version précédente
+        // (`isActive() && authorId == uid`), et un client hostile n'a pas
+        // besoin de notre code pour écrire : il peut appeler Firestore
+        // directement. Un auteur pouvait donc changer `authorId` (usurpation,
+        // puisque `authorName` est dénormalisé et affiché), `authorRole` (se
+        // faire passer pour un membre de la FCPE ou un administrateur),
+        // `postId` (désynchronisation avec le chemin parent), `reportCount`
+        // (dissimulation d'un signalement) ou `reactions` (falsification des
+        // compteurs). Les champs d'identité et de comptage sont désormais figés.
+        function validOwnCommentEdit() {
+          let d = request.resource.data;
+          return isNonEmptyString(d.body, 2000)
+            && d.authorId == request.auth.uid
+            && d.postId == postId
+            && d.status in ['visible', 'deleted']
+            && unchanged('authorName')
+            && unchanged('authorRole')
+            && unchanged('reportCount')
+            && unchanged('replyCount')
+            && unchanged('reactions')
+            && unchanged('createdAt');
+        }
+
+        // Le modérateur masque, il ne réécrit pas : son rôle est de rendre un
+        // contenu invisible, pas d'en changer le texte sous le nom de son
+        // auteur. Sans cette contrainte, `isModerator()` seul autorisait un
+        // modérateur à réécrire le corps d'un commentaire, ce que le commentaire
+        // d'origine annonçait déjà comme interdit (« masquage uniquement »)
+        // sans que la règle l'applique.
+        //
+        // Le statut reste borné à `visible` / `hidden` : retirer définitivement
+        // un contenu est une décision d'administrateur (`allow delete`), et le
+        // masquage est la seule opération réversible offerte à la modération.
+        function validModerationEdit() {
+          return unchanged('body')
+            && unchanged('authorId')
+            && unchanged('authorName')
+            && unchanged('authorRole')
+            && unchanged('postId')
+            && unchanged('reportCount')
+            && unchanged('replyCount')
+            && unchanged('createdAt')
+            && request.resource.data.status in ['visible', 'hidden'];
+        }
+
         // Un commentaire n'est lisible que si la publication parente l'est.
         allow read: if isActive() && resource.data.status == 'visible';
 
         allow create: if isActive() && validComment();
 
-        // Auteur : modification ou suppression de son propre commentaire.
-        // Modérateur : masquage uniquement (jamais de suppression définitive).
-        allow update: if (isActive() && resource.data.authorId == request.auth.uid)
-          || isModerator();
+        // Auteur : modifier son corps, ou le retirer (`deleted`).
+        // Modérateur : masquer, et remettre en ligne.
+        allow update: if (isActive()
+            && resource.data.authorId == request.auth.uid
+            && validOwnCommentEdit())
+          || (isModerator() && validModerationEdit());
 
         allow delete: if isAdmin();
       }
