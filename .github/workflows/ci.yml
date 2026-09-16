@@ -37,6 +37,11 @@ jobs:
           distribution: temurin
           java-version: '21'
 
+      - name: Verify Firebase client entrypoints are tracked
+        run: |
+          git ls-files --error-unmatch apps/mobile/lib/firebase.ts
+          git ls-files --error-unmatch apps/admin/lib/firebase.ts
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 

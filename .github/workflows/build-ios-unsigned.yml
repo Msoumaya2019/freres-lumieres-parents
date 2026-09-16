@@ -32,6 +32,11 @@ jobs:
           node-version: 22.23.2
           cache: pnpm
 
+      - name: Verify Firebase client entrypoints are tracked
+        run: |
+          git ls-files --error-unmatch apps/mobile/lib/firebase.ts
+          git ls-files --error-unmatch apps/admin/lib/firebase.ts
+
       - name: Select and verify Xcode 26.4.1
         shell: bash
         run: |

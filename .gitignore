@@ -6,7 +6,7 @@ outputs/
 .expo/
 .next/
 dist/
-lib/
+functions/lib/
 coverage/
 *.tsbuildinfo
 apps/mobile/ios/
