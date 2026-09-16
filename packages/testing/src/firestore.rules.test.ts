@@ -71,7 +71,11 @@ let pending: RulesTestContext;
 let anonymous: RulesTestContext;
 
 /** Profil minimal mais complet, tel que le produit le formulaire d'inscription. */
-function userDocument(uid: string, status: 'pending' | 'active' = 'active') {
+function userDocument(
+  uid: string,
+  status: 'pending' | 'active' = 'active',
+  orgId: string = TEST_ORG,
+) {
   return {
     id: uid,
     firstName: 'Camille',
@@ -79,12 +83,12 @@ function userDocument(uid: string, status: 'pending' | 'active' = 'active') {
     email: `${uid}@example.org`,
     role: 'parent',
     status,
-    orgId: TEST_ORG,
-    orgIds: [TEST_ORG],
+    orgId,
+    orgIds: [orgId],
     schoolIds: [],
     levels: [],
     classIds: [],
-    audienceKeys: [`org:${TEST_ORG}`],
+    audienceKeys: [`org:${orgId}`],
     createdAt: new Date('2026-01-01T00:00:00Z'),
   };
 }
@@ -247,6 +251,13 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
         ...userDocument(UID.fcpe, 'active'),
         role: 'fcpe',
       });
+      // Un compte d'une autre organisation. Sans lui, aucun test ne pourrait
+      // distinguer « la règle cloisonne » de « toutes les données sont dans la
+      // même organisation ».
+      await setDoc(
+        doc(db, 'users', 'parent-autre-organisation'),
+        userDocument('parent-autre-organisation', 'active', TEST_OTHER_ORG),
+      );
       await setDoc(doc(db, 'users', UID.parent, 'children', 'child-1'), {
         id: 'child-1',
         firstName: 'Léa',
@@ -989,6 +1000,41 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
 
     it('un membre de la FCPE lit le profil d’un parent', async () => {
       await assertSucceeds(getDoc(doc(fcpe.firestore(), 'users', UID.otherParent)));
+    });
+
+    // -----------------------------------------------------------------------
+    //  Listage des comptes
+    // -----------------------------------------------------------------------
+    //
+    // Ces trois tests manquaient, et leur absence masquait une fuite : la règle
+    // de lecture ne référence **aucun champ du document**. Pour un `list`,
+    // Firestore peut alors la satisfaire pour n'importe quelle requête, y
+    // compris une lecture sans filtre — le cloisonnement par organisation, qui
+    // s'applique à onze autres collections, ne s'appliquait pas ici.
+    //
+    // Les lectures unitaires ci-dessus ne pouvaient pas le révéler : elles
+    // portent sur un document précis, et une règle trop large y répond
+    // correctement.
+
+    it('un membre de la FCPE ne lit pas la collection entière des comptes', async () => {
+      // La requête la plus large possible. Elle doit être refusée : c'est elle
+      // qui donnerait à une organisation les noms, adresses et numéros de
+      // téléphone des parents d'une autre.
+      await assertFails(getDocs(collection(fcpe.firestore(), 'users')));
+    });
+
+    it('un membre de la FCPE ne liste pas les comptes d’une autre organisation', async () => {
+      await assertFails(
+        getDocs(query(collection(fcpe.firestore(), 'users'), where('orgId', '==', TEST_OTHER_ORG))),
+      );
+    });
+
+    it('un membre de la FCPE liste les comptes de son organisation', async () => {
+      // Le pendant positif : sans lui, une règle qui refuse tout passerait les
+      // deux tests précédents, et la file de validation ne s'afficherait plus.
+      await assertSucceeds(
+        getDocs(query(collection(fcpe.firestore(), 'users'), where('orgId', '==', TEST_ORG))),
+      );
     });
 
     it('un parent ne peut pas s’activer lui-même', async () => {

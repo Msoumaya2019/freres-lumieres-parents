@@ -192,8 +192,22 @@ service cloud.firestore {
       // c'est ce qui lui permet de compléter ses informations et de voir où en
       // est sa demande.
       //
-      // Les autres lectures exigent un rôle habilité (`user.read.any`).
-      allow read: if isSelf(uid) || (isActive() && (isFcpe() || isModerator()));
+      // Les autres lectures exigent un rôle habilité (`user.read.any`), **et
+      // restent dans l'organisation du lecteur**.
+      //
+      // La contrainte d'organisation n'est pas décorative, et son absence ne se
+      // voyait pas dans les lectures unitaires. Une règle qui ne référence
+      // aucun champ du document est satisfaite par Firestore pour **n'importe
+      // quelle** requête : sans `resource.data.orgId`, un membre de la FCPE
+      // pouvait donc lister la collection entière — les noms, adresses et
+      // numéros des parents de toutes les organisations. Vérifié par un test
+      // qui échouait, et non déduit.
+      //
+      // `isFcpe()` inclut déjà `moderator` et `admin`, et `role()` vaut 'none'
+      // tant que le compte n'est pas actif : la condition précédente
+      // (`isActive() && (isFcpe() || isModerator())`) était redondante sur les
+      // deux plans.
+      allow read: if isSelf(uid) || (isFcpe() && resource.data.orgId == orgId());
 
       // Création de son propre profil à l'inscription. Le compte arrive en
       // `pending` : toute autre valeur initiale est refusée.

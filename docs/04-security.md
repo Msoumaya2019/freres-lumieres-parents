@@ -448,3 +448,42 @@ satisfait l'article 17 tout en préservant l'intégrité des échanges.
   nulle part : ni dans le type, ni dans l'écrivain — seule la fixture de
   `firestore.rules.test.ts` en porte un, trace d'une intention jamais suivie.
   À trancher au moment où une seconde organisation devient possible, pas avant.
+- **Rattachement des enfants : la branche de modération n'est pas cloisonnée.**
+  `users/{uid}/children/{childId}` autorise `read` à `isActive() && isModerator()`
+  sans comparer l'organisation, alors que le document ne porte **aucun `orgId`** —
+  même situation que le journal d'audit, et donc même arbitrage. L'administration
+  peut donc lire le rattachement d'un enfant d'une autre organisation, à
+  condition de connaître l'identifiant du parent.
+  Deux issues. **Ajouter `orgId` au rattachement** est cohérent avec le reste du
+  modèle, et l'écriture est déjà faite par le parent à l'inscription — il faudrait
+  donc aussi l'y valider, ou la déplacer côté serveur. **Passer par un `get()`
+  sur le profil du parent** ferme la lecture unitaire sans toucher au modèle,
+  mais rend toute lecture en liste impossible — Firestore ne sait pas démontrer
+  un `get()` pour une requête — et coûte une lecture facturée par accès. À
+  trancher au moment où un écran d'administration lira ce rattachement ; la
+  fiche d'un compte, livrée en Phase 4, s'en passe délibérément et s'appuie sur
+  les niveaux et classes recopiés sur le profil.
+- **Compteurs et résumés : lecture entre organisations.** `counters/{counterId}`
+  et `highlights/{highlightId}` se contentent d'`isActive()`. L'identifiant du
+  document **est** l'identifiant d'organisation, donc la contrainte s'écrirait
+  `counterId == orgId()` — une ligne par collection. Ce ne sont que des
+  agrégats (nombre de comptes, de publications), sans donnée personnelle, d'où
+  le classement après les deux points précédents. À corriger en même temps
+  qu'eux, pas séparément.
+- **Recherche d'un compte : par nom, ou par adresse seulement ?** Firestore
+  n'offre ni recherche insensible à la casse, ni recherche par sous-chaîne.
+  Trois issues, du moins coûteux au plus juste.
+  **Chercher sur l'adresse exacte** ne demande presque rien : `email` existe et
+  s'indexe déjà avec `orgId`. Mais un administrateur au téléphone avec un
+  parent entend un nom, pas une adresse.
+  **Chercher par préfixe sur `lastName` et `firstName`** couvre le besoin sans
+  toucher au modèle : deux index composites suffisent. Le défaut apparaît au
+  premier essai — la comparaison est sensible à la casse, donc « durand » ne
+  trouve pas « Durand », et capitaliser l'entrée à la main casse sur les
+  particules et les noms composés.
+  **Ajouter un champ normalisé** — `searchName`, en minuscules, recopiant nom,
+  prénom et adresse — rend la recherche correcte. Il faudrait l'écrire à
+  l'inscription, donc le valider dans les règles ou le calculer côté serveur,
+  et le recalculer quand un parent corrige son nom. Aucune donnée de
+  production n'existe encore : c'est le moment le moins coûteux pour ce choix,
+  et il ne le restera pas.
