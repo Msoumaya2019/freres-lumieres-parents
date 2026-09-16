@@ -230,9 +230,25 @@ vitest. Il pointe maintenant sur un `tsconfig.test.json`, comme `@fl/shared`.
 - [ ] Épinglage en tête
 - [ ] Détail d'une publication, pièces jointes, lien externe
 - [ ] Commentaires, réponses à un commentaire, réactions
+      _(modèle, règles et compteurs faits — voir ci-dessous ; les écrans restent à faire)_
 - [ ] Compression des images avant upload
 - [ ] Écran admin : créer, modifier, épingler une publication
-- [ ] Compteurs dénormalisés (`commentCount`, `reactionCount`)
+      **Trou connu dans les règles :** `allow update` sur `posts/{postId}` exige
+      `validPost()`, qui contient `d.authorId == request.auth.uid`. Un membre de
+      la FCPE ne peut donc **pas épingler la publication d'un autre** :
+      `setPinned` échoue avec « permission denied », alors que l'écran admin le
+      proposera. Il faut dédoubler la règle comme pour les commentaires — un cas
+      « auteur qui modifie son texte », un cas « modération qui ne touche qu'à
+      `pinned` / `pinnedUntil` / `status` », le reste figé par `unchanged()`.
+      À trancher avant d'écrire l'écran : _un membre de la FCPE peut-il épingler
+      la publication d'un autre ?_
+- [x] Compteurs dénormalisés (`commentCount`, réactions d'un commentaire)
+      **Trois déclencheurs** dans `functions/src/triggers/counters.ts` :
+      signalements, `commentCount` d'une publication, décompte des réactions
+      d'un commentaire. Le client n'écrit plus aucun compteur : `posts/{postId}`
+      n'est modifiable que par la FCPE, donc l'écriture d'un parent était
+      refusée juste après un commentaire pourtant créé — l'interface annonçait un
+      échec pour une action réussie.
 - [ ] Tests : création de publication, ciblage d'audience, lecture filtrée
 
 **Critère de sortie :** le fil se charge en une requête ; un parent ne voit

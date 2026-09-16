@@ -5,8 +5,12 @@
  * package `@fl/firebase` embarque le SDK client (browser/React Native), qu'il
  * serait inutile et risqué de charger dans une Cloud Function.
  *
- * Les noms de collections sont donc la seule chose partagée, et un test
- * vérifie qu'ils correspondent bien à ceux du package client.
+ * Les noms de collections sont donc la seule chose partagée — et parce qu'ils
+ * sont recopiés, ils peuvent diverger en silence : une fonction écrirait alors
+ * dans un chemin que le client ne lit jamais, sans qu'aucune compilation ne
+ * proteste. `paths.test.ts` compare les deux tables en lisant la source du
+ * package client sur le disque. Toute collection ajoutée d'un côté doit l'être
+ * de l'autre.
  */
 
 export const COLLECTIONS = {
@@ -42,6 +46,7 @@ export const SUBCOLLECTIONS = {
   supporters: 'supporters',
   participants: 'participants',
   items: 'items',
+  reactions: 'reactions',
 } as const;
 
 export const paths = {
@@ -54,6 +59,13 @@ export const paths = {
   counter: (orgId: string) => `${COLLECTIONS.counters}/${orgId}`,
   highlight: (orgId: string) => `${COLLECTIONS.highlights}/${orgId}`,
   adminLog: (logId: string) => `${COLLECTIONS.adminLogs}/${logId}`,
+
+  post: (postId: string) => `${COLLECTIONS.posts}/${postId}`,
+  postComments: (postId: string) => `${COLLECTIONS.posts}/${postId}/${SUBCOLLECTIONS.comments}`,
+  comment: (postId: string, commentId: string) =>
+    `${COLLECTIONS.posts}/${postId}/${SUBCOLLECTIONS.comments}/${commentId}`,
+  commentReactions: (postId: string, commentId: string) =>
+    `${COLLECTIONS.posts}/${postId}/${SUBCOLLECTIONS.comments}/${commentId}/${SUBCOLLECTIONS.reactions}`,
 } as const;
 
 /** Noms d'action journalisés dans `adminLogs`. */

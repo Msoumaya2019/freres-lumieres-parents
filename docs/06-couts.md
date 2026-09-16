@@ -91,10 +91,20 @@ et autant de transfert.
 | `deviceTokens.audienceKeys`                     | évite de lire les profils pour cibler un envoi               |
 | `posts.authorName` recopié                      | 1 lecture par publication affichée                           |
 | `posts.stats.commentCount`                      | évite de compter les commentaires                            |
+| Commentaires : `reactions` (map emoji → nombre) | évite de lire la sous-collection à chaque affichage          |
 | `counters/{orgId}`                              | évite les requêtes d'agrégation                              |
 | `highlights/{orgId}`                            | 1 lecture au lieu de 3 (prochain événement, dernier sondage) |
 | `reports.timeline[]` intégré                    | évite une sous-collection d'historique                       |
 | Commentaires et messages en sous-collections    | pagination naturelle, pas de requête globale                 |
+
+**Coût des déclencheurs de compteurs.** Chacun lit le document parent avant
+d'écrire, pour ne pas créer de document fantôme si le parent a été supprimé
+entre-temps. Un commentaire coûte donc, côté serveur, une lecture et une
+écriture de plus que le commentaire lui-même. À l'échelle visée (quelques
+commentaires par jour) c'est négligeable, et la contrepartie est une garantie
+d'intégrité. Un recomptage à la place de l'incrément coûterait, lui, une
+lecture **par réaction affichée et par réaction posée** — c'est précisément ce
+que le décompte dénormalisé évite.
 
 ### Estimation chiffrée
 

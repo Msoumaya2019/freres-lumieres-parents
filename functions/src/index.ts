@@ -44,4 +44,8 @@ export { onUserProfileCreated, onUserProfileWritten } from './auth/user-triggers
 export { adminSetUserStatus, adminSetUserRole, adminDeleteUser } from './callable/admin-users.js';
 
 // --- Compteurs agrégés -------------------------------------------------------
-export { onReportWritten } from './triggers/counters.js';
+export {
+  onReportWritten,
+  onCommentWritten,
+  onCommentReactionWritten,
+} from './triggers/counters.js';
