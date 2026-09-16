@@ -79,7 +79,7 @@ valider, et un compte non validé ne voit rien.
 - [x] Client typé des fonctions d'administration (`@fl/firebase/functions/admin`)
 - [x] Tests : matrice de permissions, audiences, formatage, contrat des schémas
 - [x] Tests : Custom Claims (forme du jeton, replis d'échec fermé)
-- [x] Tests des règles exécutés réellement — **42 tests verts en CI**, émulateur
+- [x] Tests des règles exécutés réellement — **55 tests verts en CI**, émulateur
       Firestore, 4 s (exécution `35109556293`)
 
 **Critère de sortie :** un compte `pending` reçoit `permission-denied` sur
