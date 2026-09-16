@@ -4,8 +4,10 @@
  * Contexte d'authentification de l'interface d'administration.
  *
  * Différence importante avec le mobile : l'accès est **restreint aux rôles
- * `fcpe`, `moderator` et `admin`**. Un parent qui se connecte ici est
- * immédiatement déconnecté et reçoit une explication.
+ * `fcpe`, `moderator` et `admin`**. Un parent qui se connecte ici passe en
+ * `forbidden` : il n'est **pas** déconnecté d'office — la session Firebase
+ * reste ouverte — mais l'écran de connexion lui explique le refus et lui
+ * propose de se déconnecter.
  *
  * Cette vérification n'est pas une mesure de sécurité : elle évite simplement
  * de laisser un parent dans une interface vide où chaque action échouerait.

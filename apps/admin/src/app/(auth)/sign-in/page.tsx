@@ -3,9 +3,13 @@
 /**
  * Connexion à l'interface d'administration.
  *
- * Réservée aux rôles `fcpe`, `moderator` et `admin`. Un parent qui tente de
- * se connecter ici est déconnecté avec une explication claire — sans quoi il
- * se retrouverait dans une interface vide dont chaque action échouerait.
+ * Réservée aux rôles `fcpe`, `moderator` et `admin`. Un parent qui se connecte
+ * ici se voit refuser l'accès, avec une explication — sans quoi il se
+ * retrouverait dans une interface vide dont chaque action échouerait.
+ *
+ * Il n'est pas déconnecté d'office : la session Firebase reste ouverte, et
+ * c'est cet écran qui propose la déconnexion. Sans elle, le formulaire ne
+ * réapparaîtrait jamais et le compte resterait bloqué.
  */
 import { useRouter } from 'next/navigation';
 import { useEffect, useState, type FormEvent } from 'react';
@@ -17,7 +21,7 @@ import { ConfigNotice } from '@/components/config-notice';
 import { useAdminAuth } from '@/providers/auth-provider';
 
 export default function SignInPage(): React.JSX.Element {
-  const { status, error, signIn } = useAdminAuth();
+  const { status, error, signIn, signOut } = useAdminAuth();
   const router = useRouter();
 
   const [email, setEmail] = useState('');
@@ -45,6 +49,17 @@ export default function SignInPage(): React.JSX.Element {
         <p className="text-secondary">
           Si vous êtes parent d’élève, utilisez l’application mobile.
         </p>
+        {/* Seule issue possible : le compte est toujours connecté auprès de
+            Firebase, donc le formulaire de connexion ne se réaffichera pas de
+            lui-même. Sans ce bouton, il faudrait vider le stockage du
+            navigateur pour essayer un autre compte. */}
+        <button
+          type="button"
+          onClick={() => void signOut()}
+          className="min-h-11 self-start rounded-md border border-border px-4 font-semibold text-secondary hover:bg-surface-muted"
+        >
+          Se déconnecter
+        </button>
       </div>
     );
   }

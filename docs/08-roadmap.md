@@ -358,11 +358,13 @@ que les publications de son audience.
 
 ## Phase 4 — Interface Web Admin
 
-- [ ] Coquille de tableau de bord responsive, navigation latérale
-- [ ] Authentification admin (réservée aux rôles `moderator` et `admin`)
-- [ ] Tableau de bord alimenté par `counters` et `highlights`
-- [ ] Gestion des utilisateurs : recherche, filtres, détail, actions
-- [ ] Journal d'audit (`adminLogs`) : consultation
+- [x] Coquille de tableau de bord responsive, navigation latérale — navigation fixe à partir de 1024 px, tiroir en dessous (`admin-shell.tsx`). Les sections sont déclarées une seule fois dans `lib/sections.ts`, si bien qu'un lien du menu ne peut pas mener nulle part.
+- [x] Authentification admin — la garde n'exige pas un rôle nommé mais la permission `fcpe.access`, qui couvre `fcpe`, `moderator` et `admin` et refuse un parent. Le libellé d'origine (« réservée aux rôles `moderator` et `admin` ») était plus étroit que l'intention : les membres de la FCPE doivent pouvoir publier. Un parent qui se connecte passe en `forbidden`, reçoit l'explication, et dispose d'une déconnexion — sans quoi il serait resté bloqué, sa session Firebase demeurant ouverte.
+- [x] Tableau de bord alimenté par `counters` — une seule lecture de `counters/{orgId}`, jamais de requête d'agrégation. Le document absent est signalé explicitement plutôt qu'affiché en zéros.
+- [ ] Tableau de bord alimenté par `highlights` — reporté volontairement. `OrganizationHighlights` est déclaré et `paths.highlight()` existe, mais **rien ne l'écrit** : les fonctionnalités qu'il résume (prochain événement, dernier sondage, prochain conseil) relèvent des phases 8 à 10. Le lire aujourd'hui afficherait une section vide en permanence.
+- [x] Gestion des utilisateurs : filtres et actions — file par statut, pagination, actions filtrées par permission, motif obligatoire pour un refus ou une suspension, et passage exclusif par une Cloud Function puisqu'approuver modifie les Custom Claims.
+- [ ] Gestion des utilisateurs : recherche et détail — la file se parcourt par statut ; il manque la recherche par nom ou par adresse, et une fiche par compte.
+- [ ] Journal d'audit (`adminLogs`) : consultation — le modèle et les règles existent (`allow read: if isAdmin()`, écriture serveur uniquement), l'écran reste à écrire.
 - [ ] Paramètres de l'organisation
 
 **Critère de sortie :** l'admin est utilisable sur téléphone, tablette et

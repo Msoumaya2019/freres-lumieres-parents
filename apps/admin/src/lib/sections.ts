@@ -144,11 +144,14 @@ export const ADMIN_SECTION_SLUGS: readonly string[] = ADMIN_SECTIONS.map((sectio
  * Sections disposant de leur propre dossier de route.
  *
  * Elles sont **exclues** de la route générique `[section]`. Deux routes
- * capables de répondre au même chemin produiraient un avertissement de
- * Next.js, et un comportement dépendant de l'ordre de résolution — un
- * problème difficile à diagnostiquer plus tard.
+ * capables de répondre au même chemin ne produisent **aucun avertissement** :
+ * Next.js prérend le chemin des deux côtés et sert la route statique, qui
+ * l'emporte. Le second rendu reste donc invisible à l'exécution — mais il est
+ * bel et bien produit, et il sert un écran « bientôt disponible » pour une
+ * section qui existe pourtant. Le seul endroit où l'écart se voit est la table
+ * des routes du build.
  *
- * La liste vit ici, à côté des définitions de sections : c'est le seul endroit
- * où l'oubli d'une section nouvellement développée est visible.
+ * L'oubli n'est pas laissé à la vigilance : `sections.test.ts` compare cette
+ * liste aux dossiers réellement présents sous `app/(dashboard)/`.
  */
-export const DEDICATED_ROUTE_SLUGS: readonly string[] = ['utilisateurs'];
+export const DEDICATED_ROUTE_SLUGS: readonly string[] = ['publications', 'utilisateurs'];

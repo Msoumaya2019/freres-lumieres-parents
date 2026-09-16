@@ -27,7 +27,14 @@ export default function DashboardLayout({
   const router = useRouter();
 
   useEffect(() => {
-    if (status === 'signedOut') {
+    // Deux cas ramènent à l'écran de connexion : plus de session, ou une
+    // session sans les droits. Les deux passent par le même effet.
+    //
+    // La redirection est un effet de bord : l'appeler pendant le rendu la
+    // ferait exécuter deux fois en StrictMode, et déclencherait
+    // « Cannot update a component while rendering a different component »,
+    // puisque la navigation met à jour l'état du routeur.
+    if (status === 'signedOut' || status === 'forbidden') {
       router.replace('/sign-in');
     }
   }, [status, router]);
@@ -37,7 +44,8 @@ export default function DashboardLayout({
   }
 
   if (status === 'forbidden') {
-    router.replace('/sign-in');
+    // Affichage transitoire : l'effet ci-dessus ramène à l'écran de connexion,
+    // qui porte l'explication complète et la déconnexion.
     return <CenteredMessage message="Accès non autorisé." />;
   }
 
