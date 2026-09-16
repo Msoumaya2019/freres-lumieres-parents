@@ -254,8 +254,19 @@ interrogeant la collection entière.
 | `audit.read`       |   ✗    |  ✗   |     ✗     |   ✓   |
 
 `user.read.any` est accordé à `fcpe` : un membre de la FCPE doit pouvoir
-chercher un parent qui l'a contacté. Mais il ne voit pas les comptes
-suspendus en détail, et chaque consultation est journalisée.
+retrouver un parent qui l'a contacté. Mais il ne voit pas les comptes
+suspendus en détail, et la lecture reste cloisonnée à son organisation.
+
+**La journalisation des consultations n'existe pas.** Une version antérieure de
+ce paragraphe affirmait que « chaque consultation est journalisée ». C'était
+faux : `writeAuditLog` n'est appelé que par les trois actions de
+`functions/src/callable/admin-users.ts` — changement de statut, de rôle,
+suppression — et consulter une fiche n'écrit rien. Elle ne _peut_ rien écrire
+depuis le client, puisque les règles réservent l'écriture de `adminLogs` au
+serveur, administrateur compris. Rendre la phrase vraie demande une Cloud
+Function appelée à chaque consultation : la décision est portée avec celle de
+la recherche d'un compte, dans `docs/04-security.md` § 10, parce que les deux
+n'en font qu'une.
 
 ---
 

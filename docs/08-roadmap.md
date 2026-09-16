@@ -81,6 +81,7 @@ valider, et un compte non validé ne voit rien.
 - [x] Tests : Custom Claims (forme du jeton, replis d'échec fermé)
 - [x] Tests des règles exécutés réellement — **55 tests verts en CI**, émulateur
       Firestore, 4 s (exécution `35109556293`)
+- [x] Garde de couverture des règles de lecture — `packages/testing/src/rules-coverage.test.ts` exige que **chaque collection de premier niveau dotée d'une règle de lecture** compare l'organisation du document à celle du lecteur, ou figure dans une table d'exceptions avec sa raison écrite. Elle lit le fichier de règles au lieu d'interroger l'émulateur, précisément parce que les défauts qu'elle prévient se trouvaient dans des collections sans fixture. Son utilité a été vérifiée en réintroduisant la règle fautive de `users` : le test échoue et la nomme. Sans elle, la frontière d'organisation reposait sur la vigilance — quatre défauts ont survécu à trois phases de cette façon (`users`, `reports`, `moderationReports`, `fcpeTasks`).
 
 **Critère de sortie :** un compte `pending` reçoit `permission-denied` sur
 toute lecture de publication, y compris via un script direct.
@@ -376,7 +377,7 @@ que les publications de son audience.
 - [x] Gestion des utilisateurs : fiche d'un compte — route imbriquée `utilisateurs/[uid]`, atteignable en cliquant le nom depuis la file. Elle montre l'identité, le rattachement déclaré, les consentements et l'historique du compte, lu dans `adminLogs` par `targetType + targetId` : le second des trois index composites, jusqu'ici déclaré sans consommateur. **En lecture seule** — les décisions d'autorisation restent dans la file, qui les présente avec leur motif obligatoire ; les dupliquer ici donnerait deux implémentations d'une même règle.
 - [ ] Gestion des utilisateurs : recherche — la file se parcourt par statut. Chercher par nom ou par adresse demande de choisir un mécanisme, Firestore n'offrant ni recherche insensible à la casse ni recherche par sous-chaîne : voir `docs/04-security.md` § 10.
 - [x] Journal d'audit (`adminLogs`) : consultation — lecture seule, filtre par type d'action, pagination. Les règles réservent la lecture à `isAdmin()` et refusent toute écriture cliente, administrateur compris : l'écran n'offre donc aucune modification, et ce n'est pas un oubli. Le filtre n'a qu'une dimension parce que Firestore exige un index composite par combinaison — `actorId` et `targetType + targetId` sont prêts pour les fiches de détail.
-- [ ] Paramètres de l'organisation
+- [ ] Paramètres de l'organisation — **reporté sur décision**, pour la raison exacte qui a fait reporter `highlights` : `reportRetentionDays`, `collectiveIssueThreshold` et `urgentAlwaysNotifies` ne sont lus par **aucun** code — les seules occurrences sont le type, le script d'amorçage et le `dist` compilé. Les rendre éditables afficherait « durée de conservation : 365 jours » comme une garantie RGPD alors que rien ne purge : la promesse serait fausse, de la même famille que celle de l'audience `fcpe`. À construire quand chaque réglage aura son consommateur — `urgentAlwaysNotifies` en phase 5, les deux autres en phase 7. La section reste déclarée dans `lib/sections.ts` avec `implemented: false`, donc le menu dit déjà la vérité.
 
 **Critère de sortie :** l'admin est utilisable sur téléphone, tablette et
 ordinateur ; un parent qui tente d'y accéder est refusé.
