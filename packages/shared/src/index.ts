@@ -1,53 +1,15 @@
-import type { UserRole, UserStatus } from '@flp/types';
+/**
+ * Point d'entrée de la logique métier partagée.
+ *
+ * Import conseillé :
+ *
+ *     import { hasPermission, buildAudienceKeys, postInputSchema } from '@fl/shared';
+ */
 
-export const PERMISSIONS = [
-  'readPublicContent',
-  'createComment',
-  'createDiscussionMessage',
-  'votePoll',
-  'createReport',
-  'createCouncilQuestion',
-  'accessFcpeArea',
-  'viewReports',
-  'createPost',
-  'sendNotification',
-  'moderateContent',
-  'updateReports',
-  'manageUsers',
-  'manageRoles',
-  'manageSchools',
-  'manageSettings',
-] as const;
-export type Permission = (typeof PERMISSIONS)[number];
-
-const parentPermissions: readonly Permission[] = [
-  'readPublicContent',
-  'createComment',
-  'createDiscussionMessage',
-  'votePoll',
-  'createReport',
-  'createCouncilQuestion',
-];
-
-export const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
-  parent: parentPermissions,
-  fcpe: [...parentPermissions, 'accessFcpeArea', 'viewReports'],
-  moderator: [
-    ...parentPermissions,
-    'accessFcpeArea',
-    'viewReports',
-    'moderateContent',
-    'updateReports',
-  ],
-  admin: PERMISSIONS,
-};
-
-export function hasPermission(
-  user: { role: UserRole; status: UserStatus } | null | undefined,
-  permission: Permission,
-): boolean {
-  return (
-    user?.status === 'active' &&
-    ROLE_PERMISSIONS[user.role].includes(permission)
-  );
-}
+export * from './constants.js';
+export * from './labels.js';
+export * from './audience.js';
+export * from './permissions.js';
+export * from './validation.js';
+export * from './formatting.js';
+export * from './theme.js';

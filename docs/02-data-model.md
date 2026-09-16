@@ -1,0 +1,471 @@
+# 02 — Modèle de données Firestore
+
+> Phase 1 · Document de référence
+
+## 1. Principes
+
+Le modèle est conçu autour de trois contraintes, dans cet ordre :
+
+1. **Coût de lecture minimal.** Firestore facture à la lecture de document.
+   Chaque choix ci-dessous cherche à éviter une requête supplémentaire : les
+   compteurs sont dénormalisés, les aperçus de messages sont recopiés dans le
+   canal, les niveaux des enfants sont recopiés dans le profil du parent.
+2. **Une seule requête pour le fil d'actualité.** Voir la section 4.
+3. **Sécurité exprimable en règles déclaratives.** Un contenu qui ne peut pas
+   être filtré par une règle Firestore est un contenu mal modélisé.
+
+Deux règles d'hygiène complètent ces principes :
+
+- **Aucune donnée nominative d'enfant.** On stocke un niveau, une classe, une
+  année scolaire. Le prénom est facultatif et n'est jamais exposé.
+- **Rien n'est public par défaut.** Un signalement est privé jusqu'à décision
+  explicite de la FCPE.
+
+---
+
+## 2. Collections racine
+
+```
+organizations/{orgId}
+schools/{schoolId}
+classes/{classId}
+
+users/{uid}
+  └── children/{childId}
+  └── tokens/{tokenId}          (jetons push — jamais lisibles par le client)
+
+deviceTokens/{token}            (index d'envoi, lisible uniquement par les Functions)
+
+posts/{postId}
+  └── comments/{commentId}
+
+channels/{channelId}
+  └── messages/{messageId}
+
+polls/{pollId}
+  └── votes/{voterKey}          (id = uid, ou empreinte si sondage anonyme)
+
+reports/{reportId}
+  └── replies/{replyId}
+
+collectiveIssues/{issueId}
+  └── supporters/{uid}
+
+events/{eventId}
+  └── participants/{uid}
+
+documents/{docId}
+
+schoolCouncils/{councilId}
+  └── items/{itemId}
+
+notifications/{notificationId}
+moderationReports/{moderationReportId}
+adminLogs/{logId}
+fcpeTasks/{taskId}
+counters/{orgId}
+highlights/{orgId}
+```
+
+### Ce qui a été ajouté au modèle proposé dans le cahier des charges
+
+| Ajout                   | Raison                                                                                         |
+| ----------------------- | ---------------------------------------------------------------------------------------------- |
+| `organizations`         | racine multi-tenant ; sans elle, les valeurs d'école finissent codées en dur                   |
+| `deviceTokens`          | index d'envoi séparé : permet de cibler une audience sans lire les profils utilisateurs        |
+| `counters/{orgId}`      | tableau de bord sans requête d'agrégation                                                      |
+| `highlights/{orgId}`    | prochain événement, dernier sondage : 1 lecture au lieu de 3                                   |
+| `users/{uid}/children`  | les enfants n'ont pas à être une collection racine : ils ne sont jamais interrogés globalement |
+| `users/{uid}/tokens`    | les jetons push sont sensibles ; les isoler permet de les interdire en lecture                 |
+| `channels` + `messages` | structure forum, sans messagerie privée                                                        |
+| `collectiveIssues`      | sujets suivis publiquement, distincts des signalements privés                                  |
+| `fcpeTasks`             | espace de travail interne de la FCPE                                                           |
+
+### Ce qui n'a **pas** été retenu
+
+- **`feeds/{uid}` (fan-out)** : coûte une écriture par destinataire et par
+  publication. Sur 300 parents et 3 publications par semaine, c'est
+  900 écritures hebdomadaires inutiles. Les clés d'audience coûtent zéro.
+- **`childrenProfiles` en collection racine** : aucune requête globale sur les
+  enfants n'est légitime. Les exposer au niveau racine multiplierait les
+  risques de fuite sans aucun bénéfice fonctionnel.
+- **`pollVotes` en collection racine** : les votes sont toujours lus dans le
+  contexte d'un sondage. En sous-collection, l'identifiant du document peut
+  être l'UID, ce qui rend le double vote **structurellement impossible**.
+
+---
+
+## 3. Champs détaillés
+
+### `organizations/{orgId}`
+
+| Champ                               | Type    | Note                                            |
+| ----------------------------------- | ------- | ----------------------------------------------- |
+| `name`                              | string  | « FCPE Montmagny »                              |
+| `slug`                              | string  | identifiant lisible, unique                     |
+| `city`                              | string  |                                                 |
+| `settings.reportRetentionDays`      | number  | RGPD : durée de conservation                    |
+| `settings.collectiveIssueThreshold` | number  | seuil de regroupement des signalements          |
+| `settings.urgentAlwaysNotifies`     | boolean | les alertes urgentes notifient-elles toujours ? |
+| `active`                            | boolean |                                                 |
+
+### `schools/{schoolId}`
+
+| Champ         | Type                                        | Note                                             |
+| ------------- | ------------------------------------------- | ------------------------------------------------ |
+| `orgId`       | string                                      | rattachement                                     |
+| `name`        | string                                      | « École élémentaire Frères Lumières »            |
+| `level`       | `maternelle` \| `elementaire` \| `primaire` |                                                  |
+| `classLevels` | string[]                                    | niveaux proposés, pour alimenter les formulaires |
+| `address`     | string?                                     |                                                  |
+| `active`      | boolean                                     |                                                  |
+
+### `classes/{classId}`
+
+| Champ               | Type         | Note          |
+| ------------------- | ------------ | ------------- |
+| `orgId`, `schoolId` | string       |               |
+| `name`              | string       | « CE1 A »     |
+| `level`             | `ClassLevel` |               |
+| `academicYear`      | string       | « 2026-2027 » |
+
+> Aucun nom d'enseignant n'est stocké : donnée personnelle sans nécessité
+> fonctionnelle.
+
+### `users/{uid}`
+
+| Champ                      | Type                                               | Note                                             |
+| -------------------------- | -------------------------------------------------- | ------------------------------------------------ |
+| `firstName`, `lastName`    | string                                             |                                                  |
+| `email`                    | string                                             | dupliqué depuis Auth pour la recherche admin     |
+| `phone`                    | string?                                            | facultatif                                       |
+| `role`                     | `parent` \| `fcpe` \| `moderator` \| `admin`       | **miroir** des Custom Claims                     |
+| `status`                   | `pending` \| `active` \| `suspended` \| `rejected` | **miroir** des Custom Claims                     |
+| `orgIds`                   | string[]                                           |                                                  |
+| `schoolIds`                | string[]                                           |                                                  |
+| `levels`                   | `ClassLevel[]`                                     | dénormalisé depuis `children`                    |
+| `classIds`                 | string[]                                           | dénormalisé depuis `children`                    |
+| `audienceKeys`             | string[]                                           | **calculé** — cœur du fil d'actualité            |
+| `notificationPrefs`        | map                                                | `{ enabled, disabledCategories[] }`              |
+| `consents`                 | map                                                | `{ privacyPolicy, communityRules, fcpeContact }` |
+| `lastSeenAt`               | timestamp?                                         | au plus une écriture par jour                    |
+| `approvedAt`, `approvedBy` | timestamp?, string?                                | traçabilité                                      |
+| `statusReason`             | string?                                            | motif de suspension, visible admin seulement     |
+| `privacyPolicyVersion`     | string?                                            | version acceptée                                 |
+
+> **Pourquoi dupliquer `role` et `status` dans les claims ET dans le document ?**
+> Les claims servent aux règles de sécurité (gratuit, aucun lecture facturée).
+> Le document sert à l'affichage et à la recherche côté admin. Les deux sont
+> écrits par la même Cloud Function, dans la même transaction logique : ils ne
+> peuvent pas diverger sans qu'un test le détecte.
+
+### `users/{uid}/children/{childId}`
+
+`firstName?`, `schoolId`, `level`, `classId?`, `academicYear`.
+Cinq champs, dont un seul facultatif. C'est le strict nécessaire pour cibler
+une information ou une notification.
+
+### `deviceTokens/{token}`
+
+| Champ          | Type                        | Note                                        |
+| -------------- | --------------------------- | ------------------------------------------- |
+| `uid`, `orgId` | string                      |                                             |
+| `token`        | string                      | jeton Expo / FCM                            |
+| `platform`     | `ios` \| `android` \| `web` |                                             |
+| `audienceKeys` | string[]                    | recopie du profil, pour cibler sans lecture |
+| `enabled`      | boolean                     | désactivation sans suppression              |
+| `lastUsedAt`   | timestamp                   | purge des jetons morts                      |
+
+L'identifiant du document **est** le jeton : l'enregistrement est donc
+idempotent (un même appareil ne crée jamais deux entrées).
+
+### `posts/{postId}`
+
+| Champ                                  | Type            | Note                                                            |
+| -------------------------------------- | --------------- | --------------------------------------------------------------- |
+| `orgId`, `schoolId?`                   | string          |                                                                 |
+| `title`, `body`                        | string          |                                                                 |
+| `category`                             | `PostCategory`  | 11 catégories                                                   |
+| `audience`                             | map             | `{ type, schoolId?, level?, classId? }`                         |
+| `audienceKeys`                         | string[]        | **requêté** — voir § 4                                          |
+| `attachments`                          | map[]           | `{ storagePath, contentType, fileName, size, width?, height? }` |
+| `linkUrl`                              | string?         |                                                                 |
+| `authorId`, `authorName`, `authorRole` |                 | dénormalisé pour éviter une lecture par publication             |
+| `commentsEnabled`                      | boolean         |                                                                 |
+| `pinned`                               | boolean         |                                                                 |
+| `pinnedUntil`                          | timestamp?      | fin d'épinglage automatique                                     |
+| `status`                               | `ContentStatus` | `draft` \| `published` \| `hidden` \| `deleted` \| `archived`   |
+| `publishedAt`                          | timestamp       | **clé de tri du fil**                                           |
+| `stats`                                | map             | `{ commentCount, reactionCount, notifiedCount? }`               |
+| `notifiedAt`                           | timestamp?      | garde-fou anti-doublon d'envoi                                  |
+
+> Les pièces jointes ne stockent **jamais** d'URL signée : une URL signée
+> expire, et la stocker oblige à réécrire le document. On stocke le chemin,
+> et le client génère l'URL à la demande (avec mise en cache locale).
+
+### `posts/{postId}/comments/{commentId}`
+
+`authorId`, `authorName`, `authorRole`, `body`, `parentId?`, `replyCount`,
+`reactions` (map emoji → compteur), `status`, `reportCount`, `createdAt`.
+
+En sous-collection : les commentaires ne sont jamais lus hors du contexte
+d'une publication, et la règle d'accès hérite naturellement de celle du post.
+
+### `channels/{channelId}`
+
+| Champ                      | Type                                                  | Note                                                                         |
+| -------------------------- | ----------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `orgId`, `schoolId?`       | string                                                |                                                                              |
+| `name`, `description?`     | string                                                |                                                                              |
+| `type`                     | `general` \| `school` \| `level` \| `theme` \| `fcpe` |                                                                              |
+| `level`                    | `ClassLevel?`                                         |                                                                              |
+| `audience`, `audienceKeys` |                                                       | un canal `fcpe` n'est visible que des membres                                |
+| `order`                    | number                                                | ordre d'affichage                                                            |
+| `readOnly`                 | boolean                                               | canaux d'archives                                                            |
+| `stats`                    | map                                                   | `{ messageCount, lastMessageAt, lastMessagePreview, lastMessageAuthorName }` |
+
+> `stats` évite une requête par canal pour afficher l'aperçu du dernier
+> message. Sur 13 canaux, c'est 13 lectures économisées à chaque ouverture
+> de l'écran Discussions.
+
+### `polls/{pollId}` et `polls/{pollId}/votes/{voterKey}`
+
+Le point délicat est le **vote unique par compte**.
+
+- L'identifiant du document de vote est **l'UID de l'utilisateur**. Un
+  utilisateur ne peut donc pas voter deux fois : la contrainte est portée par
+  le schéma, pas par du code applicatif.
+- Pour un sondage **anonyme**, le champ `uid` n'est pas écrit. Personne, y
+  compris un administrateur, ne peut relier un vote à une personne depuis
+  l'application.
+- La clé `voterKey` reste l'UID dans les deux cas : c'est ce qui garantit
+  l'unicité du vote, sans jamais l'exposer dans une réponse d'API.
+- Les compteurs `options[].votes` et `totalVoters` sont mis à jour par une
+  **Cloud Function transactionnelle**, jamais par le client. Un client qui
+  écrirait directement dans le compteur fausserait les résultats.
+
+### `reports/{reportId}` — signalements
+
+`title`, `description`, `category`, `attachments[]`, `authorId`, `authorName`,
+`status`, `visibility`, `timeline[]`, `assignedTo?`, `replyCount`,
+`lastReplyAt?`, `linkedIssueId?`, `similarCount`.
+
+`timeline` est un tableau de
+`{ status, at, byId?, byName, note? }` : c'est exactement ce qu'affiche la
+timeline du parent (Reçu → Pris en charge → Transmis → Résolu), sans requête
+supplémentaire.
+
+`visibility` vaut `private` par défaut. Le passage à `collective` est une
+**décision explicite** de la FCPE, journalisée dans `adminLogs`.
+
+### `collectiveIssues/{issueId}` et `supporters/{uid}`
+
+`title`, `summary`, `category`, `status`, `supportTarget?`, `supportersCount`,
+`concernedCount`, `published`, `linkedReportCount`, `lastUpdateAt?`,
+`lastUpdateNote?`.
+
+`supporters/{uid}` avec `{ value: concerned | for | against, comment? }`.
+L'identifiant du document est l'UID : un parent ne peut s'exprimer qu'une fois
+par sujet, et peut changer d'avis (mise à jour du même document).
+
+### `events/{eventId}` et `participants/{uid}`
+
+`title`, `description?`, `type`, `audience`, `audienceKeys`, `allDay`,
+`startAt`, `endAt?`, `location?`, `registrationEnabled`, `requiresAnswer`,
+`capacity?`, `volunteerSlotsNeeded`, `volunteerSlotsFilled`,
+`reminderHoursBefore`, `reminderSentAt?`, `participantCount`, `attachments[]`,
+`status`.
+
+`participants/{uid}` : `{ attendance, volunteer, guests, note? }`.
+Le compteur `participantCount` est tenu par Cloud Function.
+
+### `documents/{docId}`
+
+`title`, `description?`, `category`, `year`, `tags[]`, `audience`,
+`audienceKeys`, `attachment`, `uploadedBy`, `uploadedByName`, `internal`,
+`downloadCount`, `status`.
+
+Le classement demandé (catégorie / année / établissement) est assuré par
+`category`, `year` et `orgId`+`schoolId`.
+
+### `schoolCouncils/{councilId}` et `items/{itemId}`
+
+Séance : `title`, `type`, `status`, `date`, `location?`, `agenda[]`,
+`minutesDocumentId?`, `minutesSummary?`, `questionCount`, `isNext`.
+
+Point : `kind` (`question` d'un parent / `topic` de la FCPE), `title`, `body`,
+`visibility` (`public` \| `fcpe`), `authorId`, `authorName`, `supportCount`,
+`status`, `schoolAnswer?`, `cityAnswer?`, `fcpeAnswer?`, `plannedAction?`.
+
+Chaque `CouncilAnswer` porte `{ body, answeredAt, source, reportedBy? }` :
+c'est ce qui permet d'afficher séparément « réponse de l'école » et
+« réponse de la mairie », comme demandé.
+
+> `visibility: 'fcpe'` est ce qui rend l'espace de préparation privé **au
+> niveau de la donnée**, et non au niveau de l'interface.
+
+### `notifications/{notificationId}`
+
+Journal d'envoi : `type`, `category`, `title`, `body`, `audience`,
+`audienceKeys`, `sourceType?`, `sourceId?`, `deeplink?`, `sentBy`,
+`sentByName`, `sentAt`, `deliveredCount`, `failedCount`, `delivery`.
+
+### `moderationReports/{moderationReportId}`
+
+`targetType`, `targetId`, `targetPath`, `targetAuthorId`, `targetAuthorName`,
+`targetExcerpt` (figé au moment du signalement), `reason`, `details?`,
+`reporterId`, `reporterName`, `status`, `handledBy?`, `handledAt?`, `action?`,
+`actionNote?`.
+
+`targetPath` permet à un modérateur de traiter n'importe quel type de contenu
+avec le même code.
+
+### `adminLogs/{logId}`
+
+`actorId`, `actorName`, `actorRole`, `action`, `targetType`, `targetId`,
+`metadata`, `at`.
+
+**Immuable** : création autorisée côté serveur uniquement, aucune mise à jour
+ni suppression, même pour un administrateur. C'est la condition pour que le
+journal ait une valeur en cas de litige.
+
+### `fcpeTasks/{taskId}`
+
+`title`, `description?`, `status`, `priority`, `assigneeId?`, `assigneeName?`,
+`dueAt?`, `relatedType?`, `relatedId?`, `doneAt?`.
+
+### `counters/{orgId}` et `highlights/{orgId}`
+
+Documents uniques maintenus par Cloud Functions. Ils alimentent le tableau de
+bord de l'administration sans aucune requête d'agrégation :
+
+```ts
+counters: {
+  users:    { total, pending, active, suspended, rejected, activeLast7Days },
+  content:  { postsPublished, postsLast7Days, commentsTotal, messagesTotal },
+  moderation:{ reportsOpen, reportsInProgress, moderationQueueOpen },
+  engagement:{ openPolls, openCollectiveIssues, upcomingEvents, pendingCouncilQuestions }
+}
+```
+
+---
+
+## 4. Le fil d'actualité en une requête
+
+C'est la décision la plus importante du modèle.
+
+### Le problème
+
+Un parent doit voir les publications qui le concernent : celles destinées à
+tous, à son école, à son niveau, à sa classe, ou à la FCPE s'il en est membre.
+Firestore ne sait pas faire un `OR` entre des combinaisons de champs
+différents. Une requête naïve obligerait à 5 requêtes puis une fusion côté
+client — 5 fois le coût, et une pagination fausse.
+
+### La solution
+
+Chaque contenu porte un tableau `audienceKeys`, chaque utilisateur possède le
+tableau des clés auxquelles il a droit, et la requête devient :
+
+```ts
+query(
+  collection(db, 'posts'),
+  where('orgId', '==', orgId),
+  where('status', '==', 'published'),
+  where('audienceKeys', 'array-contains-any', userKeys),
+  orderBy('publishedAt', 'desc'),
+  limit(10),
+);
+```
+
+Avec, pour un parent ayant un enfant en CE1 à l'élémentaire :
+
+```ts
+userKeys = ['org:fcpe-montmagny', 'school:elem', 'level:elem:CE1'];
+```
+
+**Résultat : une seule requête, une seule page de 10 documents, un index
+composite.** La pagination par curseur fonctionne nativement.
+
+### Limite à connaître
+
+`array-contains-any` accepte au maximum **30 valeurs**. Un utilisateur typique
+en possède 3 à 6. La fonction `chunkAudienceKeys()` de `@fl/shared` découpe
+proprement au-delà, et le cas est couvert par un test.
+
+### La même mécanique partout
+
+`audienceKeys` est également présent sur `channels`, `polls`, `events`,
+`documents` et `notifications`. Un seul concept, appliqué uniformément, pour
+le fil, les sondages, l'agenda et les envois ciblés.
+
+### Les clés servent aussi de topics de notification
+
+`audienceKeyToTopic('level:elem:CE1')` → `level_elem_ce1`. Le client et le
+serveur calculent le même topic sans se parler. Une seule source de vérité
+pour le ciblage du contenu **et** des notifications.
+
+---
+
+## 5. Index composites requis
+
+`firebase/firestore.indexes.json` contient :
+
+| Collection          | Champs                                                         | Usage                               |
+| ------------------- | -------------------------------------------------------------- | ----------------------------------- |
+| `posts`             | `orgId` ↑, `status` ↑, `audienceKeys` (array), `publishedAt` ↓ | fil d'actualité                     |
+| `posts`             | `orgId` ↑, `pinned` ↑, `publishedAt` ↓                         | épinglés en tête                    |
+| `posts`             | `authorId` ↑, `publishedAt` ↓                                  | « mes publications »                |
+| `channels`          | `orgId` ↑, `status` ↑, `order` ↑                               | liste des canaux                    |
+| `channels`          | `orgId` ↑, `audienceKeys` (array), `order` ↑                   | canaux visibles                     |
+| `messages`          | `status` ↑, `createdAt` ↓                                      | fil de discussion (sous-collection) |
+| `polls`             | `orgId` ↑, `status` ↑, `endsAt` ↓                              | sondages ouverts                    |
+| `polls`             | `orgId` ↑, `audienceKeys` (array), `startsAt` ↓                | sondages visibles                   |
+| `reports`           | `orgId` ↑, `status` ↑, `createdAt` ↓                           | file de traitement FCPE             |
+| `reports`           | `authorId` ↑, `createdAt` ↓                                    | « mes signalements »                |
+| `collectiveIssues`  | `orgId` ↑, `published` ↑, `status` ↑, `lastUpdateAt` ↓         | sujets en cours                     |
+| `events`            | `orgId` ↑, `startAt` ↑                                         | agenda à venir                      |
+| `events`            | `orgId` ↑, `audienceKeys` (array), `startAt` ↑                 | agenda visible                      |
+| `documents`         | `orgId` ↑, `category` ↑, `year` ↓                              | bibliothèque                        |
+| `documents`         | `orgId` ↑, `audienceKeys` (array), `uploadedAt` ↓              | documents visibles                  |
+| `schoolCouncils`    | `orgId` ↑, `date` ↓                                            | historique des conseils             |
+| `councilItems`      | `councilId` ↑, `visibility` ↑, `supportCount` ↓                | préparation                         |
+| `moderationReports` | `orgId` ↑, `status` ↑, `createdAt` ↑                           | file de modération (FIFO)           |
+| `notifications`     | `orgId` ↑, `sentAt` ↓                                          | historique des envois               |
+| `deviceTokens`      | `orgId` ↑, `audienceKeys` (array), `enabled` ↑                 | ciblage d'envoi                     |
+| `adminLogs`         | `actorId` ↑, `at` ↓                                            | audit par acteur                    |
+| `adminLogs`         | `action` ↑, `at` ↓                                             | audit par type d'action             |
+| `fcpeTasks`         | `orgId` ↑, `status` ↑, `dueAt` ↑                               | tâches internes                     |
+| `users`             | `orgId` principal, `status` ↑, `createdAt` ↓                   | file de validation                  |
+| `users`             | `email` ↑                                                      | recherche admin                     |
+| `users`             | `schoolIds` (array), `levels` (array)                          | filtres admin                       |
+
+> `users.orgIds` est un tableau : Firestore ne sait pas trier sur un tableau.
+> On stocke donc aussi `orgId` (organisation principale) à plat sur le
+> document, ce qui permet `where('orgId','==',x).where('status','==','pending')`
+> — la requête exacte de la file de validation.
+
+---
+
+## 6. Champs de date : le choix `Timestamp`
+
+Tous les champs de date sont des `Timestamp` Firestore, jamais des chaînes.
+
+- les règles peuvent comparer et valider (`request.time`) ;
+- le tri est natif ;
+- `serverTimestamp()` garantit une horloge serveur, non falsifiable par le
+  client.
+
+Les dates « civiles » (date d'un conseil d'école, sans heure) sont des chaînes
+`YYYY-MM-DD`, volontairement : convertir une date sans heure en `Timestamp`
+introduit systématiquement des décalages de fuseau horaire.
+
+---
+
+## 7. Ce qui reste à décider en Phase 2
+
+- Valeur exacte de `reportRetentionDays` (proposition : 730 jours, soit deux
+  années scolaires).
+- Politique de purge des `deviceTokens` inactifs (proposition : 180 jours).
+- Faut-il archiver les publications de l'année précédente ou les conserver en
+  base avec un filtre d'année ? **Proposition : conserver et filtrer.**

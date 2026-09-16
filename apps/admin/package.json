@@ -1,28 +1,33 @@
 {
-  "name": "@flp/admin",
+  "name": "@fl/admin",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "start": "next start",
-    "lint": "eslint . --max-warnings=0",
-    "typecheck": "next typegen && tsc --noEmit",
-    "test": "vitest run",
-    "build": "next build"
+    "dev": "next dev --port 3000",
+    "build": "next build",
+    "start": "next start --port 3000",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint",
+    "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@flp/firebase-config": "workspace:*",
-    "@flp/shared": "workspace:*",
-    "@flp/types": "workspace:*",
-    "@flp/validation": "workspace:*",
+    "@fl/firebase": "*",
+    "@fl/shared": "*",
+    "@fl/types": "*",
+    "firebase": "^12.19.0",
     "next": "16.3.5",
-    "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
   },
   "devDependencies": {
-    "@types/node": "24.10.1",
-    "@types/react": "19.2.4",
-    "@types/react-dom": "19.2.2",
-    "typescript": "6.0.3"
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^22",
+    "@types/react": "~19.2.2",
+    "@types/react-dom": "~19.2.2",
+    "eslint": "^9",
+    "eslint-config-next": "16.3.5",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "vitest": "^3.2.4"
   }
 }

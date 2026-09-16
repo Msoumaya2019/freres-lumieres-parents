@@ -1,63 +1,186 @@
 rules_version = '2';
+
+// =============================================================================
+//  Règles Firebase Storage — FCPE Frères Lumières
+// =============================================================================
+//
+//  TROIS PRINCIPES
+//  ---------------
+//  1. **Format restreint** : JPG, PNG, WEBP et PDF uniquement. Aucune vidéo
+//     en V1 — c'est la principale source de coûts de stockage et de bande
+//     passante incontrôlés.
+//  2. **Taille bornée** : 2 Mio pour une image, 10 Mio pour un PDF. La
+//     compression est faite côté client AVANT l'envoi (redimensionnement à
+//     1600 px, qualité 0,8) ; ces limites sont le filet de sécurité, pas la
+//     stratégie principale.
+//  3. **Chemins cloisonnés par organisation** : le chemin contient `orgId`,
+//     ce qui permet de vérifier l'appartenance sans lire le moindre document
+//     Firestore — donc sans coût.
+//
+//  RAPPEL : une règle Storage ne peut pas compresser un fichier. Sans
+//  compression côté client, une photo de 8 Mo serait rejetée et l'utilisateur
+//  ne comprendrait pas pourquoi. Les deux mécanismes sont complémentaires.
+// =============================================================================
+
 service firebase.storage {
   match /b/{bucket}/o {
-    function signedIn() { return request.auth != null; }
-    function claim(name, fallback) { return request.auth.token.get(name, fallback); }
-    function role() { return claim('role', ''); }
-    function active() { return signedIn() && claim('status', '') == 'active'; }
-    function privileged() { return active() && role() in ['moderator', 'admin']; }
-    function validImage() { return request.resource.size <= 5 * 1024 * 1024 && request.resource.contentType.matches('image/(jpeg|png|webp)'); }
-    function validDocument() { return request.resource.size <= 10 * 1024 * 1024 && (request.resource.contentType == 'application/pdf' || request.resource.contentType.matches('image/(jpeg|png|webp)')); }
-    function sameOrganization(data) { return data != null && data.organizationId == claim('organizationId', ''); }
-    function audienceAllowed(data) {
-      return active() && sameOrganization(data) && (
-        data.audience.type == 'all' ||
-        (data.audience.type == 'fcpe' && role() in ['fcpe', 'moderator', 'admin']) ||
-        (data.audience.type == 'school' && data.audience.ids.hasAny(claim('schoolIds', []))) ||
-        (data.audience.type == 'level' && data.audience.ids.hasAny(claim('levelIds', []))) ||
-        (data.audience.type == 'class' && data.audience.ids.hasAny(claim('classIds', [])))
-      );
-    }
-    function canReadReport(userId, reportId) {
-      let reportPath = /databases/(default)/documents/reports/$(reportId);
-      let report = firestore.get(reportPath).data;
-      return firestore.exists(reportPath) && active() && sameOrganization(report) && report.authorId == userId && (
-        request.auth.uid == userId ||
-        role() in ['moderator', 'admin'] ||
-        (role() == 'fcpe' && report.visibility == 'fcpe')
-      );
-    }
-    function canWriteReport(userId, reportId) {
-      let reportPath = /databases/(default)/documents/reports/$(reportId);
-      let report = firestore.get(reportPath).data;
-      return firestore.exists(reportPath) && active() && request.auth.uid == userId && sameOrganization(report)
-        && report.authorId == userId && validImage();
+
+    // =========================================================================
+    //  Helpers
+    // =========================================================================
+
+    function isSignedIn() {
+      return request.auth != null;
     }
 
-    match /users/{userId}/avatars/{fileName} {
-      allow read: if active() && request.auth.uid == userId;
-      allow write: if active() && request.auth.uid == userId && validImage();
+    function claims() {
+      return request.auth.token;
     }
-    match /posts/{postId}/{fileName} {
-      allow read: if audienceAllowed(firestore.get(/databases/(default)/documents/posts/$(postId)).data);
-      allow write: if active() && role() == 'admin'
-        && sameOrganization(firestore.get(/databases/(default)/documents/posts/$(postId)).data)
-        && validDocument();
+
+    function isActive() {
+      return isSignedIn() && claims().status == 'active';
     }
-    match /reports/{userId}/{reportId}/{fileName} {
-      allow read: if canReadReport(userId, reportId);
-      allow write: if canWriteReport(userId, reportId);
+
+    function role() {
+      return isActive() ? claims().role : 'none';
     }
-    match /documents/{documentId}/{fileName} {
-      allow read: if audienceAllowed(firestore.get(/databases/(default)/documents/documents/$(documentId)).data);
-      allow write: if active() && role() == 'admin'
-        && sameOrganization(firestore.get(/databases/(default)/documents/documents/$(documentId)).data)
-        && validDocument();
+
+    function orgId() {
+      return isActive() ? claims().orgId : null;
     }
-    match /fcpe/{organizationId}/{fileName} {
-      allow read: if active() && role() in ['fcpe', 'moderator', 'admin'] && organizationId == claim('organizationId', '');
-      allow write: if privileged() && organizationId == claim('organizationId', '') && validDocument();
+
+    function isFcpe() {
+      return role() in ['fcpe', 'moderator', 'admin'];
     }
-    match /{allPaths=**} { allow read, write: if false; }
+
+    function isModerator() {
+      return role() in ['moderator', 'admin'];
+    }
+
+    function isAdmin() {
+      return role() == 'admin';
+    }
+
+    // Le chemin doit appartenir à l'organisation de l'utilisateur.
+    function inOwnOrg(org) {
+      return isActive() && org == orgId();
+    }
+
+    function isImage() {
+      return request.resource.contentType in ['image/jpeg', 'image/png', 'image/webp'];
+    }
+
+    function isPdf() {
+      return request.resource.contentType == 'application/pdf';
+    }
+
+    function underSize(bytes) {
+      return request.resource.size <= bytes;
+    }
+
+    // 2 Mio : taille maximale d'une image après compression.
+    function validImage() {
+      return isImage() && underSize(2 * 1024 * 1024);
+    }
+
+    // 10 Mio : taille maximale d'un PDF.
+    function validDocument() {
+      return isPdf() && underSize(10 * 1024 * 1024);
+    }
+
+    // =========================================================================
+    //  Pièces jointes des publications — lecture par tous, écriture FCPE
+    // =========================================================================
+
+    match /orgs/{org}/posts/{postId}/{fileName} {
+      allow read: if inOwnOrg(org);
+      allow write: if inOwnOrg(org) && isFcpe() && validImage();
+      allow delete: if inOwnOrg(org) && isModerator();
+    }
+
+    // =========================================================================
+    //  Pièces jointes des messages de discussion
+    // =========================================================================
+
+    match /orgs/{org}/channels/{channelId}/{fileName} {
+      allow read: if inOwnOrg(org);
+      allow write: if inOwnOrg(org) && isActive() && validImage();
+      allow delete: if inOwnOrg(org) && isModerator();
+    }
+
+    // =========================================================================
+    //  Photos jointes à un signalement — STRICTEMENT PRIVÉES
+    // =========================================================================
+    //
+    //  C'est la donnée la plus sensible du système : une photo de cantine ou
+    //  de cour de récréation peut contenir des enfants identifiables.
+    //
+    //  Seuls l'auteur du signalement et la FCPE peuvent y accéder. Le chemin
+    //  contient l'identifiant du signalement, ce qui rend la vérification
+    //  directe, sans lecture Firestore.
+
+    match /orgs/{org}/reports/{reportId}/{fileName} {
+      // Comment identifier l'auteur sans pouvoir lire Firestore depuis une
+      // règle Storage ? On s'appuie sur les métadonnées du fichier :
+      // le client écrit `authorId` dans `metadata` au moment de l'envoi.
+      //
+      // Ce n'est pas falsifiable : la règle d'écriture exige que cette
+      // métadonnée soit égale à l'UID de la personne connectée. Un parent ne
+      // peut donc pas déposer un fichier en se faisant passer pour un autre.
+      allow read: if inOwnOrg(org) && (
+        isFcpe() || resource.metadata.authorId == request.auth.uid
+      );
+
+      allow write: if inOwnOrg(org)
+        && isActive()
+        && validImage()
+        && request.resource.metadata.authorId == request.auth.uid;
+
+      allow delete: if inOwnOrg(org) && isModerator();
+    }
+
+    // =========================================================================
+    //  Bibliothèque de documents
+    // =========================================================================
+
+    match /orgs/{org}/documents/{documentId}/{fileName} {
+      // Les documents internes de la FCPE sont rangés sous un préfixe dédié :
+      // `internal-`. La vérification est immédiate, sans lecture Firestore.
+      allow read: if inOwnOrg(org)
+        && (isFcpe() || !fileName.matches('internal-.*'));
+      allow write: if inOwnOrg(org) && isFcpe() && (validImage() || validDocument());
+      allow delete: if inOwnOrg(org) && isModerator();
+    }
+
+    // =========================================================================
+    //  Pièces jointes des événements
+    // =========================================================================
+
+    match /orgs/{org}/events/{eventId}/{fileName} {
+      allow read: if inOwnOrg(org);
+      allow write: if inOwnOrg(org) && isFcpe() && (validImage() || validDocument());
+      allow delete: if inOwnOrg(org) && isModerator();
+    }
+
+    // =========================================================================
+    //  Photos de profil
+    // =========================================================================
+    //
+    //  Facultatif en V1. Le chemin contient l'UID : chacun ne peut écrire que
+    //  dans son propre dossier.
+
+    match /orgs/{org}/avatars/{uid}/{fileName} {
+      allow read: if inOwnOrg(org);
+      allow write: if inOwnOrg(org) && isActive() && uid == request.auth.uid && validImage();
+      allow delete: if inOwnOrg(org) && (uid == request.auth.uid || isAdmin());
+    }
+
+    // =========================================================================
+    //  Refus par défaut
+    // =========================================================================
+    //
+    //  Tout chemin non mentionné ci-dessus est inaccessible. Ajouter un
+    //  nouveau dossier de stockage sans écrire de règle ne l'expose donc pas
+    //  par accident.
   }
 }

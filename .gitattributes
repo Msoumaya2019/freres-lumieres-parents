@@ -1,8 +1,29 @@
+# Normalisation des fins de ligne.
+#
+# Prettier est configuré en LF (`endOfLine: 'lf'` dans prettier.config.mjs).
+# Sans cette règle, un contributeur sous Windows obtiendrait des fichiers en
+# CRLF au moment du checkout, et ferait échouer `npm run format:check` en
+# intégration continue — pour une raison qui n'a rien à voir avec son code.
 * text=auto eol=lf
 
+# --- Binaires : aucune conversion de fin de ligne, jamais -------------------
 *.png binary
 *.jpg binary
 *.jpeg binary
+*.gif binary
+*.ico binary
 *.webp binary
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary
 *.pdf binary
-*.ipa binary
+*.zip binary
+*.hbc binary
+*.keystore binary
+*.jks binary
+
+# --- Fichiers générés -------------------------------------------------------
+# Suivis (leur contenu conditionne la reproductibilité de la CI) mais repliés
+# par défaut dans les diffs : personne ne relit un package-lock.json à la main.
+package-lock.json -diff linguist-generated=true

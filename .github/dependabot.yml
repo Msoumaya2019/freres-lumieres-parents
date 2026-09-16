@@ -1,21 +1,107 @@
+# =============================================================================
+#  Veille sur les dépendances
+# =============================================================================
+#
+#  Principe : **une mise à jour majeure n'est jamais automatique.**
+#
+#  React Native, Expo, Next.js et Firebase cassent régulièrement sur une
+#  montée de version majeure. Sur un projet maintenu par une personne seule,
+#  une PR de mise à jour automatique fusionnée sans relecture est le meilleur
+#  moyen de casser la production un vendredi soir.
+#
+#  Les correctifs et les mineures sont donc regroupés en une PR hebdomadaire,
+#  facile à relire. Les majeures arrivent séparément, et se traitent une par
+#  une.
+#
+#  Toute PR Dependabot passe par la même CI que les autres : rien n'est
+#  fusionné sans vérification.
+# =============================================================================
+
 version: 2
+
 updates:
+  # --- Dépendances npm -------------------------------------------------------
   - package-ecosystem: npm
-    directory: /
+    directory: "/"
     schedule:
       interval: weekly
       day: monday
+      time: "06:00"
+      timezone: Europe/Paris
     open-pull-requests-limit: 5
+    versioning-strategy: increase
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+      include: scope
+    labels:
+      - dependencies
     groups:
+      # Les écosystèmes qui doivent évoluer ensemble sont regroupés : une
+      # montée de version d'Expo sans React Native à jour, par exemple, ne
+      # fonctionne pas.
       expo:
         patterns:
-          ['expo', 'expo-*', '@expo/*', 'react-native', 'react-native-*']
+          - "expo"
+          - "expo-*"
+          - "react-native"
+          - "react-native-*"
+          - "@expo/*"
       firebase:
-        patterns: ['firebase', 'firebase-*', '@firebase/*']
-    versioning-strategy: increase-if-necessary
+        patterns:
+          - "firebase"
+          - "firebase-admin"
+          - "firebase-functions"
+          - "@firebase/*"
+      next:
+        patterns:
+          - "next"
+          - "eslint-config-next"
+          - "react"
+          - "react-dom"
+      tailwind:
+        patterns:
+          - "tailwindcss"
+          - "@tailwindcss/*"
+      tests:
+        patterns:
+          - "vitest"
+          - "@vitest/*"
+          - "@testing-library/*"
+      outils:
+        patterns:
+          - "typescript"
+          - "eslint"
+          - "@typescript-eslint/*"
+          - "prettier"
+          - "zod"
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # Les montées de version majeure d'Expo et de React Native se font
+      # manuellement : elles exigent de lire les notes de version, de mettre
+      # à jour le SDK et souvent de reconstruire les profils EAS.
+      - dependency-name: "expo"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-native"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "next"
+        update-types: ["version-update:semver-major"]
 
+  # --- Actions GitHub --------------------------------------------------------
   - package-ecosystem: github-actions
-    directory: /
+    directory: "/"
     schedule:
-      interval: monthly
-    open-pull-requests-limit: 5
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Paris
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore(ci)"
+    labels:
+      - dependencies
+      - ci

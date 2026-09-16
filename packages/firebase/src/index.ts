@@ -1,0 +1,30 @@
+/**
+ * Point d'entrée de la couche d'accès Firebase.
+ *
+ * Import conseillé :
+ *
+ *     import { paths, createUserRepository, createPostRepository } from '@fl/firebase';
+ *
+ * Ce package ne crée jamais l'application Firebase lui-même : il ne sait pas
+ * si l'on est sur React Native (persistance AsyncStorage) ou dans un
+ * navigateur (persistance locale). Chaque application initialise le SDK dans
+ * `src/lib/firebase.ts`, puis injecte les instances ici.
+ *
+ * Cette séparation évite d'imposer `react-native` à l'admin et de rendre le
+ * package intestable.
+ */
+
+export * from './paths.js';
+export * from './config.js';
+export * from './converters.js';
+export * from './errors.js';
+export * from './pagination.js';
+
+export * from './repositories/users.js';
+export * from './repositories/posts.js';
+export * from './repositories/reference.js';
+
+export * from './functions/admin.js';
+
+export * from './push/dispatcher.js';
+export * from './push/expo.js';

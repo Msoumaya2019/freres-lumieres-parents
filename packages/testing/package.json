@@ -1,0 +1,18 @@
+{
+  "name": "@fl/testing",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Harnais de tests des règles de sécurité Firebase, exécuté sur les émulateurs",
+  "scripts": {
+    "test": "vitest run --passWithNoTests",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.2",
+    "@fl/types": "*",
+    "firebase": "^12.19.0",
+    "vitest": "^3.2.4"
+  }
+}

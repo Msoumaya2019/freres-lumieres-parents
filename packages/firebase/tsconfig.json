@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    // `node` fournit les types de `fetch`, `AbortController` et des minuteurs,
+    // disponibles aussi bien en Node 22 (Cloud Functions) qu'en React Native
+    // et dans le navigateur (admin). Aucune API propre à Node n'est utilisée
+    // en dehors de ces primitives universelles.
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/**/*.test.ts"]
+}

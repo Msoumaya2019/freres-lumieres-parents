@@ -1,7 +1,0 @@
-{
-  "projects": {
-    "default": "demo-freres-lumieres",
-    "development": "freres-lumieres-dev",
-    "production": "freres-lumieres-prod"
-  }
-}

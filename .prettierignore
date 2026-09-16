@@ -1,14 +1,14 @@
-.expo
-.firebase
-.next
-coverage
-dist
-lib
 node_modules
-work
-outputs
-apps/mobile/ios
-apps/mobile/android
-apps/admin/next-env.d.ts
-apps/mobile/expo-env.d.ts
-pnpm-lock.yaml
+dist
+.next
+.expo
+coverage
+functions/lib
+firebase/emulator-data
+package-lock.json
+*.tsbuildinfo
+
+# Fichiers générés par les outils. Les vérifier ferait échouer
+# `format:check` juste après un build, sans qu'aucun code n'ait changé.
+next-env.d.ts
+expo-env.d.ts

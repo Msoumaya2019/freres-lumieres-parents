@@ -1,4 +1,10 @@
 {
+  "$schema": "https://json.schemastore.org/firebase-json",
+  "projects": {
+    "default": "freres-lumieres-dev",
+    "dev": "freres-lumieres-dev",
+    "prod": "freres-lumieres-prod"
+  },
   "firestore": {
     "rules": "firebase/firestore.rules",
     "indexes": "firebase/firestore.indexes.json"
@@ -6,17 +12,37 @@
   "storage": {
     "rules": "firebase/storage.rules"
   },
-  "functions": {
-    "source": "functions",
-    "runtime": "nodejs22",
-    "predeploy": ["pnpm --dir functions build"]
-  },
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "default",
+      "runtime": "nodejs22",
+      "predeploy": ["npm run build -w @fl/functions"],
+      "ignore": ["node_modules", ".git", "*.log", "lib/**/*.map"]
+    }
+  ],
   "emulators": {
-    "singleProjectMode": true,
-    "auth": { "port": 9099 },
-    "functions": { "port": 5001 },
-    "firestore": { "port": 8080 },
-    "storage": { "port": 9199 },
-    "ui": { "enabled": true, "port": 4000 }
+    "auth": {
+      "host": "127.0.0.1",
+      "port": 9099
+    },
+    "firestore": {
+      "host": "127.0.0.1",
+      "port": 8080
+    },
+    "storage": {
+      "host": "127.0.0.1",
+      "port": 9199
+    },
+    "functions": {
+      "host": "127.0.0.1",
+      "port": 5001
+    },
+    "ui": {
+      "enabled": true,
+      "host": "127.0.0.1",
+      "port": 4000
+    },
+    "singleProjectMode": true
   }
 }
