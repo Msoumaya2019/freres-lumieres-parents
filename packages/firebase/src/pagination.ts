@@ -15,6 +15,7 @@ import {
   getDocs,
   limit as limitTo,
   query,
+  startAfter,
   type DocumentData,
   type Query,
   type QueryDocumentSnapshot,
@@ -35,11 +36,21 @@ export interface FirestorePage<T> {
 
 export interface PaginateOptions<T> {
   /**
-   * Construit la requête. Reçoit le curseur de la page précédente, ou `null`
-   * pour la première page. Cette inversion de contrôle évite de manipuler les
-   * internes du SDK et garde `paginate` totalement générique.
+   * Construit la requête, **sans se préoccuper du curseur** : `paginate`
+   * applique lui-même `startAfter`.
+   *
+   * Le curseur était auparavant reçu en paramètre par cette fonction. Sur les
+   * quatre listes paginées du projet, aucune ne s'en servait : il était
+   * accepté, transmis, renvoyé à l'appelant — et jamais appliqué à la requête.
+   * « Charger la suite » relançait donc la première page, que la déduplication
+   * d'`appendPage` réaffichait comme un ajout vide. Le défaut ne produisait ni
+   * erreur ni message : la liste cessait simplement de grandir, et chaque clic
+   * relisait les mêmes documents.
+   *
+   * Appliquer le curseur ici rend l'oubli impossible : il n'y a plus rien à
+   * oublier.
    */
-  buildQuery: (cursor: QueryDocumentSnapshot | null) => Query<DocumentData>;
+  buildQuery: () => Query<DocumentData>;
   /** Nombre d'éléments par page. */
   pageSize: number;
   /** Curseur de la page précédente. */
@@ -51,10 +62,8 @@ export interface PaginateOptions<T> {
 /**
  * Exécute une requête paginée.
  *
- * On demande un document de plus que la taille de page : sa présence indique
- * qu'il reste des éléments. C'est la méthode standard, et elle coûte une
- * lecture supplémentaire par page — un prix dérisoire pour une pagination
- * exacte.
+ * C'est le seul endroit du projet qui applique un curseur : aucun appelant
+ * n'a à s'en soucier.
  */
 export async function paginate<T>(options: PaginateOptions<T>): Promise<FirestorePage<T>> {
   try {
@@ -64,7 +73,11 @@ export async function paginate<T>(options: PaginateOptions<T>): Promise<Firestor
     // indique qu'il reste des éléments. C'est la méthode standard, et elle
     // coûte une lecture supplémentaire par page — un prix dérisoire pour une
     // pagination exacte.
-    const limitedQuery: Query<DocumentData> = query(buildQuery(cursor), limitTo(pageSize + 1));
+    const limitedQuery: Query<DocumentData> = query(
+      buildQuery(),
+      ...(cursor ? [startAfter(cursor)] : []),
+      limitTo(pageSize + 1),
+    );
     const snapshot = await getDocs(limitedQuery);
 
     const hasMore = snapshot.docs.length > pageSize;

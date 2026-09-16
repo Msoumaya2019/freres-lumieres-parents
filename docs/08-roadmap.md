@@ -229,6 +229,15 @@ vitest. Il pointe maintenant sur un `tsconfig.test.json`, comme `@fl/shared`.
       `useFeed` porte l'empreinte de la demande — organisation, catégorie, clés
       d'audience — et un numéro de génération : changer deux fois de catégorie
       en une seconde ne peut pas afficher la réponse de la première.
+      **Correction ultérieure.** La pagination ne fonctionnait pas : `paginate`
+      transmettait le curseur à `buildQuery`, et aucun des quatre appelants —
+      fil, liste d'administration, commentaires, file des comptes — ne
+      l'appliquait à la requête. « Charger la suite » relançait donc la première
+      page, que la déduplication réaffichait comme un ajout vide : la liste
+      cessait de grandir, sans erreur ni message. `paginate` applique désormais
+      `startAfter` lui-même, ce qui rend l'oubli impossible, et
+      `packages/testing` le prouve en parcourant réellement une collection page
+      après page.
 - [x] Filtres par catégorie
       Le filtre est appliqué **par la requête**, pas sur la page chargée : un
       filtre client annoncerait « aucune publication en cantine » alors que la
