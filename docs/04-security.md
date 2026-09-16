@@ -204,10 +204,11 @@ pas.
 | `posts/{id}`                          | `get` : publié, auteur, ou `isModerator()` ; `list` : `status == 'published'` seulement. Création : `pinned` refusé hors modération, `authorRole` comparé au claim. Mise à jour en deux branches, `pinned`/`stats`/identité figés pour l'auteur, tout le contenu figé pour la modération |
 | `channels/{id}/messages`              | même régime que les commentaires : l'auteur modifie son corps, `isModerator()` masque, `authorId`/`authorRole`/`reportCount` figés                                                                                                                                                       |
 | `polls/{id}/votes/{uid}`              | **écriture uniquement si `uid == request.auth.uid`** → double vote impossible                                                                                                                                                                                                            |
-| `reports/{id}`                        | lecture si `authorId == uid` **ou** `isFcpe()`                                                                                                                                                                                                                                           |
+| `reports/{id}`                        | lecture si `authorId == uid`, **ou** `isFcpe()` **et** `orgId` de l'organisation                                                                                                                                                                                                         |
 | `reports/{id}/replies`                | lecture : `internal == false` pour l'auteur, tout pour la FCPE                                                                                                                                                                                                                           |
 | `schoolCouncils/{id}/items`           | lecture des `visibility == 'fcpe'` réservée à `isFcpe()`                                                                                                                                                                                                                                 |
 | `moderationReports`                   | lecture et écriture : `isModerator()`                                                                                                                                                                                                                                                    |
+| `fcpeTasks/{id}`                      | frontière dure : lecture `isFcpe()` **et** `orgId` de l'organisation ; écriture si `request.resource.data.orgId == orgId()`                                                                                                                                                              |
 | `adminLogs`                           | **création réservée au serveur**, aucune modification ni suppression, lecture `isAdmin()`                                                                                                                                                                                                |
 | `counters`, `highlights`              | écriture réservée au serveur, lecture `isActive()`                                                                                                                                                                                                                                       |
 | `organizations`, `schools`, `classes` | lecture `isSignedIn()` (nécessaire au formulaire d'inscription), écriture `isAdmin()`                                                                                                                                                                                                    |
@@ -463,6 +464,16 @@ satisfait l'article 17 tout en préservant l'intégrité des échanges.
   trancher au moment où un écran d'administration lira ce rattachement ; la
   fiche d'un compte, livrée en Phase 4, s'en passe délibérément et s'appuie sur
   les niveaux et classes recopiés sur le profil.
+  **Le cas n'est pas isolé**, et c'est ce qui justifie de tout traiter d'un
+  bloc. Trois autres sous-collections se contentent d'`isActive()` sans
+  comparer l'organisation, alors que leurs documents ne portent pas davantage
+  d'`orgId` : `collectiveIssues/{id}/supporters/{uid}`,
+  `events/{id}/participants/{uid}` et `reports/{id}/replies/{id}`. Or la règle
+  du parent ne protège pas l'enfant : Firestore évalue les règles d'une
+  sous-collection **indépendamment** de celle de son parent, donc connaître
+  l'identifiant du parent suffit à lire ce qu'il contient. La sortie est la
+  même que ci-dessus — ajouter `orgId` aux documents, donc un changement de
+  modèle — et elle vaut pour les quatre à la fois.
 - **Compteurs et résumés : lecture entre organisations.** `counters/{counterId}`
   et `highlights/{highlightId}` se contentent d'`isActive()`. L'identifiant du
   document **est** l'identifiant d'organisation, donc la contrainte s'écrirait
@@ -470,9 +481,18 @@ satisfait l'article 17 tout en préservant l'intégrité des échanges.
   agrégats (nombre de comptes, de publications), sans donnée personnelle, d'où
   le classement après les deux points précédents. À corriger en même temps
   qu'eux, pas séparément.
-- **Recherche d'un compte : par nom, ou par adresse seulement ?** Firestore
+- **Recherche d'un compte — et journalisation des consultations.** Firestore
   n'offre ni recherche insensible à la casse, ni recherche par sous-chaîne.
-  Trois issues, du moins coûteux au plus juste.
+  Quatre issues, du moins coûteux au plus juste.
+
+  Ce point en rejoint un second, qui n'a rien à voir avec Firestore.
+  `docs/03-roles-permissions.md` affirmait que « chaque consultation est
+  journalisée » : c'était faux, et le document est corrigé. Une consultation
+  n'écrit rien, et ne **peut** rien écrire depuis le client — les règles
+  réservent l'écriture de `adminLogs` au serveur, administrateur compris.
+  Rendre la phrase vraie demande une Cloud Function appelée à chaque
+  consultation, c'est-à-dire exactement la mécanique de la quatrième issue
+  ci-dessous. Les deux décisions n'en font qu'une.
   **Chercher sur l'adresse exacte** ne demande presque rien : `email` existe et
   s'indexe déjà avec `orgId`. Mais un administrateur au téléphone avec un
   parent entend un nom, pas une adresse.
@@ -487,3 +507,18 @@ satisfait l'article 17 tout en préservant l'intégrité des échanges.
   et le recalculer quand un parent corrige son nom. Aucune donnée de
   production n'existe encore : c'est le moment le moins coûteux pour ce choix,
   et il ne le restera pas.
+  **Chercher depuis une Cloud Function** est la quatrième issue, identifiée
+  après coup et la plus complète. La fonction lit les comptes de
+  l'organisation de l'appelant et normalise en mémoire : à l'échelle d'une
+  FCPE — quelques centaines de familles — cela représente quelques centaines de
+  lectures par recherche, un coût négligeable. Elle ne demande ni champ
+  nouveau, ni règle nouvelle, ni index ; elle est insensible à la casse et aux
+  accents, elle sait chercher par sous-chaîne et jusque dans l'adresse ; et
+  elle est la **seule** à pouvoir journaliser la consultation.
+  **Décision (16 septembre 2026) : reporter.** La file par statut suffit tant
+  que l'organisation compte peu de comptes, et aucune donnée de production
+  n'existe — le coût du report est donc nul aujourd'hui. Deux points à ne pas
+  perdre au moment de rouvrir : la recherche et la journalisation des
+  consultations se traiteront **ensemble** (les séparer ferait écrire deux fois
+  la même mécanique, ou laisserait la promesse fausse), et la quatrième issue
+  est celle qui les satisfait toutes les deux.

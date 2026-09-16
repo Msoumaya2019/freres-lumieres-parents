@@ -446,6 +446,114 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
         voterId: UID.otherParent,
         optionIds: ['yes'],
       });
+
+      // --- Signalements, modération, tâches internes -------------------------
+      //
+      // Ces trois collections n'avaient **aucun** test, et c'est exactement
+      // pourquoi leur défaut de cloisonnement a survécu : une règle de lecture
+      // qui s'appuie sur le seul rôle (`isFcpe()`, `isModerator()`) est
+      // satisfaite par Firestore sans contraindre aucun champ, donc la
+      // collection entière est listable. Le défaut ne se voyait nulle part.
+      //
+      // Chaque collection reçoit un document de chaque organisation : sans la
+      // paire, un test ne peut pas distinguer « la règle cloisonne » de
+      // « toutes les données sont dans la même organisation ».
+      await setDoc(doc(db, 'reports', 'report-du-parent'), {
+        id: 'report-du-parent',
+        title: 'Cantine trop salée',
+        description: 'Les plats sont trop salés depuis la rentrée.',
+        category: 'cantine',
+        attachments: [],
+        authorId: UID.parent,
+        authorName: 'Camille Durand',
+        status: 'received',
+        visibility: 'private',
+        timeline: [],
+        replyCount: 0,
+        orgId: TEST_ORG,
+        createdAt: new Date('2026-09-05T08:00:00Z'),
+      });
+      // Un signalement d'un **autre parent de la même organisation** : c'est la
+      // frontière annoncée par `docs/04-security.md` (« un parent ne lit que ses
+      // propres signalements »), et elle se teste à l'intérieur d'une
+      // organisation — sans ce document, le seul refus observable serait un
+      // refus inter-organisations, qui ne dirait rien de cette promesse.
+      await setDoc(doc(db, 'reports', 'report-autre-parent'), {
+        id: 'report-autre-parent',
+        title: 'Travaux dans la cour',
+        description: 'La cour est impraticable depuis les travaux.',
+        category: 'locaux',
+        attachments: [],
+        authorId: UID.otherParent,
+        authorName: 'Alex Martin',
+        status: 'received',
+        visibility: 'private',
+        timeline: [],
+        replyCount: 0,
+        orgId: TEST_ORG,
+        createdAt: new Date('2026-09-05T08:30:00Z'),
+      });
+      await setDoc(doc(db, 'reports', 'report-autre-organisation'), {
+        id: 'report-autre-organisation',
+        title: 'Transport scolaire',
+        description: 'Le car passe trop tôt le matin.',
+        category: 'transport',
+        attachments: [],
+        authorId: 'parent-autre-organisation',
+        authorName: 'Alex Martin',
+        status: 'received',
+        visibility: 'private',
+        timeline: [],
+        replyCount: 0,
+        orgId: TEST_OTHER_ORG,
+        createdAt: new Date('2026-09-05T08:00:00Z'),
+      });
+
+      await setDoc(doc(db, 'moderationReports', 'moderation-1'), {
+        id: 'moderation-1',
+        orgId: TEST_ORG,
+        targetType: 'post',
+        targetId: 'post-own-published',
+        targetPath: `posts/post-own-published`,
+        targetAuthorId: UID.fcpe,
+        targetAuthorName: 'FCPE',
+        targetExcerpt: 'Extrait du contenu signalé',
+        reason: 'spam',
+        reporterId: UID.parent,
+        status: 'open',
+        createdAt: new Date('2026-09-05T09:00:00Z'),
+      });
+      await setDoc(doc(db, 'moderationReports', 'moderation-autre-organisation'), {
+        id: 'moderation-autre-organisation',
+        orgId: TEST_OTHER_ORG,
+        targetType: 'post',
+        targetId: 'post-autre-organisation',
+        targetPath: `posts/post-autre-organisation`,
+        targetAuthorId: 'parent-autre-organisation',
+        targetAuthorName: 'Alex Martin',
+        targetExcerpt: 'Extrait du contenu signalé ailleurs',
+        reason: 'spam',
+        reporterId: 'parent-autre-organisation',
+        status: 'open',
+        createdAt: new Date('2026-09-05T09:00:00Z'),
+      });
+
+      await setDoc(doc(db, 'fcpeTasks', 'tache-fcpe'), {
+        id: 'tache-fcpe',
+        title: 'Préparer le conseil d’école',
+        status: 'todo',
+        priority: 'normal',
+        orgId: TEST_ORG,
+        createdAt: new Date('2026-09-05T10:00:00Z'),
+      });
+      await setDoc(doc(db, 'fcpeTasks', 'tache-autre-organisation'), {
+        id: 'tache-autre-organisation',
+        title: 'Préparer la kermesse',
+        status: 'todo',
+        priority: 'normal',
+        orgId: TEST_OTHER_ORG,
+        createdAt: new Date('2026-09-05T10:00:00Z'),
+      });
     });
   });
 
@@ -555,6 +663,103 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
     it('une requête non contrainte est refusée', async () => {
       // Même règle, mais sans les contraintes : la démonstration échoue.
       await assertFails(getDocs(collection(parent.firestore(), 'posts')));
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Signalements, modération et tâches internes
+  // -------------------------------------------------------------------------
+  //
+  // Ces trois collections n'avaient **aucun** test, et c'est précisément
+  // pourquoi leur défaut de cloisonnement a survécu si longtemps. Leur point
+  // commun : la règle de lecture s'appuyait sur le seul **rôle**, sans comparer
+  // l'organisation du document à celle du lecteur. Or une règle qui ne
+  // référence aucun champ du document est satisfaite par Firestore pour
+  // **n'importe quelle** requête — c'est le piège déjà rencontré sur `users`,
+  // et il produit le même résultat : la collection entière devient listable,
+  // toutes organisations confondues.
+  //
+  // Ce qui rend le défaut invisible mérite d'être dit : la lecture **unitaire**
+  // se comporte correctement. Un `getDoc` sur un document de son organisation
+  // passe, un `getDoc` sur un document d'une autre organisation est refusé —
+  // dès lors qu'on connaît l'identifiant. C'est la **requête** qui franchit la
+  // frontière, et seule une requête peut le montrer.
+  //
+  // Ces tests ont d'abord été écrits pour échouer : ils décrivent la règle
+  // attendue, et les refus inter-organisations ont effectivement échoué contre
+  // la règle d'alors. Le correctif est venu ensuite, comme pour `users`.
+
+  describe('Signalements, modération et tâches internes', () => {
+    it('un parent lit son propre signalement', async () => {
+      await assertSucceeds(getDoc(doc(parent.firestore(), 'reports', 'report-du-parent')));
+    });
+
+    // La promesse de `docs/04-security.md` : « un parent ne lit que ses propres
+    // signalements ». Elle se vérifie à l'intérieur d'une même organisation.
+    it('un parent ne lit pas le signalement d’un autre parent', async () => {
+      await assertFails(getDoc(doc(parent.firestore(), 'reports', 'report-autre-parent')));
+    });
+
+    it('un parent ne lit pas un signalement d’une autre organisation', async () => {
+      await assertFails(getDoc(doc(parent.firestore(), 'reports', 'report-autre-organisation')));
+    });
+
+    it('un membre de la FCPE lit un signalement de son organisation', async () => {
+      await assertSucceeds(getDoc(doc(fcpe.firestore(), 'reports', 'report-autre-parent')));
+    });
+
+    it('un membre de la FCPE ne liste pas les signalements d’une autre organisation', async () => {
+      const db = fcpe.firestore();
+      await assertFails(
+        getDocs(query(collection(db, 'reports'), where('orgId', '==', TEST_OTHER_ORG))),
+      );
+    });
+
+    // Sans contrainte de champ, Firestore doit refuser la requête : la règle
+    // exige une comparaison sur `orgId`, qui ne se démontre pas sans `where`.
+    it('un membre de la FCPE ne liste pas la collection entière des signalements', async () => {
+      await assertFails(getDocs(collection(fcpe.firestore(), 'reports')));
+    });
+
+    it('un membre de la FCPE liste les signalements de son organisation', async () => {
+      const db = fcpe.firestore();
+      await assertSucceeds(
+        getDocs(query(collection(db, 'reports'), where('orgId', '==', TEST_ORG))),
+      );
+    });
+
+    it('un modérateur ne liste pas la file de modération d’une autre organisation', async () => {
+      const db = moderator.firestore();
+      await assertFails(
+        getDocs(query(collection(db, 'moderationReports'), where('orgId', '==', TEST_OTHER_ORG))),
+      );
+    });
+
+    it('un modérateur liste la file de modération de son organisation', async () => {
+      const db = moderator.firestore();
+      await assertSucceeds(
+        getDocs(query(collection(db, 'moderationReports'), where('orgId', '==', TEST_ORG))),
+      );
+    });
+
+    // `fcpeTasks` était déclarée `allow read, create, update: if isFcpe() &&
+    // request.resource.data.orgId == orgId()`. Sur une **lecture**,
+    // `request.resource` n'existe pas : l'expression lève, et une erreur vaut
+    // refus. La collection était donc illisible, y compris par la FCPE, alors
+    // que la règle semblait l'autoriser — un défaut de disponibilité, et non de
+    // confidentialité, mais un défaut tout de même. D'où deux règles
+    // distinctes : `resource` pour ce qui est lu, `request.resource` pour ce qui
+    // est écrit.
+    it('un membre de la FCPE lit une tâche interne de son organisation', async () => {
+      await assertSucceeds(getDoc(doc(fcpe.firestore(), 'fcpeTasks', 'tache-fcpe')));
+    });
+
+    it('un membre de la FCPE ne lit pas une tâche d’une autre organisation', async () => {
+      await assertFails(getDoc(doc(fcpe.firestore(), 'fcpeTasks', 'tache-autre-organisation')));
+    });
+
+    it('un parent ne lit aucune tâche interne', async () => {
+      await assertFails(getDoc(doc(parent.firestore(), 'fcpeTasks', 'tache-fcpe')));
     });
   });
 

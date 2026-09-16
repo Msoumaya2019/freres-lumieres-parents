@@ -731,7 +731,25 @@ service cloud.firestore {
 
       // FRONTIÈRE DURE : un parent ne lit que ses propres signalements.
       // Aucune requête ne permet de lire ceux des autres.
-      allow read: if isActive() && (resource.data.authorId == request.auth.uid || isFcpe());
+      //
+      // La comparaison d'organisation n'est exigée que sur la branche
+      // privilégiée, et c'est délibéré : `authorId == request.auth.uid` porte
+      // déjà la frontière, un identifiant d'utilisateur étant unique. Seule la
+      // branche `isFcpe()` en manquait — et son absence était invisible, parce
+      // qu'une règle qui ne référence aucun champ du document est satisfaite par
+      // Firestore pour **n'importe quelle** requête. Un membre de la FCPE
+      // pouvait donc lister la collection entière, tous groupes scolaires
+      // confondus : les signalements de harcèlement des familles d'une autre
+      // association. C'est la collection la plus sensible du système.
+      //
+      // Restreindre la seule branche concernée évite d'ajouter une contrainte
+      // d'`orgId` à la requête du parent, qui n'en a pas besoin et exigerait un
+      // index composite de plus.
+      allow read: if isActive()
+        && (
+          resource.data.authorId == request.auth.uid
+          || (isFcpe() && resource.data.orgId == orgId())
+        );
 
       allow create: if isActive() && validReport();
 
@@ -900,13 +918,22 @@ service cloud.firestore {
         && request.resource.data.targetType in ['post', 'comment', 'message']
         && request.resource.data.orgId == orgId();
 
-      allow read: if isModerator();
+      // Le modérateur ne voit que la file de sa propre organisation. Sans cette
+      // comparaison, `isModerator()` seul ne référence aucun champ du document :
+      // Firestore satisfaisait donc la règle pour n'importe quelle requête, et
+      // un modérateur pouvait lister la file entière, toutes organisations
+      // confondues.
+      allow read: if isModerator() && resource.data.orgId == orgId();
 
-      // Un modérateur ne peut pas réécrire l'identité du signalement.
+      // Un modérateur ne peut pas réécrire l'identité du signalement. `orgId`
+      // est figé pour la même raison qu'ailleurs, et ici plus encore : la règle
+      // de lecture ci-dessus s'appuie dessus, donc pouvoir le réécrire
+      // reviendrait à pouvoir déplacer un signalement hors de sa frontière.
       allow update: if isModerator()
         && unchanged('reporterId')
         && unchanged('targetId')
         && unchanged('targetPath')
+        && unchanged('orgId')
         && unchanged('createdAt');
 
       allow delete: if isAdmin();
@@ -932,7 +959,18 @@ service cloud.firestore {
 
     match /fcpeTasks/{taskId} {
       // Frontière dure : contrôlée par le rôle, jamais par la requête.
-      allow read, create, update: if isFcpe() && request.resource.data.orgId == orgId();
+      //
+      // La lecture portait sur `request.resource`, qui n'existe **pas** sur une
+      // lecture : l'expression lève « Property resource is undefined on object »,
+      // et une erreur vaut refus. La collection était donc illisible par tout le
+      // monde, FCPE comprise, alors que la règle semblait l'autoriser — un
+      // défaut de disponibilité, révélé par un test qui attendait un succès.
+      //
+      // D'où deux règles distinctes : `resource` décrit ce qui est lu,
+      // `request.resource` ce qui est écrit. Les confondre ne compile pas mal —
+      // elles échouent silencieusement, en refusant.
+      allow read: if isFcpe() && resource.data.orgId == orgId();
+      allow create, update: if isFcpe() && request.resource.data.orgId == orgId();
       allow delete: if isFcpe();
     }
 

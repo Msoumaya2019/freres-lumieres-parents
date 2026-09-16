@@ -55,6 +55,23 @@ export const CLAIMS = {
     orgId: TEST_OTHER_ORG,
     orgIds: [TEST_OTHER_ORG],
   },
+  // Rôles habilités d'une **autre** organisation. Un rôle privilégié ne doit
+  // pas franchir la frontière d'organisation : c'est le cas que les tests de
+  // cloisonnement oubliaient, et c'est celui qui laisse passer une lecture
+  // entière de collection — une règle qui s'appuie sur le seul rôle est
+  // satisfaite par Firestore sans contraindre aucun champ.
+  fcpeOtherOrg: {
+    role: 'fcpe',
+    status: 'active',
+    orgId: TEST_OTHER_ORG,
+    orgIds: [TEST_OTHER_ORG],
+  },
+  moderatorOtherOrg: {
+    role: 'moderator',
+    status: 'active',
+    orgId: TEST_OTHER_ORG,
+    orgIds: [TEST_OTHER_ORG],
+  },
 } as const;
 
 /** Identifiants d'utilisateurs fictifs, réutilisés dans tous les tests. */
