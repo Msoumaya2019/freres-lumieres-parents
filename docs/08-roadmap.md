@@ -191,11 +191,13 @@ firebase-tools refuse toute version antérieure :
 Error: firebase-tools no longer supports Java version before 21.
 ```
 
-Seul Java 8 est présent sur le poste de développement. Ces 40 tests sont donc
-**écrits mais jamais passés en local** : leur première exécution réelle aura
-lieu en CI, où le job `rules` installe Temurin 21. C'est un angle mort assumé
-et connu, pas un oubli — il est signalé ici pour qu'il ne soit pas pris pour
-une couverture acquise.
+Seul Java 8 est présent sur le poste de développement. Ces tests sont donc
+**écrits mais jamais passés en local** : leur exécution réelle a lieu en CI, où le
+job `rules` installe Temurin 21. L'angle mort a payé — la première exécution a
+révélé un bug de règle qui rendait impossible toute publication sans lien
+externe, la seconde a validé sa correction, et la troisième a confirmé la
+fermeture d'une faille de réécriture des commentaires. Il est signalé ici pour
+qu'il ne soit pas pris pour une couverture acquise.
 
 **Les tests de claims sont purs, et c'est délibéré.** Ils vivent dans
 `functions/src/auth/claims.test.ts` plutôt que dans `@fl/testing`, qui porte les
