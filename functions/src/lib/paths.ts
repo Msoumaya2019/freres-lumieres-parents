@@ -71,6 +71,11 @@ export const paths = {
   commentReactions: (postId: string, commentId: string) =>
     `${COLLECTIONS.posts}/${postId}/${SUBCOLLECTIONS.comments}/${commentId}/${SUBCOLLECTIONS.reactions}`,
 
+  poll: (pollId: string) => `${COLLECTIONS.polls}/${pollId}`,
+  pollVotes: (pollId: string) => `${COLLECTIONS.polls}/${pollId}/${SUBCOLLECTIONS.votes}`,
+  pollVote: (pollId: string, voterKey: string) =>
+    `${COLLECTIONS.polls}/${pollId}/${SUBCOLLECTIONS.votes}/${voterKey}`,
+
   channel: (channelId: string) => `${COLLECTIONS.channels}/${channelId}`,
   channelMessages: (channelId: string) =>
     `${COLLECTIONS.channels}/${channelId}/${SUBCOLLECTIONS.messages}`,

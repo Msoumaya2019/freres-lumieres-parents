@@ -474,6 +474,9 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
           { id: 'no', label: 'Non' },
         ],
         status: 'open',
+        allowMultiple: false,
+        anonymous: false,
+        allowChangeVote: true,
         orgId: TEST_ORG,
         audienceKeys: [`org:${TEST_ORG}`],
       });
@@ -495,6 +498,14 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
           { id: 'no', label: 'Non' },
         ],
         status: 'draft',
+        // Ces trois champs ne sont pas décoratifs : les règles de vote les
+        // lisent, et **lire un champ absent lève**. Sans eux, ce sondage serait
+        // invotable pour une raison qui n'a rien à voir avec son statut — et le
+        // test « voter sur un brouillon est refusé » serait vert pour cette
+        // raison-là. C'est le banc de mutation qui l'a montré.
+        allowMultiple: false,
+        anonymous: false,
+        allowChangeVote: true,
         orgId: TEST_ORG,
         audienceKeys: [`org:${TEST_ORG}`],
       });
@@ -506,8 +517,97 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
           { id: 'no', label: 'Non' },
         ],
         status: 'open',
+        // Mêmes raisons que pour le brouillon ci-dessus.
+        allowMultiple: false,
+        anonymous: false,
+        allowChangeVote: true,
         orgId: TEST_OTHER_ORG,
         audienceKeys: [`org:${TEST_OTHER_ORG}`],
+      });
+
+      // Quatre sondages de plus, et chacun porte une clause que les règles
+      // doivent lire **dans le sondage** : le statut `closed`, le choix
+      // multiple, l'interdiction de changer son vote, et l'anonymat.
+      //
+      // C'est le même raisonnement que pour le brouillon et l'autre
+      // organisation : sans un sondage où la clause est vraie **et** un sondage
+      // où elle est fausse, un refus ne prouve rien — il peut venir de
+      // n'importe quelle autre clause. Chaque refus a donc son témoin, et les
+      // deux écritures ne diffèrent que par le sondage visé.
+      await setDoc(doc(db, 'polls', 'poll-clos'), {
+        id: 'poll-clos',
+        question: 'Faut-il maintenir la kermesse ?',
+        options: [
+          { id: 'yes', label: 'Oui' },
+          { id: 'no', label: 'Non' },
+        ],
+        status: 'closed',
+        allowMultiple: false,
+        anonymous: false,
+        allowChangeVote: true,
+        orgId: TEST_ORG,
+        audienceKeys: [`org:${TEST_ORG}`],
+      });
+      // Un vote déjà exprimé sur le sondage clos : c'est la **mise à jour** que
+      // les règles doivent refuser, et sans ce document le test de modification
+      // porterait sur une création — c'est-à-dire sur une autre clause.
+      await setDoc(doc(db, 'polls', 'poll-clos', 'votes', UID.otherParent), {
+        pollId: 'poll-clos',
+        uid: UID.otherParent,
+        optionIds: ['yes'],
+      });
+      await setDoc(doc(db, 'polls', 'poll-multiple'), {
+        id: 'poll-multiple',
+        question: 'Quels sujets aborder au conseil d’école ?',
+        options: [
+          { id: 'yes', label: 'La cantine' },
+          { id: 'no', label: 'Les locaux' },
+        ],
+        status: 'open',
+        allowMultiple: true,
+        anonymous: false,
+        allowChangeVote: true,
+        orgId: TEST_ORG,
+        audienceKeys: [`org:${TEST_ORG}`],
+      });
+      await setDoc(doc(db, 'polls', 'poll-fige'), {
+        id: 'poll-fige',
+        question: 'Faut-il maintenir la kermesse ?',
+        options: [
+          { id: 'yes', label: 'Oui' },
+          { id: 'no', label: 'Non' },
+        ],
+        status: 'open',
+        allowMultiple: false,
+        anonymous: false,
+        allowChangeVote: false,
+        orgId: TEST_ORG,
+        audienceKeys: [`org:${TEST_ORG}`],
+      });
+      await setDoc(doc(db, 'polls', 'poll-fige', 'votes', UID.otherParent), {
+        pollId: 'poll-fige',
+        uid: UID.otherParent,
+        optionIds: ['yes'],
+      });
+      await setDoc(doc(db, 'polls', 'poll-anonyme'), {
+        id: 'poll-anonyme',
+        question: 'Faut-il maintenir la kermesse ?',
+        options: [
+          { id: 'yes', label: 'Oui' },
+          { id: 'no', label: 'Non' },
+        ],
+        status: 'open',
+        allowMultiple: false,
+        anonymous: true,
+        allowChangeVote: true,
+        orgId: TEST_ORG,
+        audienceKeys: [`org:${TEST_ORG}`],
+      });
+      // Un vote anonyme tel que le dépôt l'écrit : aucun `uid`. C'est la forme
+      // que les règles doivent accepter, et l'autre forme qu'elles refusent.
+      await setDoc(doc(db, 'polls', 'poll-anonyme', 'votes', UID.otherParent), {
+        pollId: 'poll-anonyme',
+        optionIds: ['yes'],
       });
 
       // --- Signalements, modération, tâches internes -------------------------
@@ -1629,6 +1729,13 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
       await assertSucceeds(getDoc(doc(parent.firestore(), 'polls', 'poll-1')));
     });
 
+    it('un sondage clos reste lisible', async () => {
+      // La règle de lecture ouvre `open` **et** `closed`, et seule la première
+      // moitié était couverte. Un résultat qu'on ne peut plus lire après la
+      // clôture ne sert à rien : c'est justement le moment où on le consulte.
+      await assertSucceeds(getDoc(doc(parent.firestore(), 'polls', 'poll-clos')));
+    });
+
     it('un brouillon ne se lit pas, même par un parent de l’audience visée', async () => {
       // La règle de lecture n'ouvre que `open` et `closed`. C'est ce qui rend
       // `notify: false` sûr : enregistrer un sondage sans le publier ne laisse
@@ -1691,9 +1798,209 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
       );
     });
 
+    // -----------------------------------------------------------------------
+    // Le vote
+    //
+    // Toutes les conditions qui décident de ce qu'un vote a le droit d'être
+    // sont lues **dans le sondage**, par un `get()` de règle. Elles ne sont
+    // donc pas visibles dans le bloc `match /votes`, et c'est précisément pour
+    // cela que chaque refus ci-dessous a son témoin : `assertFails` est
+    // satisfait par n'importe quelle raison de refuser, et sans une écriture
+    // identique qui **réussit** ailleurs, un refus ne prouve rien.
+    //
+    // Le témoin est `poll-1` — ouvert, dans l'organisation, une seule réponse
+    // acceptée, vote modifiable. Chaque sondage qui sert à un refus ne diffère
+    // de lui que par la clause visée.
+    // -----------------------------------------------------------------------
+
     it('un parent enregistre son propre vote', async () => {
+      // Le témoin de tous les refus qui suivent.
       await assertSucceeds(
         setDoc(doc(parent.firestore(), 'polls', 'poll-1', 'votes', UID.parent), {
+          pollId: 'poll-1',
+          uid: UID.parent,
+          optionIds: ['yes'],
+        }),
+      );
+    });
+
+    it('voter sur un brouillon est refusé', async () => {
+      // Un brouillon n'est même pas lisible ; il ne doit pas être votable. Sans
+      // cette clause, il suffisait de connaître un identifiant de sondage pour
+      // voter sur une question que la FCPE n'avait pas encore publiée.
+      await assertFails(
+        setDoc(doc(parent.firestore(), 'polls', 'poll-brouillon', 'votes', UID.parent), {
+          pollId: 'poll-brouillon',
+          uid: UID.parent,
+          optionIds: ['yes'],
+        }),
+      );
+    });
+
+    it('voter sur un sondage clos est refusé', async () => {
+      // `poll-clos` ne diffère de `poll-1` que par son statut. Accepter un vote
+      // après la clôture ferait bouger un résultat que les parents ont déjà lu.
+      await assertFails(
+        setDoc(doc(parent.firestore(), 'polls', 'poll-clos', 'votes', UID.parent), {
+          pollId: 'poll-clos',
+          uid: UID.parent,
+          optionIds: ['yes'],
+        }),
+      );
+    });
+
+    it('voter sur le sondage d’une autre organisation est refusé', async () => {
+      // La lecture était cloisonnée, l'écriture ne l'était pas : connaître un
+      // identifiant de sondage suffisait à voter dans le groupe scolaire voisin.
+      await assertFails(
+        setDoc(doc(parent.firestore(), 'polls', 'poll-autre-org', 'votes', UID.parent), {
+          pollId: 'poll-autre-org',
+          uid: UID.parent,
+          optionIds: ['yes'],
+        }),
+      );
+    });
+
+    it('voter sur un sondage qui n’existe pas est refusé', async () => {
+      // `exists()` précède `get()` dans la règle : sans lui, l'évaluation
+      // échouerait sur un accès à `null` — un refus, donc, mais par accident.
+      await assertFails(
+        setDoc(doc(parent.firestore(), 'polls', 'poll-inexistant', 'votes', UID.parent), {
+          pollId: 'poll-inexistant',
+          uid: UID.parent,
+          optionIds: ['yes'],
+        }),
+      );
+    });
+
+    it('cocher deux réponses quand le sondage n’en accepte qu’une est refusé', async () => {
+      await assertFails(
+        setDoc(doc(parent.firestore(), 'polls', 'poll-1', 'votes', UID.parent), {
+          pollId: 'poll-1',
+          uid: UID.parent,
+          optionIds: ['yes', 'no'],
+        }),
+      );
+    });
+
+    it('cocher deux réponses quand le sondage les accepte réussit', async () => {
+      // Le témoin du précédent : même écriture, sondage différent.
+      await assertSucceeds(
+        setDoc(doc(parent.firestore(), 'polls', 'poll-multiple', 'votes', UID.parent), {
+          pollId: 'poll-multiple',
+          uid: UID.parent,
+          optionIds: ['yes', 'no'],
+        }),
+      );
+    });
+
+    it('cocher deux fois la même réponse est refusé', async () => {
+      // Sur `poll-multiple`, et pas sur `poll-1` : là-bas la clause « une seule
+      // réponse » refuserait de toute façon, et le test serait vert pour une
+      // raison qui n'a rien à voir avec les doublons. Il faut un sondage où
+      // deux réponses sont permises pour que la seule raison de refuser soit
+      // la répétition.
+      await assertFails(
+        setDoc(doc(parent.firestore(), 'polls', 'poll-multiple', 'votes', UID.parent), {
+          pollId: 'poll-multiple',
+          uid: UID.parent,
+          optionIds: ['yes', 'yes'],
+        }),
+      );
+    });
+
+    it('modifier son vote quand le sondage le permet réussit', async () => {
+      // `otherParent` a déjà voté `yes` sur `poll-1` (fixture) : cette écriture
+      // est donc une **mise à jour**, et c'est la clause `allow update` qu'elle
+      // éprouve.
+      const autre = testEnv.authenticatedContext(UID.otherParent, CLAIMS.parent).firestore();
+      await assertSucceeds(
+        setDoc(doc(autre, 'polls', 'poll-1', 'votes', UID.otherParent), {
+          pollId: 'poll-1',
+          uid: UID.otherParent,
+          optionIds: ['no'],
+        }),
+      );
+    });
+
+    it('modifier son vote quand le sondage l’interdit est refusé', async () => {
+      // `poll-fige` ne diffère de `poll-1` que par `allowChangeVote`, et
+      // l'écriture est identique. Le champ était déclaré dans le modèle et
+      // n'était lu nulle part : un sondage pouvait promettre le contraire.
+      const autre = testEnv.authenticatedContext(UID.otherParent, CLAIMS.parent).firestore();
+      await assertFails(
+        setDoc(doc(autre, 'polls', 'poll-fige', 'votes', UID.otherParent), {
+          pollId: 'poll-fige',
+          uid: UID.otherParent,
+          optionIds: ['no'],
+        }),
+      );
+    });
+
+    it('un vote anonyme ne peut pas porter d’uid', async () => {
+      // `Poll.anonymous` promet qu'aucun champ ne nomme l'électeur. Le document
+      // reste rattachable par son identifiant — c'est ce qui rend le double
+      // vote impossible — mais la promesse porte sur les champs.
+      await assertFails(
+        setDoc(doc(parent.firestore(), 'polls', 'poll-anonyme', 'votes', UID.parent), {
+          pollId: 'poll-anonyme',
+          uid: UID.parent,
+          optionIds: ['yes'],
+        }),
+      );
+    });
+
+    it('un vote anonyme sans uid est accepté', async () => {
+      // Le témoin du précédent, et la forme que le dépôt écrit réellement.
+      await assertSucceeds(
+        setDoc(doc(parent.firestore(), 'polls', 'poll-anonyme', 'votes', UID.parent), {
+          pollId: 'poll-anonyme',
+          optionIds: ['yes'],
+        }),
+      );
+    });
+
+    it('un vote non anonyme doit porter l’uid du votant', async () => {
+      // L'autre sens : sur un sondage nominatif, l'absence d'`uid` est refusée.
+      // Sans cette clause, `PollVote.uid` serait un champ que rien ne vérifie —
+      // et un champ que rien ne vérifie dérive : les fixtures l'avaient nommé
+      // `voterId` alors que le modèle déclare `uid`.
+      await assertFails(
+        setDoc(doc(parent.firestore(), 'polls', 'poll-1', 'votes', UID.parent), {
+          pollId: 'poll-1',
+          optionIds: ['yes'],
+        }),
+      );
+    });
+
+    it('modifier son vote sur un sondage clos est refusé', async () => {
+      // `poll-clos` a un vote existant, donc cette écriture est bien une mise à
+      // jour. Sans la condition de statut sur `allow update`, on pourrait
+      // déplacer une voix après la clôture — le résultat lu par les parents
+      // changerait sous leurs yeux.
+      const autre = testEnv.authenticatedContext(UID.otherParent, CLAIMS.parent).firestore();
+      await assertFails(
+        setDoc(doc(autre, 'polls', 'poll-clos', 'votes', UID.otherParent), {
+          pollId: 'poll-clos',
+          uid: UID.otherParent,
+          optionIds: ['no'],
+        }),
+      );
+    });
+
+    it('un parent ne peut pas écrire son vote sous l’identifiant d’un autre', async () => {
+      // Le champ `uid` nomme bien l'appelant — seule la **place** du document
+      // est celle d'un autre. C'est la clause `voterKey == request.auth.uid`
+      // qui le refuse, et elle seule : `votantValide()` laisserait passer,
+      // puisque le champ est correct. Sans ce test, on pouvait écrire dans le
+      // document de vote d'un tiers et lui imposer une réponse.
+      //
+      // L'identifiant visé n'a **aucun** vote dans les fixtures, et c'est
+      // délibéré : viser `UID.otherParent` ferait de cette écriture une mise à
+      // jour, que la clause de `allow update` refuserait — le test serait vert
+      // sans avoir jamais éprouvé la création.
+      await assertFails(
+        setDoc(doc(parent.firestore(), 'polls', 'poll-1', 'votes', 'un-autre-electeur'), {
           pollId: 'poll-1',
           uid: UID.parent,
           optionIds: ['yes'],
@@ -1720,6 +2027,14 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
       await assertFails(
         getDoc(doc(parent.firestore(), 'polls', 'poll-1', 'votes', UID.otherParent)),
       );
+    });
+
+    it('un parent lit son propre vote', async () => {
+      // Le témoin du précédent : la règle de lecture n'ouvre que le vote de
+      // l'appelant, et sans ce test elle pourrait n'en ouvrir aucun — l'écran
+      // ne saurait alors pas quelle réponse est déjà cochée.
+      const autre = testEnv.authenticatedContext(UID.otherParent, CLAIMS.parent).firestore();
+      await assertSucceeds(getDoc(doc(autre, 'polls', 'poll-1', 'votes', UID.otherParent)));
     });
   });
 

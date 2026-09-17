@@ -312,7 +312,33 @@ Le point délicat est le **vote unique par compte**.
   l'unicité du vote, sans jamais l'exposer dans une réponse d'API.
 - Les compteurs `options[].votes` et `totalVoters` sont mis à jour par une
   **Cloud Function transactionnelle**, jamais par le client. Un client qui
-  écrirait directement dans le compteur fausserait les résultats.
+  écrirait directement dans le compteur fausserait les résultats. Le décompte
+  parcourt les options **du sondage**, jamais celles du vote : une réponse que
+  le vote nomme mais que le sondage ne propose pas n'apparaît donc jamais dans
+  les résultats.
+- La sous-collection `votes` est la **source de vérité** ; les compteurs n'en
+  sont qu'un cache d'affichage. Un déclencheur Firestore est livré « au moins
+  une fois » : un rejeu applique le même écart deux fois, et le cache dérive. Le
+  choix de l'incrément plutôt que du recomptage est délibéré — recompter
+  coûterait une lecture par vote déjà exprimé, à chaque nouveau vote — et il est
+  **réparable** : recalculer les compteurs depuis `votes` redonne un décompte
+  exact. Ce recalcul n'est pas écrit.
+- Une **transaction**, et non un incrément ciblé : les voix vivent dans le
+  tableau `options`, où une réponse est désignée par son identifiant et non par
+  sa position. Réordonner les options — ce que l'administration fera en
+  corrigeant une question — déplacerait sinon les voix d'une réponse à l'autre,
+  en silence.
+- **Le document de sondage devient chaud** : chaque vote écrit dans
+  `polls/{pollId}`. Tout déclencheur posé sur ce chemin sera donc réveillé à
+  chaque vote, et pas seulement à la publication. `notifyPollAudience` devra
+  raisonner en **transition de statut**, jamais sur la seule existence d'une
+  écriture — sans quoi chaque vote annoncerait le sondage à tout le monde.
+- Les règles lisent `allowMultiple`, `anonymous` et `allowChangeVote` **dans le
+  sondage**. Ces trois champs conditionnent donc la possibilité même de voter :
+  dans une règle, lire un champ **absent lève**, et l'écriture est refusée. Les
+  accesseurs replient l'absence sur `false`, ce qui distingue un refus décidé
+  d'un refus subi — sans quoi un sondage écrit sans ces champs serait invotable
+  sans que rien ne le dise. `createPoll` les écrit toujours.
 
 ### `reports/{reportId}` — signalements
 

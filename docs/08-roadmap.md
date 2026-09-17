@@ -792,15 +792,29 @@ décision explicite de la FCPE.
       désormais scindée, et un test qui **réussit** tient le rôle de témoin.
 - [ ] Création d'un sondage (options, durée, audience, anonymat) — **le dépôt
       existe, l'écran reste à écrire**
-- [ ] Vote avec unicité garantie par l'identifiant du document — les règles le
-      garantissent déjà, et quatre tests le tiennent ; il manque l'écriture
-      côté client et le compteur transactionnel
+- [x] Le **vote** : `vote()` côté client, compteur transactionnel côté Cloud
+      Function, et les règles complétées. L'unicité était déjà tenue par
+      l'identifiant du document ; ce qui manquait, c'est **ce qu'un vote a le
+      droit d'être**, et les règles ne le lisaient pas. Rien n'empêchait de
+      voter sur un brouillon ou sur un sondage clos, ni depuis le groupe
+      scolaire voisin, et `allowMultiple` comme `allowChangeVote` étaient
+      déclarés dans le modèle sans être lus nulle part. Chaque clause ajoutée
+      se lit dans le document parent, par un `get()` de règle. Le banc a montré
+      au passage que lire un champ **absent** dans une règle lève au lieu de
+      rendre `false` : deux sondages de test en étaient invotables, et deux
+      tests de refus étaient verts pour cette raison-là. Les accesseurs
+      replient désormais l'absence sur `false`.
+- [x] Sondage anonyme (aucun `uid` stocké) — et vérifié **par les règles**, non
+      par le client : un sondage `anonymous` refuse tout champ `uid`, un sondage
+      nominatif l'exige.
 - [ ] Résultats en temps réel selon la visibilité choisie
-- [ ] Sondage anonyme (aucun `uid` stocké)
 - [ ] Clôture manuelle et automatique
 - [ ] Écran admin : créer, suivre, clôturer
 - [x] Tests : double vote refusé, brouillon illisible, cloisonnement
-      d'organisation, et création refusée à un parent
+      d'organisation, création refusée à un parent, et le vote — dont, pour
+      chaque refus, **un témoin qui réussit**. Quatorze mutations couvrent
+      l'ensemble des règles de sondage ; deux d'entre elles ont un ensemble
+      attendu vide, et c'est consigné : voir l'en-tête du banc.
 
 **Critère de sortie :** un compte ne peut voter qu'une fois, y compris en
 appelant Firestore directement.

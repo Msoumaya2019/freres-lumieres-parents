@@ -134,6 +134,19 @@ convention d'affichage — un client hostile écrirait sans passer par
 l'application. Une lecture par commentaire écrit est le prix de cette
 garantie, et les commentaires sont rares.
 
+**Coût d'un vote.** Un vote coûte plus que le document qu'il écrit. S'y ajoutent
+la mise à jour du document de sondage par `onPollVoteWritten` — qui le lit dans
+une **transaction** avant de l'écrire, soit une lecture et une écriture — et les
+lectures de la règle, qui interroge le sondage parent pour vérifier qu'il est
+ouvert, dans la bonne organisation, et que le choix est permis. Sans elles, un
+identifiant de sondage suffirait à voter sur un brouillon, sur un sondage clos,
+ou dans le groupe scolaire voisin.
+
+C'est le prix de la garantie, et il est modeste : un parent vote une fois par
+sondage. Le point à surveiller n'est pas le vote isolé, mais le **document de
+sondage**, réécrit à chaque vote — et donc tout déclencheur futur posé sur
+`polls/{pollId}`, qui serait invoqué une fois par votant.
+
 **Coût d'un commentaire écrit depuis l'application.** Le client recharge la
 publication et la première page de commentaires après une écriture réussie
 (une vingtaine de lectures). C'est ce qui permet d'afficher un décompte exact :

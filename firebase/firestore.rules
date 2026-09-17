@@ -827,12 +827,116 @@ service cloud.firestore {
         //
         // Un utilisateur ne peut lire et écrire que son propre vote.
         allow read: if isActive() && voterKey == request.auth.uid;
-        allow create, update: if isActive()
+
+        // Ce qu'un vote a le droit d'être se lit dans le **sondage**, jamais
+        // dans le vote : le client est hostile, et il peut écrire ce qu'il veut
+        // dans son propre document — y compris prétendre que le sondage
+        // accepte plusieurs réponses. Les conditions ci-dessous sont donc
+        // lues dans le document parent, et les règles en sont la seule
+        // barrière ; le dépôt client ne fait que produire un message lisible.
+        //
+        // `exists()` précède `get()` : sans lui, un sondage inexistant ferait
+        // échouer l'évaluation sur un accès à `null` — un refus, donc, mais
+        // par accident, avec un message qui ne nomme aucune clause. C'est
+        // exactement la forme du défaut qui rendait toute création de sondage
+        // impossible. Firestore met les deux accès au même chemin en cache.
+        function sondageExiste() {
+          return exists(/databases/$(database)/documents/polls/$(pollId));
+        }
+
+        function sondage() {
+          return get(/databases/$(database)/documents/polls/$(pollId)).data;
+        }
+
+        // Un vote n'a de sens que sur un sondage **ouvert**, et seulement dans
+        // l'organisation du votant. Sans la seconde condition, connaître un
+        // identifiant de sondage suffisait à voter dans le groupe scolaire
+        // voisin : la lecture était cloisonnée, l'écriture ne l'était pas.
+        //
+        // Un sondage `closed` est refusé comme un `draft` : accepter un vote
+        // après la clôture reviendrait à laisser le résultat bouger sous les
+        // yeux de ceux qui l'ont lu.
+        function sondageOuvert() {
+          return sondage().status == 'open' && sondage().orgId == orgId();
+        }
+
+        // Lire un champ **absent** dans une règle ne rend pas `false` : cela
+        // lève, et le refus qui en résulte ne nomme aucune clause. Ces trois
+        // accesseurs existent pour cela — un sondage écrit sans ces champs
+        // serait sinon **invotable**, sans que rien ne le dise.
+        //
+        // Ce n'est pas une hypothèse : deux tests de refus étaient verts pour
+        // cette raison, et non pour la clause qu'ils visaient. C'est le banc de
+        // mutation qui l'a mis au jour, en montrant que retirer la clause de
+        // statut ne faisait pas tomber le test du brouillon.
+        //
+        // Le repli est **fermé** pour `allowMultiple` et `anonymous`, comme le
+        // défaut du schéma (`false`). Pour `allowChangeVote`, le schéma dit
+        // `true` : la règle, elle, exige le champ pour autoriser une
+        // modification. Une permission ne s'ouvre pas par omission — et un
+        // sondage créé par `createPoll` porte toujours les trois champs.
+        function choixMultiple() {
+          return 'allowMultiple' in sondage() && sondage().allowMultiple == true;
+        }
+
+        function sondageAnonyme() {
+          return 'anonymous' in sondage() && sondage().anonymous == true;
+        }
+
+        function voteModifiable() {
+          return 'allowChangeVote' in sondage() && sondage().allowChangeVote == true;
+        }
+
+        function choixValide() {
+          let d = request.resource.data;
+          return d.pollId == pollId
+            && d.optionIds is list
+            && d.optionIds.size() > 0
+            && d.optionIds.size() <= 10
+            // Une même réponse cochée deux fois ne compte pas deux fois. Le
+            // décompte serveur ramène déjà la liste à un ensemble ; le refuser
+            // ici évite d'écrire un vote qui ne veut rien dire.
+            && d.optionIds.toSet().size() == d.optionIds.size()
+            // Un sondage dont la question appelle une seule réponse et qui en
+            // accepte trois n'est pas un sondage, c'est un scrutin faussé.
+            && (choixMultiple() || d.optionIds.size() == 1);
+        }
+
+        // L'anonymat se vérifie ici, et non dans le client. `Poll.anonymous`
+        // promet qu'un vote anonyme ne porte aucun `uid` ; une promesse que
+        // les règles ne tiennent pas n'est pas tenue. Le document reste
+        // rattachable à la personne par son identifiant — c'est ce qui rend le
+        // double vote impossible — mais aucun champ ne la nomme.
+        //
+        // Écrit en deux disjonctions plutôt qu'en ternaire : `&&` court-circuite
+        // à coup sûr, ce qui garantit que `d.uid` n'est jamais lu sur un
+        // sondage anonyme — où le champ est absent, et où sa lecture ferait
+        // échouer l'évaluation. Un ternaire n'offre pas cette garantie.
+        function votantValide() {
+          let d = request.resource.data;
+          return (sondageAnonyme() && !('uid' in d))
+            || (!sondageAnonyme() && 'uid' in d && d.uid == request.auth.uid);
+        }
+
+        allow create: if isActive()
           && voterKey == request.auth.uid
-          && request.resource.data.pollId == pollId
-          && request.resource.data.optionIds is list
-          && request.resource.data.optionIds.size() > 0
-          && request.resource.data.optionIds.size() <= 10;
+          && sondageExiste()
+          && sondageOuvert()
+          && choixValide()
+          && votantValide();
+
+        // Modifier son vote est une décision du **sondage**, et elle s'y lit :
+        // `allowChangeVote` était déclaré dans le modèle et n'était lu nulle
+        // part. Les deux clauses restent séparées, comme sur le sondage
+        // lui-même — mais ici parce qu'elles ne disent pas la même chose, et
+        // non parce qu'une fonction y lirait un champ absent.
+        allow update: if isActive()
+          && voterKey == request.auth.uid
+          && sondageExiste()
+          && sondageOuvert()
+          && voteModifiable()
+          && choixValide()
+          && votantValide();
 
         // Même un administrateur ne peut pas supprimer un vote : cela
         // fausserait les résultats sans laisser de trace.

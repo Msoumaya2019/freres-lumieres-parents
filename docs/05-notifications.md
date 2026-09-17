@@ -534,6 +534,13 @@ second chemin, qui est aussi celui d'un sondage préparé la veille pour le
 lendemain. La décision se lit donc comme pour une publication : le statut
 **devient** `open`.
 
+> **Le sondage est désormais un document chaud.** `onPollVoteWritten` écrit dans
+> `polls/{pollId}` à **chaque vote** — les compteurs y vivent. Un déclencheur qui
+> n'agirait qu'à la seule existence d'une écriture annoncerait donc le sondage
+> une fois par votant. La transition de statut n'est plus seulement ce qui
+> permet de rattraper un brouillon ouvert plus tard : c'est ce qui rend la
+> fonction utilisable.
+
 > **Prérequis de déploiement.** Le projet a désormais **deux** fonctions
 > planifiées — `onReceiptsDue` (toutes les heures) et `onChannelDigestsDue`
 > (toutes les cinq minutes). Leur déploiement demande l'**API Cloud Scheduler**,

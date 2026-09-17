@@ -57,6 +57,7 @@ export {
   onCommentWritten,
   onCommentReactionWritten,
 } from './triggers/counters.js';
+export { onPollVoteWritten } from './triggers/poll-counters.js';
 
 // --- Notifications -----------------------------------------------------------
 export { onDeviceTokenCreated, onDeviceTokenOwnerChanged } from './triggers/device-tokens.js';

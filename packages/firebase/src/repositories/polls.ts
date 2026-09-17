@@ -25,6 +25,21 @@
  * de sondage à la FCPE (`isFcpe()`), donc un parent qui vote ne peut pas
  * incrémenter quoi que ce soit. Le décompte appartient à une Cloud Function,
  * qui seule écrit dans un document qu'un parent n'a pas le droit de modifier.
+ *
+ * ## Le vote lit avant d'écrire, et ce n'est pas une précaution de confort
+ *
+ * `vote` fait deux lectures avant sa seule écriture. Le sondage, d'abord,
+ * parce qu'il faut en connaître l'anonymat : c'est lui qui décide si le
+ * document de vote porte un `uid`. Le vote existant, ensuite, parce que deux
+ * choses en dépendent — `createdAt` ne doit pas être réécrit quand on change
+ * de réponse, et `allowChangeVote` doit produire un refus lisible plutôt qu'un
+ * `permission-denied` générique.
+ *
+ * Ces contrôles **ne sont pas la barrière** : les règles les refont au moment
+ * de l'écriture, sur le document parent, et c'est elles qui décident. Un vote
+ * peut d'ailleurs être refusé alors que ces lectures avaient dit oui — le
+ * sondage a pu être clos dans l'intervalle. C'est le comportement voulu : la
+ * lecture sert le message, la règle sert la garantie.
  */
 
 import {
@@ -36,10 +51,11 @@ import {
   type Firestore,
 } from 'firebase/firestore';
 
-import { buildAudienceKeys, pollInputSchema, type PollInput } from '@fl/shared';
+import { buildAudienceKeys, pollInputSchema, pollVoteSchema } from '@fl/shared';
+import type { PollInput, PollVoteInput } from '@fl/shared';
 import type { Poll } from '@fl/types';
 
-import { invalidArgument, toAppError } from '../errors.js';
+import { appError, invalidArgument, toAppError } from '../errors.js';
 import { paths } from '../paths.js';
 
 export interface CreatePollParams {
@@ -65,6 +81,22 @@ export interface CreatePollParams {
   input: PollInput;
 }
 
+export interface CastVoteParams {
+  pollId: string;
+  /**
+   * Identifiant de l'électeur.
+   *
+   * C'est lui qui **est** l'identifiant du document de vote, et c'est ce qui
+   * rend le double vote impossible : les règles exigent
+   * `voterKey == request.auth.uid`. Le passer explicitement, plutôt que de le
+   * lire d'une session, garde le dépôt testable et met le lien en évidence —
+   * c'est aussi la raison pour laquelle l'anonymat d'un sondage est une
+   * promesse d'interface, et non une promesse de base (voir `Poll.anonymous`).
+   */
+  voterId: string;
+  input: PollVoteInput;
+}
+
 export interface PollRepository {
   /** Identifiant d'un sondage qui n'existe pas encore — rien n'est écrit. */
   newPollId(): string;
@@ -75,6 +107,14 @@ export interface PollRepository {
    * traduit `notify` en statut initial.
    */
   create(params: CreatePollParams): Promise<string>;
+  /**
+   * Enregistre le vote de l'appelant, ou remplace son vote précédent.
+   *
+   * Le décompte des voix n'est pas écrit ici : il appartient à la Cloud
+   * Function `onPollVoteWritten`, parce que le document de sondage est
+   * réservé à la FCPE.
+   */
+  vote(params: CastVoteParams): Promise<void>;
 }
 
 export function createPollRepository(db: Firestore): PollRepository {
@@ -82,6 +122,7 @@ export function createPollRepository(db: Firestore): PollRepository {
     newPollId: () => doc(collection(db, paths.polls())).id,
     get,
     create,
+    vote,
   };
 
   async function get(pollId: string): Promise<Poll | null> {
@@ -149,6 +190,68 @@ export function createPollRepository(db: Firestore): PollRepository {
 
       await setDoc(reference, payload);
       return reference.id;
+    } catch (error) {
+      throw toAppError(error);
+    }
+  }
+
+  async function vote(params: CastVoteParams): Promise<void> {
+    const { pollId, voterId, input } = params;
+
+    const parsed = pollVoteSchema.safeParse(input);
+    if (!parsed.success) {
+      throw invalidArgument('Vote invalide.', {
+        issues: parsed.error.issues.map((issue) => ({
+          path: issue.path.join('.'),
+          message: issue.message,
+        })),
+      });
+    }
+
+    const optionIds = parsed.data.optionIds;
+
+    const sondage = await get(pollId);
+    if (!sondage) {
+      throw appError('not-found', 'Ce sondage n’existe plus.');
+    }
+    if (sondage.status !== 'open') {
+      throw appError('failed-precondition', 'Ce sondage n’est pas ouvert.');
+    }
+    if (!sondage.allowMultiple && optionIds.length > 1) {
+      throw invalidArgument('Ce sondage n’accepte qu’une seule réponse.');
+    }
+
+    const reference = doc(db, paths.pollVote(pollId, voterId));
+
+    let dejaVote: boolean;
+    try {
+      dejaVote = (await getDoc(reference)).exists();
+    } catch (error) {
+      throw toAppError(error);
+    }
+
+    if (dejaVote && !sondage.allowChangeVote) {
+      throw appError('failed-precondition', 'Ce sondage n’autorise pas la modification du vote.');
+    }
+
+    const now = serverTimestamp();
+
+    try {
+      await setDoc(
+        reference,
+        {
+          pollId,
+          // Voir `Poll.anonymous` : un sondage anonyme ne porte **aucun** `uid`.
+          // Ce n'est pas une politesse du client — les règles refusent un `uid`
+          // sur un sondage anonyme, et l'exigent sur les autres.
+          ...(sondage.anonymous ? {} : { uid: voterId }),
+          optionIds,
+          // `createdAt` est l'instant du vote enregistré : il ne bouge pas
+          // quand on change de réponse, et c'est `updatedAt` qui l'indique.
+          ...(dejaVote ? { updatedAt: now } : { createdAt: now }),
+        },
+        { merge: true },
+      );
     } catch (error) {
       throw toAppError(error);
     }
