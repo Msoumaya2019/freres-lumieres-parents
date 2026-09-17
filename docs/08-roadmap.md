@@ -396,7 +396,22 @@ ordinateur ; un parent qui tente d'y accéder est refusé.
 
 ## Phase 5 — Notifications push
 
-- [ ] Enregistrement des jetons (`deviceTokens`)
+- [ ] Enregistrement des jetons (`deviceTokens`) — **la frontière est posée**.
+      Les règles vérifient que `orgId` est celui de l'appelant, et que
+      `audienceKeys` est vide à la création puis figé. Ce champ n'est pas une
+      préférence mais une autorisation : le serveur choisit les destinataires
+      d'une notification en le lisant, donc un client qui le déclare librement
+      choisit qui il devient. Trois défauts d'écriture ont été **prouvés par
+      test avant correction** — un parent pouvait enregistrer un appareil au
+      nom d'une autre organisation, s'abonner à l'audience de la FCPE, ou
+      réécrire les clés de son propre appareil. Les règles ne peuvent pas
+      vérifier une clé `class:` ou `level:` — elles ne lisent pas les enfants
+      de l'appelant —, d'où le choix de retirer le champ au client plutôt que
+      de tenter de le valider.
+      **Restent à faire :** l'enregistrement côté application, la Cloud
+      Function qui remplit `audienceKeys` depuis le profil (l'Admin SDK ignore
+      les règles), et l'ajout de `disabledCategories` au type `DeviceToken` —
+      le dispatcher le lit déjà, le type ne le déclare pas.
 - [ ] Écran de préférences par catégorie
 - [ ] `ExpoPushDispatcher` derrière l'interface `PushDispatcher`
 - [ ] Les 7 déclencheurs (publication, commentaire, réponse, message, sondage, signalement, rappel)

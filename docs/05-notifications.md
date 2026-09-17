@@ -82,19 +82,48 @@ C'est faisable, mais ce n'est pas le bon premier pas.
         │
 3. Obtention du jeton Expo Push
         │
-4. Écriture dans deviceTokens/{token}
+4. Écriture dans deviceTokens/{token} — par le client
    {
-     uid, orgId,
-     token,
+     uid,
+     orgId,                     // doit être la sienne : les règles le vérifient
+     token,                     // l'identifiant du document
      platform: 'ios' | 'android',
-     audienceKeys: [...],        // recopiées depuis le profil
+     audienceKeys: [],          // VIDE — le champ appartient au serveur
+     disabledCategories: [...], // préférences, recopiées du profil
      enabled: true,
      createdAt, lastUsedAt
    }
         │
+4 bis. La Cloud Function complète le document : `audienceKeys` est déduit du
+   profil (école, niveau, classe, appartenance FCPE)
+        │
 5. Le jeton est rafraîchi à chaque ouverture de l'application
    (lastUsedAt mis à jour, au plus une fois par jour)
 ```
+
+### Pourquoi `audienceKeys` appartient au serveur
+
+Le champ ressemble à une préférence. C'en est une **autorisation** : au moment
+de l'envoi, le serveur sélectionne les destinataires par
+
+```ts
+.where('orgId', '==', orgId)
+.where('audienceKeys', 'array-contains-any', audienceKeys)
+```
+
+Un client qui déclare librement ses clés choisit donc **qui il devient**. Les
+règles peuvent vérifier `orgId` (comparé au claim) mais **pas** une clé
+`class:` ou `level:` — elles ne savent pas lire les enfants de l'appelant. Un
+parent pourrait s'abonner à l'audience de la FCPE, ou à la classe d'un autre.
+
+`audienceKeys` est donc **vide à la création**, et le client ne peut plus le
+modifier (`unchanged('audienceKeys')`). Seule la Cloud Function l'écrit, ce
+qu'elle peut faire sans contrainte : l'Admin SDK ne passe pas par les règles.
+Le client met à jour par `update()`, jamais par `set()` — un `set()` renverrait
+le champ à vide, et la règle le refuse précisément pour cela.
+
+`disabledCategories`, lui, reste au client : il ne réduit que ce que l'appareil
+reçoit.
 
 L'identifiant du document **est** le jeton : l'enregistrement est idempotent.
 Un même appareil partagé entre deux comptes met à jour `uid` plutôt que de
