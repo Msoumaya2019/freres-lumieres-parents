@@ -479,8 +479,35 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
       });
       await setDoc(doc(db, 'polls', 'poll-1', 'votes', UID.otherParent), {
         pollId: 'poll-1',
-        voterId: UID.otherParent,
+        uid: UID.otherParent,
         optionIds: ['yes'],
+      });
+
+      // Un brouillon et un sondage d'une **autre** organisation. Sans la paire,
+      // un test ne peut pas distinguer « la règle cloisonne » de « tout est dans
+      // la même organisation » ; sans le brouillon, il ne peut pas distinguer
+      // « seuls les sondages ouverts se lisent » de « tous se lisent ».
+      await setDoc(doc(db, 'polls', 'poll-brouillon'), {
+        id: 'poll-brouillon',
+        question: 'Faut-il ouvrir un second créneau de cantine ?',
+        options: [
+          { id: 'yes', label: 'Oui' },
+          { id: 'no', label: 'Non' },
+        ],
+        status: 'draft',
+        orgId: TEST_ORG,
+        audienceKeys: [`org:${TEST_ORG}`],
+      });
+      await setDoc(doc(db, 'polls', 'poll-autre-org'), {
+        id: 'poll-autre-org',
+        question: 'Faut-il maintenir la kermesse ?',
+        options: [
+          { id: 'yes', label: 'Oui' },
+          { id: 'no', label: 'Non' },
+        ],
+        status: 'open',
+        orgId: TEST_OTHER_ORG,
+        audienceKeys: [`org:${TEST_OTHER_ORG}`],
       });
 
       // --- Signalements, modération, tâches internes -------------------------
@@ -1598,11 +1625,77 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
   // -------------------------------------------------------------------------
 
   describe('Sondages', () => {
+    it('un sondage ouvert se lit', async () => {
+      await assertSucceeds(getDoc(doc(parent.firestore(), 'polls', 'poll-1')));
+    });
+
+    it('un brouillon ne se lit pas, même par un parent de l’audience visée', async () => {
+      // La règle de lecture n'ouvre que `open` et `closed`. C'est ce qui rend
+      // `notify: false` sûr : enregistrer un sondage sans le publier ne laisse
+      // rien filtrer, pas même à ceux qu'il concerne.
+      await assertFails(getDoc(doc(parent.firestore(), 'polls', 'poll-brouillon')));
+    });
+
+    it('un sondage d’une autre organisation ne se lit pas', async () => {
+      await assertFails(getDoc(doc(parent.firestore(), 'polls', 'poll-autre-org')));
+    });
+
+    it('un parent ne crée pas de sondage', async () => {
+      await assertFails(
+        setDoc(doc(parent.firestore(), 'polls', 'poll-du-parent'), {
+          question: 'Faut-il maintenir la kermesse ?',
+          options: [
+            { id: 'yes', label: 'Oui' },
+            { id: 'no', label: 'Non' },
+          ],
+          status: 'open',
+          orgId: TEST_ORG,
+          audienceKeys: [`org:${TEST_ORG}`],
+        }),
+      );
+    });
+
+    it('la FCPE crée un sondage ouvert', async () => {
+      // Le témoin du test suivant : à charge identique, seul le statut change.
+      // Sans lui, un refus ne prouverait rien — `assertFails` est satisfait par
+      // n'importe quelle raison de refuser.
+      await assertSucceeds(
+        setDoc(doc(fcpe.firestore(), 'polls', 'poll-fcpe'), {
+          question: 'Faut-il maintenir la kermesse ?',
+          options: [
+            { id: 'yes', label: 'Oui' },
+            { id: 'no', label: 'Non' },
+          ],
+          status: 'open',
+          orgId: TEST_ORG,
+          audienceKeys: [`org:${TEST_ORG}`],
+        }),
+      );
+    });
+
+    it('un statut que les règles n’énumèrent pas est refusé', async () => {
+      // `POLL_STATUSES` en déclare quatre ; les règles n'en acceptent que trois.
+      // `archived` n'est donc atteignable que par le serveur, qui contourne les
+      // règles — c'est une décision, et ce test la fige.
+      await assertFails(
+        setDoc(doc(fcpe.firestore(), 'polls', 'poll-archive'), {
+          question: 'Faut-il maintenir la kermesse ?',
+          options: [
+            { id: 'yes', label: 'Oui' },
+            { id: 'no', label: 'Non' },
+          ],
+          status: 'archived',
+          orgId: TEST_ORG,
+          audienceKeys: [`org:${TEST_ORG}`],
+        }),
+      );
+    });
+
     it('un parent enregistre son propre vote', async () => {
       await assertSucceeds(
         setDoc(doc(parent.firestore(), 'polls', 'poll-1', 'votes', UID.parent), {
           pollId: 'poll-1',
-          voterId: UID.parent,
+          uid: UID.parent,
           optionIds: ['yes'],
         }),
       );
@@ -1612,7 +1705,7 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
       await assertFails(
         setDoc(doc(parent.firestore(), 'polls', 'poll-1', 'votes', UID.otherParent), {
           pollId: 'poll-1',
-          voterId: UID.otherParent,
+          uid: UID.otherParent,
           optionIds: ['no'],
         }),
       );

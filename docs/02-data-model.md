@@ -47,7 +47,7 @@ channels/{channelId}
 channelDigests/{channelId}        (lot de messages en attente d'annonce — jamais lisible)
 
 polls/{pollId}
-  └── votes/{voterKey}          (id = uid, ou empreinte si sondage anonyme)
+  └── votes/{voterKey}          (id = uid, y compris pour un sondage anonyme — voir § 3)
 
 reports/{reportId}
   └── replies/{replyId}

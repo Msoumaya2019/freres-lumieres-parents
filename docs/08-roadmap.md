@@ -781,16 +781,42 @@ décision explicite de la FCPE.
 
 ## Phase 8 — Sondages
 
-- [ ] Création d'un sondage (options, durée, audience, anonymat)
-- [ ] Vote avec unicité garantie par l'identifiant du document
+- [x] Le **socle de données** : `createPoll` (validation, clés d'audience, statut
+      initial déduit de `notify`), `getPoll`, et les règles de lecture d'un
+      sondage. C'est en écrivant ce socle qu'un défaut est apparu, et il était
+      bloquant : la règle `allow create, update` fusionnait les deux cas en
+      portant `unchanged('orgId')`, qui lit `resource.data` — inexistant sur une
+      **création**. Aucun sondage ne pouvait donc être créé, et rien ne le
+      signalait : les deux seuls tests qui s'en approchaient attendaient un
+      **refus**, qu'ils obtenaient pour la mauvaise raison. La règle est
+      désormais scindée, et un test qui **réussit** tient le rôle de témoin.
+- [ ] Création d'un sondage (options, durée, audience, anonymat) — **le dépôt
+      existe, l'écran reste à écrire**
+- [ ] Vote avec unicité garantie par l'identifiant du document — les règles le
+      garantissent déjà, et quatre tests le tiennent ; il manque l'écriture
+      côté client et le compteur transactionnel
 - [ ] Résultats en temps réel selon la visibilité choisie
 - [ ] Sondage anonyme (aucun `uid` stocké)
 - [ ] Clôture manuelle et automatique
 - [ ] Écran admin : créer, suivre, clôturer
-- [ ] Tests : double vote refusé, anonymat respecté
+- [x] Tests : double vote refusé, brouillon illisible, cloisonnement
+      d'organisation, et création refusée à un parent
 
 **Critère de sortie :** un compte ne peut voter qu'une fois, y compris en
 appelant Firestore directement.
+
+**Deux écarts entre le modèle et les règles, constatés et non corrigés :**
+
+- `POLL_STATUSES` déclare quatre statuts, les règles n'en acceptent que trois
+  (`draft`, `open`, `closed`). `archived` n'est donc atteignable que par le
+  serveur, qui contourne les règles. Un test fige cette décision ;
+- l'anonymat d'un sondage est **vis-à-vis de l'application**, pas de la base :
+  l'identifiant du document de vote est l'UID de l'électeur, et non une
+  empreinte. C'est ce qui rend le double vote impossible, et les deux garanties
+  s'excluent — une empreinte calculée par le client ne peut pas être vérifiée
+  par les règles, donc un électeur déterminé voterait autant de fois qu'il
+  écrirait d'empreintes. Le champ `anonymous` promet donc ce qu'il tient
+  vraiment, et l'écran devra le dire ainsi.
 
 ---
 

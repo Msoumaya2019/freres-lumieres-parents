@@ -519,11 +519,20 @@ un test l'exige.
 | Nouveau commentaire | `onDocumentCreated('posts/{postId}/comments/{commentId}')`       | `notifyCommentAuthor`                           | fait    |
 | Réponse             | idem, avec `parentId`                                            | `notifyCommentAuthor`                           | fait    |
 | Nouveau message     | `onDocumentCreated('channels/{channelId}/messages/{messageId}')` | `notifyChannelAudience` + `onChannelDigestsDue` | fait    |
-| Nouveau sondage     | `onDocumentCreated('polls/{id}')`                                | `notifyPollAudience`                            | à faire |
+| Nouveau sondage     | `onDocumentWritten('polls/{pollId}')`                            | `notifyPollAudience`                            | à faire |
 | Signalement         | `onDocumentUpdated('reports/{id}')`                              | `notifyReportAuthor`                            | à faire |
 | Rappel d'événement  | tâche planifiée horaire                                          | `sendEventReminders`                            | à faire |
 | Relecture des reçus | tâche planifiée horaire                                          | `onReceiptsDue`                                 | fait    |
 | Manuel              | depuis l'admin                                                   | `sendManualNotification` (callable)             | fait    |
+
+Le sondage écoute les **écritures**, et non la création, pour la même raison que
+la publication : un sondage peut naître `open` ou le devenir. `createPoll`
+traduit le booléen `notify` de `pollInputSchema` en **statut initial** —
+`notify: true` publie d'emblée, `notify: false` enregistre un brouillon, que
+l'administration ouvrira plus tard. Un déclencheur de création raterait ce
+second chemin, qui est aussi celui d'un sondage préparé la veille pour le
+lendemain. La décision se lit donc comme pour une publication : le statut
+**devient** `open`.
 
 > **Prérequis de déploiement.** Le projet a désormais **deux** fonctions
 > planifiées — `onReceiptsDue` (toutes les heures) et `onChannelDigestsDue`

@@ -438,10 +438,27 @@ export interface Poll extends Auditable, OrganizationScoped {
   /** Autorise plusieurs réponses. */
   allowMultiple: boolean;
   /**
-   * Sondage anonyme : le document de vote ne contient pas l'identifiant de
-   * l'utilisateur (seul son empreinte sert d'identifiant de document, pour
-   * empêcher le double vote). Personne — pas même un administrateur — ne
-   * peut donc savoir qui a voté quoi depuis l'application.
+   * Sondage anonyme : le document de vote ne porte **aucun** champ `uid`.
+   *
+   * ## Ce que cela garantit, et ce que cela ne garantit pas
+   *
+   * L'identifiant du document de vote est l'UID de l'électeur, et non une
+   * empreinte. Ce n'est pas un oubli : c'est **cela** qui rend le double vote
+   * impossible, parce que les règles l'exigent
+   * (`voterKey == request.auth.uid`). Une empreinte calculée par le client ne
+   * pourrait pas être vérifiée par elles, si bien qu'un électeur déterminé
+   * voterait autant de fois qu'il écrirait d'empreintes. L'unicité et
+   * l'anonymat par empreinte s'excluent, et c'est l'unicité qui a été retenue.
+   *
+   * L'anonymat est donc **vis-à-vis de l'application**, et il est réel : la
+   * règle de lecture n'autorise chacun à lire que son propre vote, et les
+   * résultats ne sont publiés que sous forme d'agrégats. Il ne protège pas
+   * contre quelqu'un qui aurait accès à la base : l'identifiant du document
+   * relie le vote à la personne, même sans champ `uid`.
+   *
+   * C'est donc une promesse **d'interface**, pas une promesse
+   * cryptographique — et l'écran qui la présente aux parents doit dire
+   * exactement cela.
    */
   anonymous: boolean;
   /** Autorise la modification de son vote tant que le sondage est ouvert. */
@@ -457,7 +474,11 @@ export interface Poll extends Auditable, OrganizationScoped {
   closedAt?: DateLike;
 }
 
-/** Vote. L'identifiant du document est l'UID (ou son empreinte si anonyme). */
+/**
+ * Vote. L'identifiant du document est l'UID de l'électeur — **jamais une
+ * empreinte**, y compris pour un sondage anonyme : voir `Poll.anonymous` pour
+ * la raison, et pour ce que cela garantit réellement.
+ */
 export interface PollVote {
   id: string;
   pollId: PollId;

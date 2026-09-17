@@ -23,6 +23,7 @@ export * from './storage.js';
 
 export * from './repositories/users.js';
 export * from './repositories/posts.js';
+export * from './repositories/polls.js';
 export * from './repositories/reference.js';
 export * from './repositories/admin-logs.js';
 export * from './repositories/notifications.js';

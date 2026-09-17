@@ -803,7 +803,20 @@ service cloud.firestore {
       }
 
       allow read: if canReadOrgContent() && resource.data.status in ['open', 'closed'];
-      allow create, update: if isFcpe() && validPoll() && unchanged('orgId');
+
+      // Création et mise à jour sont **séparées**, et ce n'est pas une
+      // coquetterie de style : `unchanged()` lit `resource.data[field]`, qui
+      // n'existe pas sur une création. Une règle qui couvrait les deux
+      // refusait donc toute création de sondage, avec une erreur d'évaluation
+      // — « Null value error » — que rien ne signalait : aucun test ne créait
+      // de sondage, et les deux tests qui s'en approchaient attendaient un
+      // **refus**, qu'ils obtenaient pour la mauvaise raison.
+      //
+      // `validPoll()` ne vérifie pas `authorId` : c'est `isFcpe()` qui décide
+      // qui publie, et un membre de la FCPE n'a pas à être l'auteur pour ouvrir
+      // un sondage au nom de l'association.
+      allow create: if isFcpe() && validPoll();
+      allow update: if isFcpe() && validPoll() && unchanged('orgId');
       allow delete: if isAdmin();
 
       match /votes/{voterKey} {
