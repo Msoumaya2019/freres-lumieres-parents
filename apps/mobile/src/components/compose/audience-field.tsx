@@ -192,7 +192,8 @@ export function AudienceField({
 
       {type === 'fcpe' ? (
         <AppText variant="caption" color="muted">
-          Cette publication ne sera visible que par les membres de la FCPE.
+          Ce sont les membres de la FCPE qui seront notifiés. La publication reste lisible par tout
+          parent qui en connaît le lien.
         </AppText>
       ) : null}
     </View>

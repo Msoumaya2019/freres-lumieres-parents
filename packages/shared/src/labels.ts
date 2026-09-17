@@ -151,12 +151,32 @@ export const POST_CATEGORY_ICONS: Record<PostCategory, string> = {
   autre: 'file-text',
 };
 
+/**
+ * Libellés des cibles d'audience.
+ *
+ * ## Pourquoi `fcpe` ne dit plus « uniquement »
+ *
+ * Le libellé était « Membres FCPE uniquement », et l'écran de publication
+ * ajoutait « ne sera visible que par les membres de la FCPE ». C'était faux :
+ * `allow get` sur `posts/{id}` n'exige que l'organisation, un compte actif et un
+ * statut publié — un parent qui connaît l'identifiant lit la publication.
+ *
+ * Rendre le ciblage étanche n'est pas une retouche de règle : il faudrait que la
+ * règle lise les clés du lecteur, donc un `get()` sur son profil, que Firestore
+ * ne sait pas démontrer à partir des contraintes d'une requête. Ce serait un
+ * changement de modèle de données.
+ *
+ * Décision prise : **le libellé dit ce que le mécanisme fait réellement** — un
+ * ciblage de pertinence, qui décide qui est notifié. L'espace réellement privé
+ * de la FCPE existe par ailleurs, sous `visibility: 'fcpe'` (phase 10), et les
+ * règles le vérifient, elles.
+ */
 export const AUDIENCE_TYPE_LABELS: Record<AudienceType, string> = {
   all: 'Tous les parents',
   school: 'Une école',
   level: 'Un niveau',
   class: 'Une classe',
-  fcpe: 'Membres FCPE uniquement',
+  fcpe: 'Membres FCPE',
 };
 
 export const NOTIFICATION_CATEGORY_LABELS: Record<NotificationCategory, string> = {

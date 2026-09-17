@@ -420,23 +420,29 @@ satisfait l'article 17 tout en préservant l'intégrité des échanges.
   un avertissement dans le README.
 - **Domaine des liens universels.** Nécessaire pour que les notifications
   ouvrent l'application, à définir en Phase 5.
-- **Audience `fcpe` : retirer la promesse, ou la tenir ?** L'écran de
-  publication annonce qu'une information ciblée « Membres FCPE uniquement »
-  « ne sera visible que par les membres de la FCPE » — et les règles ne
-  l'appliquent pas : `allow get` sur `posts/{id}` ne regarde ni `audience` ni
-  `audienceKeys`. Un parent qui connaît l'identifiant la lit. Les deux issues
-  n'ont pas le même coût.
-  **Retirer la promesse** est immédiat : le libellé dirait qu'il s'agit d'un
-  ciblage de pertinence, et non d'une restriction. La FCPE perdrait le moyen de
-  publier en interne — mais ce besoin a déjà son mécanisme, `visibility: 'fcpe'`
-  (Phase 10), que les règles **vérifient**, elles.
-  **Tenir la promesse** demande que la règle lise les clés du lecteur, donc un
-  `get()` sur son profil. Firestore ne sait pas démontrer une règle de requête à
-  partir d'un `get()` : le fil devrait passer par une Cloud Function, ou les
-  publications être réparties par audience. C'est un changement de modèle.
-  En attendant, un test encode la limite actuelle
-  (`packages/testing`, « limite assumée : un parent lit une publication réservée
-  à la FCPE »). C'est lui qu'il faudra inverser, et non supprimer.
+- **Audience `fcpe` — tranché : la promesse est retirée.** L'écran de
+  publication annonçait qu'une information ciblée « Membres FCPE uniquement »
+  « ne sera visible que par les membres de la FCPE », et les règles ne
+  l'appliquaient pas : `allow get` sur `posts/{id}` ne regarde ni `audience` ni
+  `audienceKeys`. Un parent qui connaît l'identifiant la lisait.
+  **Décision : le libellé dit ce que le mécanisme fait réellement.** Le type
+  d'audience s'appelle désormais « Membres FCPE » — sans « uniquement » — et la
+  légende de l'écran de composition précise que ce sont les membres qui seront
+  **notifiés**, la publication restant lisible par tout parent qui en connaît le
+  lien. L'écart entre l'interface et les règles a disparu par le haut, pas par le
+  bas : c'est l'interface qui était en avance sur les règles, et c'est elle qui a
+  été corrigée.
+  L'option « tenir la promesse » a été écartée parce qu'elle n'est pas une
+  retouche de règle : il faudrait que la règle lise les clés du lecteur, donc un
+  `get()` sur son profil, que Firestore ne sait pas démontrer à partir des
+  contraintes d'une requête. Le fil devrait passer par une Cloud Function, ou les
+  publications être réparties par audience — un changement de modèle de données.
+  Le besoin d'un espace réellement interne a déjà son mécanisme, `visibility:
+'fcpe'` (Phase 10), que les règles **vérifient**, elles.
+  Le test `packages/testing` « limite assumée : un parent lit une publication
+  réservée à la FCPE » reste, mais il ne décrit plus une question ouverte : c'est
+  la trace de la limite. C'est lui qu'il faudra inverser quand la phase 10
+  arrivera, et non supprimer.
 - **Journal d'audit et frontière d'organisation.** `AdminLog` ne porte aucun
   `orgId`, et la règle se contente de `allow read: if isAdmin()` : un
   administrateur d'un groupe scolaire lirait donc le journal d'un autre. Sans

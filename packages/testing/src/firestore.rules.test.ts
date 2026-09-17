@@ -925,21 +925,23 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
     });
 
     it('limite assumée : un parent lit une publication réservée à la FCPE', async () => {
-      // **C'est le point à trancher.** L'écran de publication annonce
-      // « Cette publication ne sera visible que par les membres de la FCPE »
-      // (`AudienceField`), et les règles ne l'appliquent pas : `allow get`
-      // n'exige que l'organisation, un compte actif et un statut publié.
+      // **Question tranchée : la promesse est retirée, la limite reste.**
       //
-      // Rendre le ciblage FCPE réellement étanche n'est pas une retouche de
-      // règle : il faudrait que la règle lise les clés du lecteur — donc un
-      // `get()` sur son profil, que Firestore ne sait pas démontrer à partir
-      // des contraintes d'une requête. Le fil devrait alors passer par une
-      // Cloud Function, ou les publications être réparties par audience.
-      // C'est un changement de modèle, pas un correctif.
+      // L'écran de publication annonçait « ne sera visible que par les membres
+      // de la FCPE », et les règles ne l'appliquent pas : `allow get` n'exige
+      // que l'organisation, un compte actif et un statut publié. Le libellé dit
+      // maintenant ce que le mécanisme fait réellement — un ciblage de
+      // pertinence, qui décide qui est **notifié** — et l'écart entre
+      // l'interface et les règles a disparu par le haut, pas par le bas.
       //
-      // Tant que ce n'est pas tranché, l'écran ne devrait pas promettre
-      // l'étanchéité : le libellé de `AUDIENCE_TYPE_LABELS.fcpe` est en avance
-      // sur les règles.
+      // Ce test reste, et c'est voulu : il n'encode plus une question ouverte
+      // mais la **trace** de la limite. Rendre le ciblage FCPE étanche n'est
+      // toujours pas une retouche de règle — il faudrait que la règle lise les
+      // clés du lecteur, donc un `get()` sur son profil, que Firestore ne sait
+      // pas démontrer à partir des contraintes d'une requête. Le fil devrait
+      // passer par une Cloud Function, ou les publications être réparties par
+      // audience. Le jour où l'espace privé de la phase 10 (`visibility:
+      // 'fcpe'`) existera, c'est ce test qu'il faudra inverser, pas supprimer.
       await assertSucceeds(getDoc(doc(parent.firestore(), 'posts', 'post-reserve-fcpe')));
     });
   });
