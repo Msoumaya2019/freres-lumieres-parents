@@ -221,6 +221,30 @@ function messageDocument(overrides: Record<string, unknown> = {}) {
   };
 }
 
+/**
+ * Jeton d'appareil, tel que l'application l'enregistre à la connexion.
+ *
+ * `audienceKeys` est **vide** : ce champ appartient au serveur, qui le déduit
+ * du profil. Le client ne déclare que son appareil. Un fixture qui le
+ * remplirait décrirait un document que le client n'a pas le droit d'écrire —
+ * et rendrait complaisants les tests de refus qui suivent.
+ */
+function deviceTokenDocument(id: string, overrides: Record<string, unknown> = {}) {
+  return {
+    id,
+    token: id,
+    uid: UID.parent,
+    orgId: TEST_ORG,
+    platform: 'android',
+    audienceKeys: [],
+    disabledCategories: [],
+    enabled: true,
+    createdAt: new Date('2026-09-01T10:00:00Z'),
+    lastUsedAt: new Date('2026-09-01T10:00:00Z'),
+    ...overrides,
+  };
+}
+
 describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
   beforeAll(async () => {
     testEnv = await createRulesTestEnvironment();
@@ -424,10 +448,11 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
         createdAt: new Date('2026-09-01T10:00:00Z'),
       });
 
+      // Jeton déjà enregistré, avec les clés d'audience telles que le serveur
+      // les aurait déduites du profil. C'est l'état réel en production, et
+      // celui contre lequel les tests de mise à jour doivent s'exécuter.
       await setDoc(doc(db, 'deviceTokens', 'token-1'), {
-        token: 'token-1',
-        uid: UID.parent,
-        orgId: TEST_ORG,
+        ...deviceTokenDocument('token-1'),
         audienceKeys: [`org:${TEST_ORG}`],
       });
 
@@ -1368,6 +1393,63 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
       // Un jeton push permet d'envoyer des notifications à un appareil : sa
       // lecture est réservée aux Cloud Functions.
       await assertFails(getDoc(doc(parent.firestore(), 'deviceTokens', 'token-1')));
+    });
+
+    it('un parent enregistre son appareil pour sa propre organisation', async () => {
+      await assertSucceeds(
+        setDoc(
+          doc(parent.firestore(), 'deviceTokens', 'token-parent'),
+          deviceTokenDocument('token-parent'),
+        ),
+      );
+    });
+
+    it('un parent ne peut pas enregistrer un appareil au nom d’une autre organisation', async () => {
+      // Le serveur choisit les destinataires d'une notification en lisant
+      // `orgId` sur le jeton. Un client qui choisit librement ce champ choisit
+      // donc de recevoir les notifications d'une autre organisation.
+      await assertFails(
+        setDoc(
+          doc(parent.firestore(), 'deviceTokens', 'token-autre-org'),
+          deviceTokenDocument('token-autre-org', { orgId: TEST_OTHER_ORG }),
+        ),
+      );
+    });
+
+    it('un parent ne peut pas se déclarer une audience', async () => {
+      // `audienceKeys` n'est pas une préférence mais une **autorisation** : le
+      // serveur s'en sert pour décider qui reçoit quoi. Déclaré par le client,
+      // il permettrait à un parent de s'abonner à l'audience de la FCPE, ou à
+      // la classe d'un autre. Le champ appartient donc au serveur.
+      await assertFails(
+        setDoc(
+          doc(parent.firestore(), 'deviceTokens', 'token-fcpe'),
+          deviceTokenDocument('token-fcpe', {
+            audienceKeys: [`org:${TEST_ORG}`, `fcpe:${TEST_ORG}`],
+          }),
+        ),
+      );
+    });
+
+    it('un parent ne peut pas modifier les clés d’audience de son appareil', async () => {
+      const db = parent.firestore();
+      await assertFails(
+        updateDoc(doc(db, 'deviceTokens', 'token-1'), {
+          audienceKeys: [`org:${TEST_ORG}`, `fcpe:${TEST_ORG}`],
+        }),
+      );
+    });
+
+    it('un parent peut désactiver les notifications de son appareil', async () => {
+      // `disabledCategories` ne réduit que ce que l'appareil reçoit : c'est une
+      // préférence, et elle appartient au client. Seul `audienceKeys` est
+      // serveur.
+      await assertSucceeds(
+        updateDoc(doc(parent.firestore(), 'deviceTokens', 'token-1'), {
+          enabled: false,
+          disabledCategories: ['discussions', 'agenda'],
+        }),
+      );
     });
   });
 

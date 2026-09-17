@@ -73,8 +73,13 @@ const SANS_CLOISONNEMENT: Readonly<Record<string, string>> = {
   classes: 'Même raison que les établissements. Ce sont des noms de classes.',
   deviceTokens:
     'Aucun lecteur client (`allow read: if false`) : l’index des appareils ' +
-    'n’est lu que par les Cloud Functions. Il n’y a donc pas de frontière à ' +
-    'poser ici.',
+    'n’est lu que par les Cloud Functions, il n’y a donc pas de frontière de ' +
+    '**lecture** à poser. La frontière est du côté écriture, et elle a été ' +
+    'ajoutée : `orgId` doit être celui de l’appelant, et `audienceKeys` — ' +
+    'le champ qui décide des notifications reçues — est vide à la création ' +
+    'puis figé, donc écrit par le serveur seul. Justification conservée parce ' +
+    'que ce sont les règles d’écriture, non de lecture, qui portent la ' +
+    'contrainte.',
   counters:
     'Agrégats seuls, sans donnée personnelle, et l’identifiant du document ' +
     '**est** l’identifiant d’organisation : la contrainte s’écrirait ' +

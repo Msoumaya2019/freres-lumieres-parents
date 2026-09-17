@@ -277,8 +277,39 @@ service cloud.firestore {
       // les parents ne doit jamais être accessible depuis un client.
       allow read: if false;
 
-      // Un utilisateur ne peut enregistrer qu'un jeton qui lui appartient.
-      allow create, update: if isActive() && request.resource.data.uid == request.auth.uid;
+      // L'identifiant du document **est** le jeton : l'enregistrement est
+      // idempotent, et un même appareil partagé entre deux comptes met à jour
+      // `uid` au lieu de créer un doublon.
+      //
+      // `orgId` est vérifié parce que le serveur choisit les destinataires
+      // d'une notification en le lisant : un jeton qui déclare une autre
+      // organisation recevrait les notifications de celle-ci.
+      //
+      // `audienceKeys` est **vide** à la création, et c'est le point qui
+      // compte. Ce champ n'est pas une préférence mais une **autorisation** :
+      // le serveur décide qui reçoit quoi en le lisant. Déclaré par le client,
+      // il permettrait à un parent de s'abonner à l'audience de la FCPE ou à
+      // la classe d'un autre — et les règles ne peuvent pas vérifier une clé
+      // `class:` ou `level:`, faute de pouvoir lire les enfants de l'appelant.
+      // Le champ est donc écrit par la Cloud Function qui enregistre
+      // l'appareil, jamais par le client.
+      allow create: if isActive()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.orgId == orgId()
+        && request.resource.data.token == token
+        && request.resource.data.audienceKeys == [];
+
+      // `unchanged('audienceKeys')` interdit au client de réécrire les clés
+      // posées par le serveur. Le client met à jour par `update()`, jamais par
+      // `set()` : un `set()` renverrait `audienceKeys` à vide et effacerait le
+      // travail du serveur — ce que cette clause refuse, précisément.
+      allow update: if isActive()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.orgId == orgId()
+        && request.resource.data.token == token
+        && unchanged('audienceKeys')
+        && unchanged('createdAt');
+
       allow delete: if isActive() && resource.data.uid == request.auth.uid;
     }
 
