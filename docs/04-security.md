@@ -398,11 +398,23 @@ rejeté.
 **Le droit d'effacement est le seul exercé aujourd'hui, et il l'est
 partiellement.** `adminDeleteUser` supprime le compte Auth, puis
 `cleanupDeletedUser` efface les jetons et anonymise les publications de
-l'intéressé. Deux limites, écrites ici parce qu'elles sont silencieuses :
+l'intéressé. Une limite subsiste, écrite ici parce qu'elle est silencieuse :
 
 - les **commentaires et les messages** ne sont pas anonymisés — le bloc de
-  documentation de la fonction les annonçait, le code ne les traite pas ;
-- l'anonymisation des publications s'arrête au premier lot, sans le dire.
+  documentation de la fonction les annonçait, le code ne les traite pas. Les
+  atteindre demande une requête de groupe de collections, donc un index de
+  groupe à déclarer ; le manque est porté par `docs/08-roadmap.md`.
+
+Une seconde limite a été **corrigée**, et elle mérite d'être notée parce qu'elle
+était invisible de l'extérieur : l'anonymisation s'arrêtait au premier lot de
+500, sans le dire. Un parent qui avait publié davantage gardait son nom sur le
+reste, et rien ne le signalait. Plus grave, cette anonymisation partageait sa
+transaction avec la suppression des jetons : passé 500 écritures, Firestore
+refusait le lot **entier** et rien n'était écrit — pas même la suppression des
+jetons, qui n'a pourtant rien à voir avec les publications. La requête est
+désormais relancée tant qu'elle rend quelque chose ; chaque passage remplaçant
+`authorId`, l'ensemble rétrécit à chaque tour, et la terminaison ne dépend
+d'aucune borne arbitraire.
 
 Le bouton « Supprimer mon compte » n'existe pas dans l'application : la
 suppression se fait donc **sur demande à la FCPE**, ce qui satisfait

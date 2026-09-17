@@ -64,7 +64,7 @@ import {
 import { adminDb } from '../lib/admin.js';
 import { COLLECTIONS, paths } from '../lib/paths.js';
 import { selectRecipients } from './recipients.js';
-import { purgeDeviceTokens } from './token-purge.js';
+import { purgeDeviceTokens } from '../lib/token-purge.js';
 
 /** Nombre maximal d'opérations dans un lot Firestore. */
 const TAILLE_LOT = 500;

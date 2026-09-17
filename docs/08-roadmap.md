@@ -742,11 +742,12 @@ vérifiées comme concordantes par un test.
 - [ ] Export RGPD vérifié de bout en bout — `user.export` et
       `user.export_data` sont déclarés, et **aucune fonction ne produit
       d'export**. C'est le droit à la portabilité, et il n'est pas exerçable.
-- [ ] Anonymisation complète à la suppression d'un compte —
-      `cleanupDeletedUser` ne traite que les publications, alors que son propre
-      bloc de documentation annonçait « les messages, commentaires ». Les
-      commentaires (`posts/{id}/comments`) et les messages
-      (`channels/{id}/messages`) gardent donc le nom de l'intéressé. Une
+- [ ] Anonymisation complète à la suppression d'un compte — les
+      **publications** le sont, et le sont toutes depuis que la boucle reprend
+      tant que la requête rend quelque chose. Les commentaires
+      (`posts/{id}/comments`) et les messages (`channels/{id}/messages`)
+      gardent en revanche le nom de l'intéressé, alors que le bloc de
+      documentation de `cleanupDeletedUser` l'annonçait depuis le début. Une
       requête de groupe de collections est nécessaire, donc un index de groupe
       à déclarer.
 - [ ] Test sur appareils réels, iOS et Android

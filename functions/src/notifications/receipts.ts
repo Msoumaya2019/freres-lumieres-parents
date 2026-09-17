@@ -48,7 +48,7 @@ import { PushCredentialsError, type PushDispatcher } from '@fl/shared';
 import { adminDb } from '../lib/admin.js';
 import { COLLECTIONS } from '../lib/paths.js';
 import { createPushDispatcher } from './send.js';
-import { purgeDeviceTokens } from './token-purge.js';
+import { purgeDeviceTokens } from '../lib/token-purge.js';
 
 /**
  * Délai avant de demander un reçu, en millisecondes.

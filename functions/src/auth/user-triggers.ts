@@ -27,10 +27,11 @@
  */
 import { onDocumentCreated, onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { logger } from 'firebase-functions/v2';
-import { FieldValue } from 'firebase-admin/firestore';
+import { FieldValue, type Firestore } from 'firebase-admin/firestore';
 
 import { adminDb } from '../lib/admin.js';
 import { COLLECTIONS, paths } from '../lib/paths.js';
+import { purgeDeviceTokens } from '../lib/token-purge.js';
 import { claimsSourceFromProfile, clearUserClaims, syncUserClaims } from './claims.js';
 import { audienceChanged, childAudienceChanged, rebuildAudienceKeysForUser } from './audience.js';
 import {
@@ -215,6 +216,28 @@ export const onUserChildrenWritten = onDocumentWritten(
   },
 );
 
+/** Nom affiché à la place de celui d'un compte supprimé. */
+const ANCIEN_PARENT = 'Ancien parent';
+
+/**
+ * Identifiant posé à la place de l'auteur d'un compte supprimé.
+ *
+ * Il sert aussi d'invariant à la boucle d'anonymisation : un document déjà
+ * traité ne porte plus l'identifiant recherché, donc l'ensemble rétrécit à
+ * chaque passage. C'est ce qui garantit la terminaison — voir
+ * `anonymisePublications`.
+ */
+const AUTEUR_SUPPRIME = 'deleted-user';
+
+/**
+ * Publications anonymisées par lot.
+ *
+ * Un lot Firestore accepte 500 écritures, et l'anonymisation en fait
+ * exactement une par publication : la borne du lot est donc la borne du
+ * format, sans marge inventée.
+ */
+const TAILLE_LOT_ANONYMISATION = 500;
+
 /**
  * Nettoyage des données d'un compte supprimé.
  *
@@ -227,39 +250,102 @@ export const onUserChildrenWritten = onDocumentWritten(
  * Elle est donc **idempotente** : rien n'est supposé sur l'état antérieur, et
  * supprimer un document déjà absent est sans effet.
  *
- * Les jetons d'appareil doivent disparaître, sinon les notifications
- * continueraient d'être envoyées à un compte supprimé. Les contributions
- * (messages, commentaires) sont **anonymisées** plutôt que supprimées : cela
- * préserve la cohérence des discussions pour les autres parents, tout en
+ * ## Ce qu'elle traite, et ce qu'elle ne traite pas
+ *
+ * Les jetons d'appareil disparaissent — par `purgeDeviceTokens`, comme partout
+ * ailleurs dans le projet. Ils étaient auparavant supprimés par un lot écrit
+ * sur place, qui ne découpait rien et partageait sa transaction avec
+ * l'anonymisation : passé quelques centaines de publications, le lot dépassait
+ * la limite de 500 écritures et **rien** n'était écrit, pas même la suppression
+ * des jetons.
+ *
+ * Les **publications** de l'intéressé sont anonymisées plutôt que supprimées :
+ * cela préserve la cohérence des discussions pour les autres parents, tout en
  * satisfaisant le droit à l'effacement.
+ *
+ * Les **commentaires** (`posts/{id}/comments`) et les **messages**
+ * (`channels/{id}/messages`) ne sont **pas** traités. Ce bloc a annoncé le
+ * contraire — « les contributions (messages, commentaires) » — pendant que le
+ * code ne touchait qu'aux publications. Les atteindre demande une requête de
+ * groupe de collections, donc un index de groupe à déclarer : le manque est
+ * écrit dans `docs/04-security.md` § 8 et porté par `docs/08-roadmap.md`,
+ * plutôt que promis ici.
  */
-export async function cleanupDeletedUser(uid: string): Promise<void> {
-  const db = adminDb();
+export async function cleanupDeletedUser(uid: string, db: Firestore = adminDb()): Promise<void> {
+  const jetons = await db.collection(COLLECTIONS.deviceTokens).where('uid', '==', uid).get();
+  const purgedTokens = await purgeDeviceTokens(
+    jetons.docs.map((jeton) => jeton.id),
+    db,
+  );
 
-  const tokens = await db.collection(COLLECTIONS.deviceTokens).where('uid', '==', uid).get();
+  const anonymisedPosts = await anonymisePublications(uid, db);
 
-  const batch = db.batch();
-  for (const token of tokens.docs) {
-    batch.delete(token.ref);
-  }
-
-  // Anonymisation des contributions.
-  const posts = await db
-    .collection(COLLECTIONS.posts)
-    .where('authorId', '==', uid)
-    .limit(500)
-    .get();
-  for (const post of posts.docs) {
-    batch.update(post.ref, { authorName: 'Ancien parent', authorId: 'deleted-user' });
-  }
-
-  await batch.commit();
   await db
     .doc(paths.user(uid))
     .delete()
     .catch(() => undefined);
 
-  logger.info('[cleanupDeletedUser] Données nettoyées et contributions anonymisées', { uid });
+  logger.info('[cleanupDeletedUser] Données nettoyées et publications anonymisées', {
+    uid,
+    purgedTokens,
+    anonymisedPosts,
+  });
+}
+
+/**
+ * Remplace l'identité de l'auteur sur **toutes** ses publications, et rend le
+ * nombre de documents traités.
+ *
+ * ## Pourquoi la requête est relancée au lieu d'être paginée
+ *
+ * La version précédente s'arrêtait au premier lot de 500, sans le dire : un
+ * parent qui avait publié davantage gardait son nom sur le reste, et rien ne le
+ * signalait. Un `offset` aurait rejoué ou sauté des lignes, puisque les
+ * documents changent en cours de route ; un curseur aurait demandé un
+ * `orderBy`, donc un index composite à déclarer et à ne pas oublier.
+ *
+ * La requête est donc relancée **telle quelle** jusqu'à ce qu'elle ne rende
+ * plus rien. Comme chaque passage remplace `authorId`, l'ensemble rétrécit à
+ * chaque tour : la terminaison ne dépend d'aucune borne arbitraire.
+ *
+ * ## Pourquoi la base est injectable
+ *
+ * C'est la seule façon d'éprouver le défaut qu'elle corrige. Un test de source
+ * vérifierait que la boucle existe ; il ne vérifierait pas qu'un parent de
+ * mille deux cents publications est **entièrement** anonymisé, ni qu'aucun lot
+ * ne dépasse la limite du service. Le paramètre a une valeur par défaut, donc
+ * les appelants ne le voient pas.
+ */
+export async function anonymisePublications(
+  uid: string,
+  db: Firestore = adminDb(),
+): Promise<number> {
+  // Un profil dont l'identifiant serait déjà le marqueur ferait tourner la
+  // boucle sans fin — chaque passage retrouverait les documents qu'il vient
+  // d'écrire. Le cas est hors d'atteinte, les identifiants Firebase Auth étant
+  // des chaînes aléatoires de 28 caractères, mais la boucle ne peut pas se
+  // terminer sans cette ligne, et une boucle sans fin dans une Function coûte.
+  if (uid === AUTEUR_SUPPRIME) return 0;
+
+  let anonymises = 0;
+
+  for (;;) {
+    const lot = await db
+      .collection(COLLECTIONS.posts)
+      .where('authorId', '==', uid)
+      .limit(TAILLE_LOT_ANONYMISATION)
+      .get();
+
+    if (lot.empty) return anonymises;
+
+    const batch = db.batch();
+    for (const publication of lot.docs) {
+      batch.update(publication.ref, { authorName: ANCIEN_PARENT, authorId: AUTEUR_SUPPRIME });
+    }
+    await batch.commit();
+
+    anonymises += lot.size;
+  }
 }
 
 /** Marque l'activité d'un utilisateur, sans écrire plus d'une fois par jour. */
