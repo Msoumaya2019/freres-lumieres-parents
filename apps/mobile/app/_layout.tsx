@@ -1,12 +1,13 @@
 /**
  * Layout racine de l'application.
  *
- * Trois responsabilités :
+ * Quatre responsabilités :
  *  1. installer les fournisseurs globaux (thème, authentification) ;
  *  2. attendre que la session soit restaurée avant d'afficher quoi que ce soit
  *     — sinon l'utilisateur verrait un écran de connexion clignoter à chaque
  *     lancement alors qu'il est déjà connecté ;
- *  3. rediriger vers le bon espace selon l'état du compte.
+ *  3. rediriger vers le bon espace selon l'état du compte ;
+ *  4. ouvrir le contenu qu'une notification annonce, une fois le compte actif.
  *
  * La navigation est déclarative : chaque groupe de routes correspond à un état
  * du compte, et la redirection est centralisée ici plutôt que dispersée dans
@@ -17,6 +18,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
 
+import { useNotificationRouting } from '@/hooks/use-notification-routing';
 import { AuthProvider, useAuth } from '@/providers/auth-provider';
 import { ThemeProvider, useTheme } from '@/providers/theme-provider';
 
@@ -56,6 +58,13 @@ function RootNavigator(): React.JSX.Element {
   const router = useRouter();
 
   useAuthRedirect({ status, accountStatus, profileResolved, segments, router });
+
+  // L'ouverture différée est ce qui fait fonctionner le démarrage à froid :
+  // la notification appuyée est connue avant que la session ne soit restaurée,
+  // et la cible attend ici que le compte soit réellement actif.
+  useNotificationRouting({
+    pret: status === 'signedIn' && profileResolved && accountStatus === 'active',
+  });
 
   useEffect(() => {
     if (status !== 'initializing') {
