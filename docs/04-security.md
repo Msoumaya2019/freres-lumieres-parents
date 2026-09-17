@@ -289,8 +289,35 @@ détourné du SDK officiel, il n'autorise rien.
 
 ## 6. Anti-spam et limitation de débit
 
+> **Cette section décrit ce qui n'est pas encore écrit.** Le rate limiting, le
+> délai d'édition et la vérification de contenu sont **conçus mais absents** :
+> `RATE_LIMITS` et `EDIT_WINDOW_MINUTES` sont déclarés dans `@fl/shared` sans
+> aucun consommateur, `paths.userRateLimits()` n'est appelé par personne, le mot
+> `request.time` n'apparaît **nulle part** dans `firebase/firestore.rules`, et
+> aucune Cloud Function ne supprime un contenu au titre d'une limite de débit.
+> Le manque est porté par la phase 12 de `docs/08-roadmap.md`.
+>
+> Ce paragraphe d'avertissement existe parce que la version précédente
+> décrivait ces mesures au présent, comme si elles protégeaient le service.
+> Un document de sécurité qui promet une protection inexistante est plus
+> dangereux qu'un document muet : il décourage de vérifier.
+
+**Ce qui protège réellement le service aujourd'hui**, et suffit à un groupe
+scolaire au lancement :
+
+- **Le statut `pending`.** `isActive()` exige `claims().status == 'active'`, et
+  toutes les règles de création de contenu le traversent. Un compte non validé
+  ne peut donc **rien** écrire — ce qui élimine la majorité des créations de
+  comptes malveillantes, sans qu'aucun compteur n'ait à intervenir.
+- **Les règles Firestore** : cloisonnement par organisation, propriété des
+  champs serveur, refus par défaut.
+- **La modération manuelle**, qui traite le reste.
+
+**Ce qui est conçu, et le restera jusqu'à la phase 12** — à lire comme un plan,
+jamais comme une description :
+
 Firestore ne sait pas compter les écritures par utilisateur. Le rate limiting
-est donc assuré par des Cloud Functions déclenchées à l'écriture :
+sera donc assuré par des Cloud Functions déclenchées à l'écriture :
 
 ```
 users/{uid}/private/rateLimits   (document interne, non lisible par le client)
@@ -301,19 +328,21 @@ users/{uid}/private/rateLimits   (document interne, non lisible par le client)
   └── moderationReports: { windowStart, count } max 20 / jour
 ```
 
-Si la limite est dépassée, la Function **supprime le document** et écrit une
-entrée dans `moderationReports`. Le contrevenant voit son message disparaître ;
-un modérateur est informé. C'est simple, et suffisant pour un groupe scolaire.
+Si la limite est dépassée, la Function **supprimera le document** et écrira une
+entrée dans `moderationReports`. Le contrevenant verra son message disparaître ;
+un modérateur sera informé. C'est simple, et suffisant pour un groupe scolaire.
 
-Trois mesures complémentaires :
+Trois mesures complémentaires, dans le même état :
 
-- **Compte `pending`** : ne peut rien écrire, ce qui élimine déjà la majorité
-  des créations de comptes malveillantes.
-- **Délai d'édition** de 30 minutes : au-delà, on ne peut plus modifier son
-  message (mais on peut le signaler).
-- **Vérification de contenu** : détection des liens en masse et des
-  répétitions, qui déclenche un signalement automatique plutôt qu'un blocage
-  (un faux positif qui bloque un parent est plus grave qu'un spam visible).
+- **Compte `pending`** — _appliqué_, voir ci-dessus.
+- **Délai d'édition de 30 minutes** — _non appliqué_. Au-delà du délai, on ne
+  pourra plus modifier son message (mais on pourra le signaler). La constante
+  `EDIT_WINDOW_MINUTES` existe, aucune règle ne la lit : une fenêtre d'édition
+  s'écrit avec `request.time`, qui n'est employé nulle part.
+- **Vérification de contenu** — _non appliquée_. La détection des liens en masse
+  et des répétitions déclenchera un signalement automatique plutôt qu'un
+  blocage : un faux positif qui bloque un parent est plus grave qu'un spam
+  visible.
 
 ---
 
@@ -358,13 +387,27 @@ rejeté.
 
 ### Droits garantis, et comment
 
-| Droit         | Mise en œuvre                                                                                                                                                                                                                                     |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Accès         | écran « Mes données » dans le profil : tout est affiché                                                                                                                                                                                           |
-| Rectification | édition du profil                                                                                                                                                                                                                                 |
-| Effacement    | bouton « Supprimer mon compte » → Cloud Function qui supprime le compte Auth, le profil, les enfants, les jetons, et **anonymise** les contributions (les messages deviennent « Ancien parent », l'auteur est remplacé par un identifiant opaque) |
-| Portabilité   | export JSON généré par Cloud Function et téléchargé depuis l'application                                                                                                                                                                          |
-| Opposition    | désactivation par catégorie de notification                                                                                                                                                                                                       |
+| Droit         | Mise en œuvre                                                                                                 | État                                                                                                 |
+| ------------- | ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Accès         | écran « Mes données » dans le profil : tout est affiché                                                       | **non appliqué** — l'écran porte lui-même la mention « Phase 2 »                                     |
+| Rectification | édition du profil                                                                                             | **appliqué**                                                                                         |
+| Effacement    | Cloud Function qui supprime le compte Auth, le profil, les enfants, les jetons, et anonymise les publications | **partiel** — voir ci-dessous                                                                        |
+| Portabilité   | export JSON généré par Cloud Function et téléchargé depuis l'application                                      | **non appliqué** — `user.export` et `user.export_data` sont déclarés, aucune fonction ne les produit |
+| Opposition    | désactivation par catégorie de notification                                                                   | **partiel** — le filtre est appliqué à l'envoi, l'écran de préférences n'existe pas encore (phase 5) |
+
+**Le droit d'effacement est le seul exercé aujourd'hui, et il l'est
+partiellement.** `adminDeleteUser` supprime le compte Auth, puis
+`cleanupDeletedUser` efface les jetons et anonymise les publications de
+l'intéressé. Deux limites, écrites ici parce qu'elles sont silencieuses :
+
+- les **commentaires et les messages** ne sont pas anonymisés — le bloc de
+  documentation de la fonction les annonçait, le code ne les traite pas ;
+- l'anonymisation des publications s'arrête au premier lot, sans le dire.
+
+Le bouton « Supprimer mon compte » n'existe pas dans l'application : la
+suppression se fait donc **sur demande à la FCPE**, ce qui satisfait
+l'article 17 mais pas la promesse d'un droit exerçable seul. Le manque est
+porté par `docs/08-roadmap.md`.
 
 ### Anonymisation plutôt que suppression
 
@@ -397,17 +440,21 @@ satisfait l'article 17 tout en préservant l'intégrité des échanges.
 
 ## 9. Récapitulatif des mesures par couche
 
-| Couche           | Mesure                                                                                                    |
-| ---------------- | --------------------------------------------------------------------------------------------------------- |
-| Dépôt            | `.gitignore` strict, `.env.example` sans valeur, aucun secret, Dependabot, CodeQL, secret scanning GitHub |
-| Réseau           | HTTPS obligatoire, App Check en production                                                                |
-| Authentification | e-mail vérifié, mot de passe ≥ 10 caractères, réinitialisation par e-mail                                 |
-| Autorisation     | Custom Claims + Security Rules, échec fermé                                                               |
-| Données          | validation Zod côté serveur, champs sensibles figés, tailles bornées                                      |
-| Fichiers         | formats et tailles bornés, compression côté client, chemins cloisonnés par organisation                   |
-| Serveur          | Cloud Functions revalidant tout, journal d'audit immuable                                                 |
-| Anti-abus        | rate limiting, compte `pending`, délai d'édition                                                          |
-| Vie privée       | minimisation, anonymisation, export, suppression                                                          |
+La colonne « État » n'est pas décorative : ce document est la référence, et une
+ligne qui n'est pas marquée **appliqué** ne décrit rien de ce qui protège le
+service aujourd'hui.
+
+| Couche           | Mesure                                                                                                    | État                                                        |
+| ---------------- | --------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| Dépôt            | `.gitignore` strict, `.env.example` sans valeur, aucun secret, Dependabot, CodeQL, secret scanning GitHub | appliqué                                                    |
+| Réseau           | HTTPS obligatoire, App Check en production                                                                | partiel — App Check n'est pas activé (phase 12, § 5)        |
+| Authentification | e-mail vérifié, mot de passe ≥ 10 caractères, réinitialisation par e-mail                                 | partiel — la vérification de l'e-mail est à trancher (§ 10) |
+| Autorisation     | Custom Claims + Security Rules, échec fermé                                                               | appliqué                                                    |
+| Données          | validation Zod côté serveur, champs sensibles figés, tailles bornées                                      | appliqué                                                    |
+| Fichiers         | formats et tailles bornés, compression côté client, chemins cloisonnés par organisation                   | appliqué                                                    |
+| Serveur          | Cloud Functions revalidant tout, journal d'audit immuable                                                 | appliqué                                                    |
+| Anti-abus        | rate limiting, compte `pending`, délai d'édition                                                          | partiel — seul `pending` est appliqué (§ 6)                 |
+| Vie privée       | minimisation, anonymisation, export, suppression                                                          | partiel — export et suppression autonome absents (§ 8)      |
 
 ---
 

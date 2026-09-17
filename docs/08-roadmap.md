@@ -701,7 +701,19 @@ même par requête directe.
 
 - [ ] File de modération (`moderationReports`)
 - [ ] Actions : masquer, supprimer, avertir, suspendre
-- [ ] Rate limiting sur les actions sensibles
+- [ ] Rate limiting sur les actions sensibles — **trois mesures sont
+      aujourd'hui déclarées sans être appliquées**, et `docs/04-security.md` § 6
+      le dit désormais explicitement. `RATE_LIMITS` et `EDIT_WINDOW_MINUTES`
+      sont déclarés dans `@fl/shared` sans aucun consommateur,
+      `paths.userRateLimits()` n'est appelé par personne, `request.time`
+      n'apparaît nulle part dans les règles, et aucune Function ne supprime un
+      contenu au titre d'une limite. Restent à écrire : les compteurs
+      `users/{uid}/private/rateLimits` et la Function qui les tient, la fenêtre
+      d'édition de 30 minutes (une clause `request.time`, qui n'existe encore
+      dans aucune règle du projet), et la détection de liens en masse.
+      Ce qui protège réellement le service en attendant est écrit au même
+      endroit : le statut `pending`, les règles Firestore, la modération
+      manuelle.
 - [ ] App Check : passage en mode application
 - [ ] Couverture de tests complète des Security Rules
 - [ ] Tests d'intégration sur émulateur
@@ -722,7 +734,21 @@ vérifiées comme concordantes par un test.
 - [ ] Politique de confidentialité rédigée
 - [ ] Textes de la fiche App Store et Play Store
 - [ ] Icône, écran de lancement, nom affiché
-- [ ] Export RGPD vérifié de bout en bout
+- [ ] Écran « Mes données » : accès, export JSON, et bouton « Supprimer mon
+      compte » — les trois sont annoncés à l'utilisateur, aucun n'est construit.
+      L'écran de profil porte lui-même la mention « Phase 2 », et
+      `docs/04-security.md` § 8 les marque désormais « non appliqué » : la
+      suppression se fait aujourd'hui **sur demande à la FCPE**.
+- [ ] Export RGPD vérifié de bout en bout — `user.export` et
+      `user.export_data` sont déclarés, et **aucune fonction ne produit
+      d'export**. C'est le droit à la portabilité, et il n'est pas exerçable.
+- [ ] Anonymisation complète à la suppression d'un compte —
+      `cleanupDeletedUser` ne traite que les publications, alors que son propre
+      bloc de documentation annonçait « les messages, commentaires ». Les
+      commentaires (`posts/{id}/comments`) et les messages
+      (`channels/{id}/messages`) gardent donc le nom de l'intéressé. Une
+      requête de groupe de collections est nécessaire, donc un index de groupe
+      à déclarer.
 - [ ] Test sur appareils réels, iOS et Android
 - [ ] Première release `v1.0.0`
 
