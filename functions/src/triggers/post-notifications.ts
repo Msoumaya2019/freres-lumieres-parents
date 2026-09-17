@@ -62,7 +62,11 @@ export const onPostPublished = onDocumentWritten(
 
     await adminDb().doc(paths.post(postId)).update({
       notifiedAt: FieldValue.serverTimestamp(),
-      'stats.notifiedCount': outcome.delivered,
+      // Le nombre d'appareils **acceptés** par le service, pas le nombre de
+      // parents informés : la remise réelle se lit quinze minutes plus tard,
+      // dans `notifications/{id}`. Le champ garde son nom, mais il ne doit pas
+      // être présenté comme un nombre de destinataires atteints.
+      'stats.notifiedCount': outcome.accepted,
     });
   },
 );

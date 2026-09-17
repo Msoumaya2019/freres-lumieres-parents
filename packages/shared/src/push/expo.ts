@@ -8,10 +8,24 @@
  * Le transport réel reste Firebase Cloud Messaging sur Android et APNs sur
  * iOS : Expo Push Service relaie vers ces deux services.
  */
-import type { PushDispatcher, PushMessage, PushRecipient, PushResult } from './dispatcher.js';
-import { androidChannelId, chunkRecipients, filterRecipients } from './dispatcher.js';
+import type {
+  PushDispatcher,
+  PushMessage,
+  PushReceipts,
+  PushRecipient,
+  PushResult,
+  PushTicketRef,
+} from './dispatcher.js';
+import {
+  androidChannelId,
+  chunkRecipients,
+  chunkTicketIds,
+  filterRecipients,
+} from './dispatcher.js';
+import { summariseReceipts, type ExpoPushReceipt } from './receipts.js';
 
-const EXPO_PUSH_ENDPOINT = 'https://exp.host/--/api/v2/push/send';
+const EXPO_PUSH_SEND_ENDPOINT = 'https://exp.host/--/api/v2/push/send';
+const EXPO_PUSH_RECEIPTS_ENDPOINT = 'https://exp.host/--/api/v2/push/getReceipts';
 
 interface ExpoPushTicket {
   status: 'ok' | 'error';
@@ -50,12 +64,13 @@ export class ExpoPushDispatcher implements PushDispatcher {
       this.log('Aucun destinataire après filtrage des préférences.', {
         category: message.category,
       });
-      return { delivered: 0, failed: 0, invalidTokens: [] };
+      return { accepted: 0, failed: 0, invalidTokens: [], tickets: [] };
     }
 
-    let delivered = 0;
+    let accepted = 0;
     let failed = 0;
     const invalidTokens: string[] = [];
+    const tickets: PushTicketRef[] = [];
 
     for (const batch of chunkRecipients(eligible)) {
       const payload = batch.map((recipient) => ({
@@ -69,14 +84,23 @@ export class ExpoPushDispatcher implements PushDispatcher {
       }));
 
       try {
-        const tickets = await this.postWithRetry(payload);
+        const ticketsRendus = await this.postTickets(payload);
 
-        tickets.forEach((ticket, index) => {
+        ticketsRendus.forEach((ticket, index) => {
           const recipient = batch[index];
           if (!recipient) return;
 
           if (ticket.status === 'ok') {
-            delivered += 1;
+            accepted += 1;
+            // Un ticket accepté sans identifiant ne pourra jamais être relu :
+            // le contrat du service en garantit un, donc son absence est une
+            // anomalie de protocole, et elle est journalisée comme telle. La
+            // compter en échec serait faux — le message a bien été accepté.
+            if (ticket.id) tickets.push({ id: ticket.id, token: recipient.token });
+            else
+              this.log('Ticket accepté sans identifiant : reçu illisible.', {
+                platform: recipient.platform,
+              });
             return;
           }
 
@@ -97,15 +121,15 @@ export class ExpoPushDispatcher implements PushDispatcher {
         // L'API Expo rend un ticket par jeton envoyé, dans le même ordre. Un
         // lot plus court que prévu n'est donc pas un succès partiel : les
         // jetons sans ticket n'ont pas été confirmés. Les ignorer rendait
-        // `delivered + failed` inférieur au nombre de destinataires, et
+        // `accepted + failed` inférieur au nombre de destinataires, et
         // l'administration annonçait un envoi complet alors qu'une partie des
         // parents n'avait rien reçu.
-        const sansTicket = batch.length - tickets.length;
+        const sansTicket = batch.length - ticketsRendus.length;
         if (sansTicket > 0) {
           failed += sansTicket;
           this.log('Réponse incomplète du service Expo Push.', {
             batchSize: batch.length,
-            tickets: tickets.length,
+            tickets: ticketsRendus.length,
           });
         }
       } catch (error) {
@@ -117,7 +141,46 @@ export class ExpoPushDispatcher implements PushDispatcher {
       }
     }
 
-    return { delivered, failed, invalidTokens };
+    return { accepted, failed, invalidTokens, tickets };
+  }
+
+  /**
+   * Relit les reçus d'un envoi précédent.
+   *
+   * ## Ce que cette méthode ne peut pas faire, et pourquoi
+   *
+   * Elle rend des **identifiants** morts, pas des jetons : le service ne dit
+   * jamais à quel appareil un reçu correspond. La traduction appartient à
+   * l'appelant, qui seul a conservé le ticket et son jeton côte à côte.
+   *
+   * ## Pourquoi elle lève au lieu de rendre des zéros
+   *
+   * Une relecture en échec laisse l'historique intact — `deliveredCount` reste
+   * `null`, donc « non relu ». Rendre des zéros à la place écrirait « aucun
+   * message remis » dans un document que personne ne relira, et le mensonge
+   * deviendrait un fait. L'appelant, lui, peut réessayer.
+   */
+  async readReceipts(ticketIds: readonly string[]): Promise<PushReceipts> {
+    if (ticketIds.length === 0) {
+      return { delivered: 0, failed: 0, pending: 0, deadTicketIds: [] };
+    }
+
+    let delivered = 0;
+    let failed = 0;
+    let pending = 0;
+    const deadTicketIds: string[] = [];
+
+    for (const lot of chunkTicketIds(ticketIds)) {
+      const data = await this.postReceipts(lot);
+      const comptes = summariseReceipts(lot, data);
+
+      delivered += comptes.delivered;
+      failed += comptes.failed;
+      pending += comptes.pending;
+      deadTicketIds.push(...comptes.deadTicketIds);
+    }
+
+    return { delivered, failed, pending, deadTicketIds };
   }
 
   /**
@@ -127,12 +190,12 @@ export class ExpoPushDispatcher implements PushDispatcher {
    * journaliser que de retenter en boucle. Une boucle de retrait infinie est
    * la façon la plus rapide d'épuiser le quota d'invocations.
    */
-  private async postWithRetry(payload: unknown[], attempt = 1): Promise<ExpoPushTicket[]> {
+  private async postJson(url: string, payload: unknown, attempt = 1): Promise<unknown> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
 
     try {
-      const response = await fetch(EXPO_PUSH_ENDPOINT, {
+      const response = await fetch(url, {
         method: 'POST',
         headers: {
           Accept: 'application/json',
@@ -146,18 +209,46 @@ export class ExpoPushDispatcher implements PushDispatcher {
 
       if (response.status === 429 && attempt < 3) {
         await delay(500 * 2 ** (attempt - 1));
-        return this.postWithRetry(payload, attempt + 1);
+        return this.postJson(url, payload, attempt + 1);
       }
 
       if (!response.ok) {
         throw new Error(`Expo Push a répondu ${response.status}`);
       }
 
-      const body = (await response.json()) as { data?: ExpoPushTicket[] };
-      return body.data ?? [];
+      return await response.json();
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  /** Envoi d'un lot, réduit à la liste des tickets. */
+  private async postTickets(payload: unknown[]): Promise<ExpoPushTicket[]> {
+    const body = (await this.postJson(EXPO_PUSH_SEND_ENDPOINT, payload)) as {
+      data?: ExpoPushTicket[];
+    };
+    return body.data ?? [];
+  }
+
+  /**
+   * Relecture d'un lot de reçus.
+   *
+   * Une réponse `200` **sans** table `data` est traitée comme une erreur, pas
+   * comme « aucun reçu » : les deux se ressemblent et n'ont pas le même sens.
+   * La première dit que le service a changé de forme, la seconde qu'il n'a rien
+   * à répondre — et confondre les deux ferait écrire des messages « en attente »
+   * qui ne se résoudront jamais.
+   */
+  private async postReceipts(lot: readonly string[]): Promise<Record<string, ExpoPushReceipt>> {
+    const body = (await this.postJson(EXPO_PUSH_RECEIPTS_ENDPOINT, { ids: lot })) as {
+      data?: Record<string, ExpoPushReceipt>;
+    };
+
+    if (!body.data || typeof body.data !== 'object') {
+      throw new Error('Expo Push a répondu sans table de reçus.');
+    }
+
+    return body.data;
   }
 }
 

@@ -1,84 +1,39 @@
 /**
- * Ce que la requête d'envoi ne doit pas contraindre.
+ * Ce que la requête d'envoi ne doit pas contraindre, et ce que le journal ne
+ * doit pas affirmer.
  *
- * ## La décision que ce test tient
+ * ## Les deux décisions que ce test tient
  *
- * `queryTokensByAudience` lit les jetons d'une audience. Elle ne contraint
- * **pas** `enabled`, et c'est une décision, pas un oubli : une contrainte à cet
- * endroit écarte un appareil éteint **avant** `filterRecipients`, qui ne peut
- * alors plus rien pour lui. Un parent ayant coupé les notifications de son
- * téléphone ne recevrait plus aucune alerte urgente — exactement le cas que
- * l'exception doit couvrir.
+ * **La requête.** `queryTokensByAudience` lit les jetons d'une audience. Elle ne
+ * contraint **pas** `enabled`, et c'est une décision, pas un oubli : une
+ * contrainte à cet endroit écarte un appareil éteint **avant**
+ * `filterRecipients`, qui ne peut alors plus rien pour lui. Un parent ayant coupé
+ * les notifications de son téléphone ne recevrait plus aucune alerte urgente —
+ * exactement le cas que l'exception doit couvrir.
  *
- * ## Pourquoi il lit la source au lieu d'appeler la fonction
+ * **Le journal.** À l'écriture, `deliveredCount` vaut `null`, jamais un nombre :
+ * à cet instant on sait ce que le service a **accepté**, pas ce qu'il a remis.
+ * C'est le défaut que tout cet incrément corrige — un champ intitulé
+ * « delivered » qui comptait des acceptations. Le remettre à `accepted` ne
+ * casserait rien, ne lèverait rien, et remettrait en place exactement le
+ * mensonge qu'on vient de retirer.
+ *
+ * ## Pourquoi il lit la source au lieu d'appeler les fonctions
  *
  * `send.ts` importe `firebase-admin` et `firebase-functions` : l'importer
- * demanderait un émulateur et une application initialisée. Or la propriété
- * vérifiée n'est pas un comportement mais une **forme de requête**, et elle se
- * lit. Même choix que `paths.test.ts`, qui compare deux tables de collections
- * sans jamais importer le SDK client.
+ * demanderait un émulateur et une application initialisée. Or ce qui est
+ * vérifié ici n'est pas un comportement mais une **forme de code** — une requête
+ * sans contrainte, un champ écrit à `null`. Même choix que `paths.test.ts`, qui
+ * compare deux tables de collections sans jamais importer le SDK client.
  *
  * Ce test est pur : ni émulateur, ni Java.
  */
-import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
-
 import { describe, expect, it } from 'vitest';
 
-/** Fichier lu, relatif à la racine du dépôt. */
-const SOURCE_SEND = ['functions', 'src', 'notifications', 'send.ts'];
+import { corpsDeLaFonction, lireSource } from '../test-helpers/source.js';
 
-/**
- * Remonte l'arborescence jusqu'à la racine du dépôt.
- *
- * On ne peut pas se fier au répertoire courant : `npm run test -w @fl/functions`
- * s'exécute depuis le paquet, alors qu'un lancement depuis la racine s'exécute
- * depuis la racine. La racine est reconnue à la présence du fichier lu.
- *
- * Même logique que `findRepoRoot` dans `@fl/testing`. La duplication est
- * assumée : `@fl/testing` est le harnais des émulateurs, l'importer ici
- * traînerait `@firebase/rules-unit-testing` dans les tests des fonctions.
- */
-function findRepoRoot(startDirectory: string = process.cwd()): string {
-  let directory = resolve(startDirectory);
-
-  for (let depth = 0; depth < 8; depth += 1) {
-    if (existsSync(join(directory, ...SOURCE_SEND))) return directory;
-
-    const parent = dirname(directory);
-    if (parent === directory) break;
-    directory = parent;
-  }
-
-  throw new Error(
-    `Racine du dépôt introuvable depuis « ${startDirectory} » : aucun ` +
-      `${SOURCE_SEND.join('/')} dans les répertoires parents.`,
-  );
-}
-
-const SOURCE = readFileSync(join(findRepoRoot(), ...SOURCE_SEND), 'utf8');
-
-/**
- * Corps d'une fonction exportée, ou **lève** si elle est introuvable.
- *
- * Volontairement strict : un motif introuvable ne fait pas échouer une
- * assertion, il la fait passer sur une chaîne vide. Sans cette garde, renommer
- * la fonction suffirait à neutraliser les tests ci-dessous sans que rien ne le
- * signale — le piège que `declaredKeys` évite dans `paths.test.ts`.
- */
-function corpsDeLaFonction(nom: string): string {
-  const debut = SOURCE.indexOf(`export async function ${nom}(`);
-  const fin = debut === -1 ? -1 : SOURCE.indexOf('\n}', debut);
-
-  if (debut === -1 || fin === -1) {
-    throw new Error(
-      `Fonction « ${nom} » introuvable dans ${SOURCE_SEND.join('/')}. ` +
-        'Le format a changé : adapter ce test plutôt que le neutraliser.',
-    );
-  }
-
-  return SOURCE.slice(debut, fin);
-}
+const CHEMIN_SEND = ['functions', 'src', 'notifications', 'send.ts'];
+const SOURCE = lireSource(CHEMIN_SEND);
 
 describe('queryTokensByAudience', () => {
   it('ne contraint pas l’interrupteur de l’appareil', () => {
@@ -87,15 +42,45 @@ describe('queryTokensByAudience', () => {
     // sourde à cette exception, et personne ne le verrait — l'appareil éteint
     // serait simplement absent de la liste, indiscernable d'un appareil qui
     // n'existe pas.
-    expect(corpsDeLaFonction('queryTokensByAudience')).not.toContain("where('enabled'");
+    expect(corpsDeLaFonction(SOURCE, 'queryTokensByAudience', CHEMIN_SEND)).not.toContain(
+      "where('enabled'",
+    );
   });
 
   it('contraint l’organisation et l’audience', () => {
     // La contrepartie, et elle est nécessaire : le test précédent passerait
     // aussi sur une fonction vidée de son corps.
-    const corps = corpsDeLaFonction('queryTokensByAudience');
+    const corps = corpsDeLaFonction(SOURCE, 'queryTokensByAudience', CHEMIN_SEND);
 
     expect(corps).toContain("where('orgId', '==', orgId)");
     expect(corps).toContain("where('audienceKeys', 'array-contains-any', lot)");
+  });
+});
+
+describe('writeNotificationLog', () => {
+  it('n’annonce aucune remise avant de l’avoir relue', () => {
+    const corps = corpsDeLaFonction(SOURCE, 'writeNotificationLog', CHEMIN_SEND);
+
+    expect(corps).toContain('deliveredCount: rienARelire ? 0 : null');
+  });
+
+  it('laisse l’envoi à relire tant qu’un ticket peut l’être', () => {
+    // L'autre moitié de la décision, et sans elle la première serait un vœu :
+    // un document marqué « déjà relu » ne serait jamais repris, et
+    // `deliveredCount` resterait `null` pour toujours.
+    const corps = corpsDeLaFonction(SOURCE, 'writeNotificationLog', CHEMIN_SEND);
+
+    expect(corps).toContain('receiptsChecked: rienARelire');
+    expect(corps).toContain('ticketIds: comptes.tickets.map((ticket) => ticket.id)');
+  });
+
+  it('n’écrit pas la table des tickets si l’historique a échoué', () => {
+    // Des tickets sans document d'historique ne seraient jamais relus — le
+    // passage des reçus part de l'historique — et resteraient en base
+    // indéfiniment. La garde est dans `sendToAudience`, pas dans le journal.
+    const corps = corpsDeLaFonction(SOURCE, 'sendToAudience', CHEMIN_SEND);
+
+    expect(corps).toContain('if (historiqueEcrit)');
+    expect(corps).toContain('writePushTickets(');
   });
 });

@@ -15,6 +15,14 @@
  * si elle en rend moins, les jetons sans ticket n'ont pas été confirmés. Les
  * ignorer donnait un envoi « entièrement livré » alors qu'une partie des
  * parents n'avait rien reçu.
+ *
+ * ## Le second compte rendu, quinze minutes plus tard
+ *
+ * Le ticket dit « j'ai accepté ». Il ne dit pas « j'ai remis ». La seconde
+ * moitié du compte rendu vient de `/push/getReceipts`, et elle a ses propres
+ * pièges : un identifiant absent n'est ni livré ni échoué, un reçu mort désigne
+ * un **ticket** et non un jeton, et une relecture en échec ne doit surtout pas
+ * se déguiser en zéros. Les tests de `readReceipts` couvrent ces quatre cas.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -52,9 +60,23 @@ function reponse(tickets: readonly unknown[], status = 200): Response {
   } as unknown as Response;
 }
 
+/** Réponse simulée de la relecture des reçus : une table indexée par ticket. */
+function reponseRecus(data: Readonly<Record<string, unknown>>, status = 200): Response {
+  return {
+    status,
+    ok: status >= 200 && status < 300,
+    json: async () => ({ data }),
+  } as unknown as Response;
+}
+
 const TICKET_OK = { status: 'ok', id: 'ticket-1' };
 const TICKET_DESINSTALLE = { status: 'error', details: { error: 'DeviceNotRegistered' } };
 const TICKET_AUTRE_ERREUR = { status: 'error', message: 'Message too long' };
+
+/** Ticket accepté, avec un identifiant distinct — un appareil, un ticket. */
+function ticketOk(id: string): { status: string; id: string } {
+  return { status: 'ok', id };
+}
 
 describe('ExpoPushDispatcher', () => {
   let fetchSimule: ReturnType<typeof vi.fn>;
@@ -80,6 +102,18 @@ describe('ExpoPushDispatcher', () => {
     return JSON.parse(appel[1].body) as { to: string; channelId: string; priority: string }[];
   }
 
+  /** Adresse réellement appelée, pour un appel donné. */
+  function urlAppelee(index = 0): string {
+    const appel = fetchSimule.mock.calls[index] as unknown as [string];
+    return appel[0];
+  }
+
+  /** Corps réellement transmis, pour un appel donné. */
+  function corpsEnvoye(index = 0): unknown {
+    const appel = fetchSimule.mock.calls[index] as unknown as [string, { body: string }];
+    return JSON.parse(appel[1].body) as unknown;
+  }
+
   it('n’appelle pas le réseau quand personne n’est éligible', async () => {
     // Un appel qui ne peut rien envoyer coûte une invocation et du temps ; sur
     // une catégorie que tout le monde a coupée, c'est à chaque publication.
@@ -88,7 +122,7 @@ describe('ExpoPushDispatcher', () => {
     ]);
 
     expect(fetchSimule).not.toHaveBeenCalled();
-    expect(resultat).toEqual({ delivered: 0, failed: 0, invalidTokens: [] });
+    expect(resultat).toEqual({ accepted: 0, failed: 0, invalidTokens: [], tickets: [] });
   });
 
   it('adresse le message à chaque destinataire éligible', async () => {
@@ -131,14 +165,22 @@ describe('ExpoPushDispatcher', () => {
   // --- Le compte rendu -----------------------------------------------------
 
   it('compte les livraisons confirmées', async () => {
-    fetchSimule.mockResolvedValueOnce(reponse([TICKET_OK, TICKET_OK]));
+    fetchSimule.mockResolvedValueOnce(reponse([ticketOk('t1'), ticketOk('t2')]));
 
     const resultat = await dispatcher().send(message(), [
       recipient({ token: 'a' }),
       recipient({ token: 'b' }),
     ]);
 
-    expect(resultat).toEqual({ delivered: 2, failed: 0, invalidTokens: [] });
+    expect(resultat).toEqual({
+      accepted: 2,
+      failed: 0,
+      invalidTokens: [],
+      tickets: [
+        { id: 't1', token: 'a' },
+        { id: 't2', token: 'b' },
+      ],
+    });
   });
 
   it('retient le jeton d’une application désinstallée', async () => {
@@ -148,7 +190,7 @@ describe('ExpoPushDispatcher', () => {
 
     const resultat = await dispatcher().send(message(), [recipient({ token: 'mort' })]);
 
-    expect(resultat).toEqual({ delivered: 0, failed: 1, invalidTokens: ['mort'] });
+    expect(resultat).toEqual({ accepted: 0, failed: 1, invalidTokens: ['mort'], tickets: [] });
   });
 
   it('journalise une erreur sans retirer le jeton', async () => {
@@ -166,7 +208,7 @@ describe('ExpoPushDispatcher', () => {
   it('compte comme échec un jeton sans ticket', async () => {
     // L'API rend un ticket par jeton, dans le même ordre. Un lot de deux jetons
     // qui n'en rend qu'un n'est pas « une livraison sur deux » : le second n'a
-    // pas été confirmé. Sans ce compte, `delivered + failed` valait moins que
+    // pas été confirmé. Sans ce compte, `accepted + failed` valait moins que
     // le nombre de destinataires, et l'administration annonçait un envoi
     // complet.
     fetchSimule.mockResolvedValueOnce(reponse([TICKET_OK]));
@@ -176,7 +218,7 @@ describe('ExpoPushDispatcher', () => {
       recipient({ token: 'b' }),
     ]);
 
-    expect(resultat.delivered).toBe(1);
+    expect(resultat.accepted).toBe(1);
     expect(resultat.failed).toBe(1);
   });
 
@@ -188,7 +230,7 @@ describe('ExpoPushDispatcher', () => {
       recipient({ token: 'b' }),
     ]);
 
-    expect(resultat).toEqual({ delivered: 0, failed: 2, invalidTokens: [] });
+    expect(resultat).toEqual({ accepted: 0, failed: 2, invalidTokens: [], tickets: [] });
   });
 
   it('compte tout le lot en échec quand le service refuse', async () => {
@@ -196,7 +238,7 @@ describe('ExpoPushDispatcher', () => {
 
     const resultat = await dispatcher().send(message(), [recipient({ token: 'a' })]);
 
-    expect(resultat).toEqual({ delivered: 0, failed: 1, invalidTokens: [] });
+    expect(resultat).toEqual({ accepted: 0, failed: 1, invalidTokens: [], tickets: [] });
     expect(journal).toHaveBeenCalled();
   });
 
@@ -217,7 +259,7 @@ describe('ExpoPushDispatcher', () => {
     const resultat = await dispatcher().send(message(), [recipient({ token: 'a' })]);
 
     expect(fetchSimule).toHaveBeenCalledTimes(2);
-    expect(resultat.delivered).toBe(1);
+    expect(resultat.accepted).toBe(1);
   });
 
   it('découpe un envoi nombreux en plusieurs requêtes', async () => {
@@ -255,5 +297,115 @@ describe('ExpoPushDispatcher', () => {
     expect(JSON.parse(appel[1].body)).toMatchObject([
       { data: { type: 'post', sourceId: 'post-1', deeplink: '/post/post-1' } },
     ]);
+  });
+
+  it('n’invente pas de ticket relisible quand le service n’en rend pas', async () => {
+    // Contrat du service : un ticket accepté porte un identifiant. S'il en
+    // manque un, la remise ne pourra jamais être relue — et la compter en échec
+    // serait faux, puisque le message a bel et bien été accepté. L'anomalie est
+    // donc journalisée, pas maquillée.
+    fetchSimule.mockResolvedValueOnce(reponse([{ status: 'ok' }]));
+
+    const resultat = await dispatcher().send(message(), [recipient({ token: 'a' })]);
+
+    expect(resultat.accepted).toBe(1);
+    expect(resultat.tickets).toEqual([]);
+    expect(journal).toHaveBeenCalled();
+  });
+
+  // --- La relecture des reçus ----------------------------------------------
+
+  describe('readReceipts', () => {
+    it('interroge le point d’entrée des reçus, pas celui de l’envoi', async () => {
+      // Les deux points d'entrée se ressemblent et n'ont pas la même forme de
+      // réponse. En appeler un pour l'autre rendrait une table de tickets lue
+      // comme une table de reçus — donc des comptes faux, sans erreur.
+      fetchSimule.mockResolvedValueOnce(reponseRecus({ t1: { status: 'ok' } }));
+
+      await dispatcher().readReceipts(['t1']);
+
+      expect(urlAppelee()).toContain('/push/getReceipts');
+      expect(corpsEnvoye()).toEqual({ ids: ['t1'] });
+    });
+
+    it('n’appelle pas le réseau quand il n’y a rien à relire', async () => {
+      const recus = await dispatcher().readReceipts([]);
+
+      expect(fetchSimule).not.toHaveBeenCalled();
+      expect(recus).toEqual({ delivered: 0, failed: 0, pending: 0, deadTicketIds: [] });
+    });
+
+    it('compte remis, échoué et en attente, sans en perdre un seul', async () => {
+      // Un identifiant absent de la table n'est **pas** un échec : le service
+      // omet simplement ce dont il n'a pas encore la réponse. Le compter en
+      // échec aurait inventé des pannes ; le compter en livraison, des remises.
+      fetchSimule.mockResolvedValueOnce(
+        reponseRecus({
+          t1: { status: 'ok' },
+          t2: { status: 'error', message: 'Message too long' },
+        }),
+      );
+
+      const recus = await dispatcher().readReceipts(['t1', 't2', 't3']);
+
+      expect(recus).toEqual({ delivered: 1, failed: 1, pending: 1, deadTicketIds: [] });
+      // L'invariant : aucun identifiant ne disparaît du compte rendu.
+      expect(recus.delivered + recus.failed + recus.pending).toBe(3);
+    });
+
+    it('rend l’identifiant d’un appareil mort, et jamais un jeton', async () => {
+      // Le reçu ne dit pas à quel appareil il correspond : c'est la limite du
+      // service, et elle doit rester visible dans le type. Si cette liste
+      // contenait des jetons par accident, la purge supprimerait des appareils
+      // vivants.
+      fetchSimule.mockResolvedValueOnce(
+        reponseRecus({
+          't-mort': { status: 'error', details: { error: 'DeviceNotRegistered' } },
+          't-vivant': { status: 'ok' },
+        }),
+      );
+
+      const recus = await dispatcher().readReceipts(['t-mort', 't-vivant']);
+
+      expect(recus.deadTicketIds).toEqual(['t-mort']);
+      expect(recus.delivered).toBe(1);
+    });
+
+    it('découpe une relecture de plus de mille identifiants', async () => {
+      // La limite du service est de 1000 identifiants par requête, dix fois
+      // celle de l'envoi. Un lot trop gros fait échouer la relecture entière,
+      // et l'échec ressemblerait à « aucun reçu disponible ».
+      fetchSimule.mockResolvedValue(reponseRecus({}));
+
+      const identifiants = Array.from({ length: 1500 }, (_, index) => `t${index}`);
+      const recus = await dispatcher().readReceipts(identifiants);
+
+      expect(fetchSimule).toHaveBeenCalledTimes(2);
+      expect((corpsEnvoye(0) as { ids: string[] }).ids).toHaveLength(1000);
+      expect((corpsEnvoye(1) as { ids: string[] }).ids).toHaveLength(500);
+      expect(recus.pending).toBe(1500);
+    });
+
+    it('lève quand le service refuse, au lieu de rendre des zéros', async () => {
+      // Rendre des zéros écrirait « aucun message remis » dans l'historique,
+      // où personne ne relirait le document. Un échec de relecture doit rester
+      // un échec : `deliveredCount` reste `null`, donc « non relu ».
+      fetchSimule.mockResolvedValueOnce(reponseRecus({}, 500));
+
+      await expect(dispatcher().readReceipts(['t1'])).rejects.toThrow('500');
+    });
+
+    it('lève quand la réponse n’a pas de table de reçus', async () => {
+      // Une réponse `200` sans `data` n'est pas « aucun reçu » : c'est une
+      // forme inattendue. Les confondre ferait écrire des messages « en
+      // attente » qui ne se résoudraient jamais.
+      fetchSimule.mockResolvedValueOnce({
+        status: 200,
+        ok: true,
+        json: async () => ({}),
+      } as unknown as Response);
+
+      await expect(dispatcher().readReceipts(['t1'])).rejects.toThrow('sans table de reçus');
+    });
   });
 });

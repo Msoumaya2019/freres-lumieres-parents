@@ -35,6 +35,7 @@ users/{uid}
   └── tokens/{tokenId}          (jetons push — jamais lisibles par le client)
 
 deviceTokens/{token}            (index d'envoi, lisible uniquement par les Functions)
+pushTickets/{ticketId}          (pont ticket → jeton, le temps de relire les reçus)
 
 posts/{postId}
   └── comments/{commentId}
@@ -70,17 +71,18 @@ highlights/{orgId}
 
 ### Ce qui a été ajouté au modèle proposé dans le cahier des charges
 
-| Ajout                   | Raison                                                                                         |
-| ----------------------- | ---------------------------------------------------------------------------------------------- |
-| `organizations`         | racine multi-tenant ; sans elle, les valeurs d'école finissent codées en dur                   |
-| `deviceTokens`          | index d'envoi séparé : permet de cibler une audience sans lire les profils utilisateurs        |
-| `counters/{orgId}`      | tableau de bord sans requête d'agrégation                                                      |
-| `highlights/{orgId}`    | prochain événement, dernier sondage : 1 lecture au lieu de 3                                   |
-| `users/{uid}/children`  | les enfants n'ont pas à être une collection racine : ils ne sont jamais interrogés globalement |
-| `users/{uid}/tokens`    | les jetons push sont sensibles ; les isoler permet de les interdire en lecture                 |
-| `channels` + `messages` | structure forum, sans messagerie privée                                                        |
-| `collectiveIssues`      | sujets suivis publiquement, distincts des signalements privés                                  |
-| `fcpeTasks`             | espace de travail interne de la FCPE                                                           |
+| Ajout                   | Raison                                                                                                                                                          |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `organizations`         | racine multi-tenant ; sans elle, les valeurs d'école finissent codées en dur                                                                                    |
+| `deviceTokens`          | index d'envoi séparé : permet de cibler une audience sans lire les profils utilisateurs                                                                         |
+| `pushTickets`           | temporaire par construction : un reçu Expo désigne un ticket et non un jeton, donc sans cette table on saurait qu'un appareil est mort sans pouvoir dire lequel |
+| `counters/{orgId}`      | tableau de bord sans requête d'agrégation                                                                                                                       |
+| `highlights/{orgId}`    | prochain événement, dernier sondage : 1 lecture au lieu de 3                                                                                                    |
+| `users/{uid}/children`  | les enfants n'ont pas à être une collection racine : ils ne sont jamais interrogés globalement                                                                  |
+| `users/{uid}/tokens`    | les jetons push sont sensibles ; les isoler permet de les interdire en lecture                                                                                  |
+| `channels` + `messages` | structure forum, sans messagerie privée                                                                                                                         |
+| `collectiveIssues`      | sujets suivis publiquement, distincts des signalements privés                                                                                                   |
+| `fcpeTasks`             | espace de travail interne de la FCPE                                                                                                                            |
 
 ### Ce qui n'a **pas** été retenu
 
@@ -373,7 +375,45 @@ c'est ce qui permet d'afficher séparément « réponse de l'école » et
 
 Journal d'envoi : `type`, `category`, `title`, `body`, `audience`,
 `audienceKeys`, `sourceType?`, `sourceId?`, `deeplink?`, `sentBy`,
-`sentByName`, `sentAt`, `deliveredCount`, `failedCount`, `delivery`.
+`sentByName`, `sentAt`, `delivery`, puis le compte rendu en deux temps :
+`recipientCount`, `acceptedCount`, `deliveredCount`, `failedCount`,
+`pendingCount`, `ticketIds[]`, `receiptsChecked`.
+
+Les quatre compteurs ne mesurent pas la même chose, et les confondre est
+l'erreur que cette collection a d'abord commise :
+
+| Champ            | Ce qu'il compte                                                   |
+| ---------------- | ----------------------------------------------------------------- |
+| `recipientCount` | Appareils visés, après filtrage des préférences                   |
+| `acceptedCount`  | Messages **acceptés** par le service (ticket `ok`)                |
+| `deliveredCount` | Messages **remis à FCM ou APNs** (reçu `ok`) — `null` si non relu |
+| `failedCount`    | Refusés, à l'envoi **ou** à la relecture des reçus                |
+| `pendingCount`   | Reçus pas encore disponibles à la relecture                       |
+
+Aucun ne compte de parents : le service ne sait pas qui a lu une notification,
+et savoir qui l'a **reçue** sur son téléphone n'existe pas. Un écran qui
+intitulerait `deliveredCount` « reçues » resterait faux — c'est « remises au
+transport ».
+
+`deliveredCount` vaut `null` tant que les reçus n'ont pas été relus, et `0`
+quand il n'y avait rien à relire. La distinction est volontaire : `0` affirme
+qu'aucun message n'est parti, `null` dit qu'on ne sait pas encore.
+`receiptsChecked` est le drapeau qui commande la relecture.
+
+### `pushTickets/{ticketId}`
+
+`orgId`, `notificationId`, `token`, `sentAt`. **Invisible au client**, dans les
+deux sens, et supprimé dès que les reçus de son envoi ont été relus.
+
+Un reçu Expo désigne un **ticket**, jamais un jeton : la réponse de
+`/push/getReceipts` ne dit pas à quel appareil elle correspond. Ce document est
+le seul endroit où les deux se rencontrent, et sans lui, apprendre qu'un
+appareil est mort ne dirait pas lequel — le reçu serait lu, compté, et sans
+effet.
+
+Il ne vit pas dans `notifications` parce qu'il contient des jetons d'appareil,
+et que `notifications` est lisible par la FCPE : la porte de service aurait
+remplacé la porte d'entrée.
 
 ### `moderationReports/{moderationReportId}`
 
@@ -497,7 +537,8 @@ pour le ciblage du contenu **et** des notifications.
 | `councilItems`      | `councilId` ↑, `visibility` ↑, `supportCount` ↓                | préparation                         |
 | `moderationReports` | `orgId` ↑, `status` ↑, `createdAt` ↑                           | file de modération (FIFO)           |
 | `notifications`     | `orgId` ↑, `sentAt` ↓                                          | historique des envois               |
-| `deviceTokens`      | `orgId` ↑, `audienceKeys` (array), `enabled` ↑                 | ciblage d'envoi                     |
+| `notifications`     | `receiptsChecked` ↑, `sentAt` ↑                                | envois dont les reçus sont à relire |
+| `deviceTokens`      | `orgId` ↑, `audienceKeys` (array)                              | ciblage d'envoi                     |
 | `adminLogs`         | `actorId` ↑, `at` ↓                                            | audit par acteur                    |
 | `adminLogs`         | `action` ↑, `at` ↓                                             | audit par type d'action             |
 | `fcpeTasks`         | `orgId` ↑, `status` ↑, `dueAt` ↑                               | tâches internes                     |

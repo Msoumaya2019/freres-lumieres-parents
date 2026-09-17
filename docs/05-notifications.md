@@ -337,7 +337,10 @@ jeton d'appareil précisément pour cela.
 | Coût à 300 parents          | 0                               | ~300 lectures par envoi (négligeable)            |
 
 Pour un groupe scolaire, l'écart de coût est négligeable, et l'auditabilité
-est un vrai gain : on sait combien de personnes ont reçu une information.
+est un vrai gain : on sait combien d'appareils ont **reçu** une information —
+au sens où le transport l'a remise, ce qui n'est ni « le parent l'a lue », ni
+même « le téléphone l'a affichée ». Les trois marches sont distinctes, et seul
+l'historique des envois les sépare honnêtement.
 
 ---
 
@@ -499,11 +502,19 @@ où elle est, plutôt que d'aller sur un écran « introuvable ».
 | Nouveau sondage     | `onDocumentCreated('polls/{id}')`     | `notifyPollAudience`                        | à faire |
 | Signalement         | `onDocumentUpdated('reports/{id}')`   | `notifyReportAuthor`                        | à faire |
 | Rappel d'événement  | tâche planifiée horaire               | `sendEventReminders`                        | à faire |
+| Relecture des reçus | tâche planifiée horaire               | `onReceiptsDue`                             | fait    |
 | Manuel              | depuis l'admin                        | `sendManualNotification` (callable)         | à faire |
 
-Chaque envoi écrit un document dans `notifications/{id}` avec les compteurs
-`deliveredCount` et `failedCount`. L'administration dispose ainsi d'un
-historique complet : qui a envoyé quoi, à qui, quand.
+> **Prérequis de déploiement.** `onReceiptsDue` est la première fonction planifiée
+> du projet : son déploiement demande l'**API Cloud Scheduler**, que Firebase
+> active normalement au premier déploiement d'un `onSchedule`. Si la commande
+> échoue sur ce point, c'est une API à activer, pas un défaut de code.
+
+Chaque envoi écrit un document dans `notifications/{id}`. Le compte rendu s'y
+écrit en **deux temps** : à l'envoi, `acceptedCount` et `deliveredCount: null` ;
+quinze minutes plus tard, une fonction planifiée relit les reçus et remplace le
+`null` par un nombre. L'administration dispose ainsi d'un historique complet :
+qui a envoyé quoi, à qui, quand — et ce qui est réellement parti.
 
 ### Le chemin d'un envoi, tel qu'il est écrit
 
@@ -524,9 +535,34 @@ posts/{postId} écrit
    │
    ├─ sendToAudience({ message, journal })          → SendOutcome   (…/send.ts)
    │     requête par lots de 30 clés, dédoublonnage par identifiant de document,
-   │     envoi, purge des jetons morts, journal
+   │     envoi, purge des jetons morts, journal — acceptedCount, deliveredCount: null
    │
    └─ update posts/{postId} : notifiedAt, stats.notifiedCount
+```
+
+Quinze minutes plus tard, et une fois par heure au plus :
+
+```
+tâche planifiée horaire                            (…/triggers/receipts-schedule.ts)
+   │
+   ├─ notifications où receiptsChecked == false et sentAt ≤ maintenant − 15 min
+   │     la borne basse est le délai recommandé par le service : relire trop tôt
+   │     ne rend pas d'erreur, il rend des reçus absents — donc des « en attente »
+   │     qui n'en sont pas
+   │
+   ├─ readReceipts(ticketIds)                       → { delivered, failed, pending, deadTicketIds }
+   │     par lots de 1000, la limite du service ; une relecture en échec **lève**,
+   │     elle ne rend pas des zéros
+   │
+   ├─ pushTickets où notificationId == l'envoi      → identifiant de ticket → jeton
+   │     un reçu ne porte pas de jeton : c'est le seul pont entre les deux
+   │
+   ├─ purge des jetons morts, suppression des tickets
+   │
+   └─ update notifications/{id} : deliveredCount, pendingCount, receiptsChecked
+         en **dernier**, et c'est ce qui rend le passage rejouable : le
+         déclencheur s'exécute au moins une fois, et marquer avant de purger
+         perdrait la purge sans recours
 ```
 
 Trois points de ce chemin sont des décisions, pas des détails :
@@ -548,14 +584,14 @@ Trois points de ce chemin sont des décisions, pas des détails :
 Le service Expo Push rend **deux** réponses distinctes, et les confondre fait
 écrire des règles fausses :
 
-- le **ticket**, renvoyé par `/push/send` : « j'ai accepté ton message ». C'est
-  la seule réponse que ce code lit aujourd'hui ;
+- le **ticket**, renvoyé par `/push/send` : « j'ai accepté ton message » ;
 - le **reçu**, obtenu plus tard par `/push/getReceipts` : « je l'ai remis à FCM
-  ou APNs, et voici ce qui s'est passé ». **Ce code ne le lit pas.**
+  ou APNs, et voici ce qui s'est passé ». Les deux sont lus : le ticket à
+  l'envoi, le reçu par la tâche planifiée horaire.
 
 | Erreur                | Réponse où elle apparaît | Action prévue                                                                                | État                                                             |
 | --------------------- | ------------------------ | -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| `DeviceNotRegistered` | ticket **et** reçu       | suppression du jeton                                                                         | fait, sur le ticket                                              |
+| `DeviceNotRegistered` | ticket **et** reçu       | suppression du jeton                                                                         | fait, aux deux étages                                            |
 | `MessageRateExceeded` | ticket                   | attente exponentielle, nouvel essai                                                          | fait — au niveau HTTP : trois tentatives sur `429`, puis abandon |
 | Réponse incomplète    | ticket                   | les jetons sans ticket comptent en **échec**, jamais en livraison, et l'écart est journalisé | fait                                                             |
 | `MessageTooBig`       | **reçu** seulement       | troncature et nouvel essai                                                                   | **sans objet** — voir ci-dessous                                 |
@@ -569,11 +605,19 @@ les règles Firestore (`isNonEmptyString(d.title, 140)`), corps tronqué à 180 
 de l'ordre de sept fois, et elle est tenue par deux choses vérifiées séparément
 — une règle et un test — plutôt que par une intention.
 
-Le manque à retenir n'est donc pas la troncature, c'est le **reçu** : sans lui,
-`deliveredCount` compte des messages **acceptés**, jamais des messages reçus. Un
-appareil éteint depuis trois semaines compte comme livré. C'est écrit là où le
-champ est défini (`PushResult`, dans `packages/shared/src/push/dispatcher.ts`),
-et suivi dans la phase 5 du roadmap.
+**Le reçu est lu, et ce qu'il a fallu pour cela.** `deliveredCount` comptait des
+messages **acceptés** en s'intitulant _remis_ : un appareil éteint depuis trois
+semaines comptait comme livré, et un écran qui aurait intitulé ce nombre
+« reçues » aurait menti sans qu'aucun test ne tombe. Le champ s'appelle
+désormais `acceptedCount`, `deliveredCount` vaut `null` tant que les reçus n'ont
+pas été relus, et un passage horaire les relit.
+
+Le détail qui a failli être manqué : **un reçu ne porte pas de jeton**. Il
+désigne un ticket, et rien de plus. Savoir qu'un appareil est mort ne dit donc
+pas lequel — la purge aurait été impossible, et le reçu aurait été lu, compté,
+et sans effet. C'est la table `pushTickets`, écrite au moment de l'envoi, qui
+fait le pont ; elle est supprimée dès que les reçus de son envoi sont relus, et
+elle n'est lisible par aucun client, parce qu'elle contient des jetons.
 
 `InvalidCredentials` reste le manque le plus coûteux : un jeton d'accès Expo
 expiré fait échouer **tous** les envois en silence, et rien ne le distingue d'un

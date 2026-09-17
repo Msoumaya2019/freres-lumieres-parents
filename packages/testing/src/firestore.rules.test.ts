@@ -1402,6 +1402,23 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
       await assertFails(getDoc(doc(parent.firestore(), 'deviceTokens', 'token-1')));
     });
 
+    it('un ticket de notification n’est ni lisible ni écrivable depuis un client', async () => {
+      // Le document associe un identifiant de ticket à un jeton d'appareil :
+      // c'est le seul endroit où les deux se rencontrent, et c'est ce qui permet
+      // de supprimer un jeton que le transport a déclaré mort. Le client n'a
+      // rien à y faire — il ne relit pas les reçus.
+      //
+      // La lecture compte autant que l'écriture : ranger ces jetons dans
+      // `notifications`, que la FCPE lit, aurait exposé l'index des appareils
+      // que la règle ci-dessus protège.
+      const ref = doc(parent.firestore(), 'pushTickets', 'ticket-1');
+
+      await assertFails(getDoc(ref));
+      await assertFails(
+        setDoc(ref, { orgId: TEST_ORG, token: 'ExponentPushToken[x]', notificationId: 'n-1' }),
+      );
+    });
+
     it('un parent enregistre son appareil pour sa propre organisation', async () => {
       await assertSucceeds(
         setDoc(

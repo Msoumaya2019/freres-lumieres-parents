@@ -80,6 +80,13 @@ const SANS_CLOISONNEMENT: Readonly<Record<string, string>> = {
     'puis figé, donc écrit par le serveur seul. Justification conservée parce ' +
     'que ce sont les règles d’écriture, non de lecture, qui portent la ' +
     'contrainte.',
+  pushTickets:
+    'Aucun lecteur client (`allow read: if false`) : le document associe un ' +
+    'identifiant de ticket à un jeton d’appareil, le temps que les reçus Expo ' +
+    'soient lisibles. Il n’y a donc pas de frontière de lecture à poser — le ' +
+    'client n’y accède dans aucun sens, et il n’y a rien à cloisonner puisque ' +
+    'personne ne lit. C’est aussi la raison pour laquelle ces jetons ne sont ' +
+    'pas rangés dans `notifications`, que la FCPE lit.',
   counters:
     'Agrégats seuls, sans donnée personnelle, et l’identifiant du document ' +
     '**est** l’identifiant d’organisation : la contrainte s’écrirait ' +

@@ -19,6 +19,7 @@ export const COLLECTIONS = {
   classes: 'classes',
   users: 'users',
   deviceTokens: 'deviceTokens',
+  pushTickets: 'pushTickets',
   posts: 'posts',
   channels: 'channels',
   polls: 'polls',
@@ -56,6 +57,8 @@ export const paths = {
   userRateLimits: (uid: string) =>
     `${COLLECTIONS.users}/${uid}/${SUBCOLLECTIONS.private}/rateLimits`,
   deviceToken: (token: string) => `${COLLECTIONS.deviceTokens}/${token}`,
+  pushTicket: (ticketId: string) => `${COLLECTIONS.pushTickets}/${ticketId}`,
+  notification: (notificationId: string) => `${COLLECTIONS.notifications}/${notificationId}`,
   counter: (orgId: string) => `${COLLECTIONS.counters}/${orgId}`,
   highlight: (orgId: string) => `${COLLECTIONS.highlights}/${orgId}`,
   adminLog: (logId: string) => `${COLLECTIONS.adminLogs}/${logId}`,

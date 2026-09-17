@@ -363,6 +363,26 @@ service cloud.firestore {
     }
 
     // =========================================================================
+    //  Tickets de notification (relecture des reçus)
+    // =========================================================================
+
+    match /pushTickets/{ticketId} {
+      // Aucun accès client, dans aucun sens.
+      //
+      // Ce document existe pour une seule raison : un reçu Expo désigne un
+      // **ticket**, jamais un jeton, donc relire les reçus ne suffit pas à
+      // savoir quel appareil est mort. Le ticket est le seul endroit où
+      // l'identifiant et le jeton se rencontrent, et il les garde le temps que
+      // les reçus soient lisibles — vingt-quatre heures.
+      //
+      // C'est aussi pourquoi il n'est pas lisible : il contient un jeton
+      // d'appareil. Le mettre dans `notifications`, que la FCPE lit, aurait
+      // exposé l'index des appareils que la règle de `deviceTokens` protège
+      // déjà — la porte de service aurait remplacé la porte d'entrée.
+      allow read, write: if false;
+    }
+
+    // =========================================================================
     //  Publications et commentaires
     // =========================================================================
 

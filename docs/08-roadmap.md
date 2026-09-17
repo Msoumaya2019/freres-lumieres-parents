@@ -559,16 +559,29 @@ ordinateur ; un parent qui tente d'y accéder est refusé.
       `settings.urgentAlwaysNotifies` a été **retiré** : il n'était lu par aucun
       code, et l'exception étant absolue, un booléen qui n'accepte qu'une valeur
       aurait laissé croire qu'un administrateur pouvait l'affaiblir.
-- [ ] Purge des jetons morts
-- [ ] **Lire les reçus Expo** (`/push/getReceipts`) — c'est le manque le plus
-      important qui reste, et il n'était pas visible : le code n'appelle que
-      `/push/send`, donc `deliveredCount` compte des messages **acceptés** par
-      le service, jamais des messages **reçus**. Un appareil éteint depuis trois
-      semaines compte comme livré, et un écran qui intitulerait ce nombre
-      « reçues » mentirait sans qu'aucun test ne tombe. Le reçu est aussi la
-      seule réponse où apparaissent `MessageTooBig` et, de nouveau,
-      `DeviceNotRegistered`. Le champ est documenté à sa définition
-      (`PushResult`), pas seulement ici.
+- [x] **Lire les reçus Expo** (`/push/getReceipts`) — c'était le manque le plus
+      important qui restait, et il n'était pas visible : le code n'appelait que
+      `/push/send`, donc `deliveredCount` comptait des messages **acceptés** par
+      le service, jamais des messages **remis**. Un appareil éteint depuis trois
+      semaines comptait comme livré, et un écran qui aurait intitulé ce nombre
+      « reçues » aurait menti sans qu'aucun test ne tombe.
+      **Complété :** le champ s'appelle `acceptedCount`, `deliveredCount` vaut
+      `null` tant que les reçus n'ont pas été relus, et une tâche planifiée
+      horaire les relit — une heure, parce qu'un reçu reste lisible vingt-quatre
+      heures et qu'un passage toutes les cinq minutes coûterait douze fois plus
+      pour le même résultat. Le délai de quinze minutes recommandé par le service
+      est respecté par la requête, et le document est marqué « relu » **en
+      dernier**, ce qui rend le passage rejouable.
+      Le détail qui a failli être manqué : **un reçu ne porte pas de jeton**, il
+      désigne un ticket. Savoir qu'un appareil est mort ne disait donc pas
+      lequel, et la purge aurait été impossible — le reçu aurait été lu, compté,
+      et sans effet. C'est la table `pushTickets`, écrite à l'envoi, qui fait le
+      pont ; elle est supprimée dès que les reçus de son envoi sont relus, et
+      aucun client ne la lit, parce qu'elle contient des jetons.
+- [x] Purge des jetons morts — **faite aux deux étages.** Le ticket à l'envoi,
+      le reçu à la relecture. Les deux passent par `purgeDeviceTokens`, une seule
+      implémentation : écrire la suppression deux fois aurait produit deux
+      comportements qui divergent à la première modification.
 - [ ] Rendre `InvalidCredentials` visible — un jeton d'accès Expo expiré fait
       échouer **tous** les envois, et rien ne le distingue aujourd'hui d'un
       incident réseau passager : un `401` est journalisé comme un échec

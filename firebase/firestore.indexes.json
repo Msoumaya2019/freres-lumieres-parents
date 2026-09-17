@@ -249,6 +249,14 @@
       ]
     },
     {
+      "collectionGroup": "notifications",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "receiptsChecked", "order": "ASCENDING" },
+        { "fieldPath": "sentAt", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "adminLogs",
       "queryScope": "COLLECTION",
       "fields": [

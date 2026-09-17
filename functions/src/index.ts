@@ -6,8 +6,10 @@
  * ```
  *  auth/           cycle de vie des comptes, Custom Claims, clés d'audience
  *  callable/       actions privilégiées appelées depuis l'interface d'administration
- *  notifications/  décision d'envoi, sélection des destinataires, chemin d'envoi
+ *  notifications/  décision d'envoi, sélection des destinataires, chemin d'envoi,
+ *                  relecture des reçus
  *  triggers/       réactions aux écritures Firestore (compteurs, notifications)
+ *                  et tâches planifiées
  *  lib/            Admin SDK, chemins, journal d'audit
  * ```
  *
@@ -58,3 +60,4 @@ export {
 // --- Notifications -----------------------------------------------------------
 export { onDeviceTokenCreated, onDeviceTokenOwnerChanged } from './triggers/device-tokens.js';
 export { onPostPublished } from './triggers/post-notifications.js';
+export { onReceiptsDue } from './triggers/receipts-schedule.js';

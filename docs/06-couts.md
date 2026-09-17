@@ -20,6 +20,12 @@ ci-dessous visent à garantir que cela reste vrai même en cas de pic
 d'activité — et surtout à éviter les erreurs de conception qui feraient
 exploser la facture.
 
+La tâche planifiée qui relit les reçus Expo tourne **une fois par heure**, soit
+720 invocations par mois, presque toujours à vide : la requête ne ramène que les
+envois dont les reçus sont mûrs. Un passage toutes les cinq minutes aurait
+coûté douze fois plus pour le même résultat — les reçus restent lisibles
+vingt-quatre heures.
+
 ---
 
 ## 2. Les cinq pièges qui coûtent cher
@@ -152,13 +158,13 @@ chaque parent ouvre l'application trois fois par jour.
 
 ## 4. Ce qui pourrait faire déraper la facture
 
-| Risque                                                    | Signal                     | Mesure préventive                                                            |
-| --------------------------------------------------------- | -------------------------- | ---------------------------------------------------------------------------- |
-| Un listener oublié sur `posts`                            | lectures × 50              | revue de code : tout `onSnapshot` doit être justifié en commentaire          |
-| Un écran d'administration qui liste tous les utilisateurs | 300 lectures par ouverture | pagination obligatoire (25 par page)                                         |
-| Une Cloud Function déclenchée en cascade                  | invocations × 10           | pas de Function qui écrit dans une collection écoutée par une autre Function |
-| Les jetons morts qui s'accumulent                         | envois inutiles            | purge automatique à 180 jours                                                |
-| Une boucle d'erreur qui retente indéfiniment              | invocations × 100          | attente exponentielle plafonnée à 3 tentatives                               |
+| Risque                                                    | Signal                     | Mesure préventive                                                                        |
+| --------------------------------------------------------- | -------------------------- | ---------------------------------------------------------------------------------------- |
+| Un listener oublié sur `posts`                            | lectures × 50              | revue de code : tout `onSnapshot` doit être justifié en commentaire                      |
+| Un écran d'administration qui liste tous les utilisateurs | 300 lectures par ouverture | pagination obligatoire (25 par page)                                                     |
+| Une Cloud Function déclenchée en cascade                  | invocations × 10           | pas de Function qui écrit dans une collection écoutée par une autre Function             |
+| Les jetons morts qui s'accumulent                         | envois inutiles            | purge sur le ticket à l'envoi, sur le reçu à la relecture ; 180 jours en dernier recours |
+| Une boucle d'erreur qui retente indéfiniment              | invocations × 100          | attente exponentielle plafonnée à 3 tentatives                                           |
 
 ### Budget d'alerte
 

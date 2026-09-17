@@ -22,6 +22,20 @@
  * rattrapée : une notification partie et non journalisée est un défaut
  * d'historique, pas un défaut de service. L'inverse — perdre l'envoi parce que
  * l'historique a échoué — serait absurde.
+ *
+ * ## Le compte rendu se fait en deux temps, et c'est voulu
+ *
+ * Ce module écrit ce que le service a **accepté** : `acceptedCount`, et
+ * `deliveredCount: null`. Le nombre de messages réellement remis à FCM ou APNs
+ * n'existe pas encore — Expo recommande d'attendre quinze minutes avant de
+ * demander les reçus, et cette fonction-ci vit soixante secondes. C'est
+ * `receipts.ts` qui complète le document, plus tard, sur un déclencheur
+ * planifié.
+ *
+ * La conséquence pratique : la table `pushTickets` écrite ici n'est pas un
+ * ornement, c'est ce qui rend la relecture possible. Un reçu désigne un ticket,
+ * jamais un jeton ; sans cette association, la relecture saurait qu'un appareil
+ * est mort sans pouvoir dire lequel.
  */
 import { FieldValue } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions/v2';
@@ -32,11 +46,13 @@ import {
   chunkAudienceKeys,
   type PushDispatcher,
   type PushMessage,
+  type PushTicketRef,
 } from '@fl/shared';
 
 import { adminDb } from '../lib/admin.js';
 import { COLLECTIONS, paths } from '../lib/paths.js';
 import { selectRecipients } from './recipients.js';
+import { purgeDeviceTokens } from './token-purge.js';
 
 /** Nombre maximal d'opérations dans un lot Firestore. */
 const TAILLE_LOT = 500;
@@ -70,7 +86,15 @@ export interface SendOutcome {
   recipientCount: number;
   /** Documents écartés parce que leur forme ne permettait pas de les utiliser. */
   rejectedCount: number;
-  delivered: number;
+  /**
+   * Messages **acceptés** par le service (ticket `ok`).
+   *
+   * Ce champ s'appelait `delivered`, et le nom mentait : un ticket `ok` ne dit
+   * pas que le message est arrivé, seulement que le service s'en charge. La
+   * remise réelle se lit quinze minutes plus tard, dans le document
+   * `notifications/{id}`.
+   */
+  accepted: number;
   failed: number;
   /** Jetons supprimés : appareil désinstallé, jeton expiré. */
   purgedTokens: number;
@@ -138,40 +162,46 @@ export async function queryTokensByAudience(
 }
 
 /**
- * Supprime les jetons que le fournisseur a déclarés morts.
+ * Écrit l'historique de l'envoi, sans jamais faire échouer l'envoi.
  *
- * `DeviceNotRegistered` veut dire que l'application a été désinstallée. Ne pas
- * supprimer le jeton le fait retenter à chaque envoi, indéfiniment, pour un
- * appareil qui n'existe plus.
+ * Rend `true` quand le document est écrit, `false` quand l'écriture a échoué.
+ * L'appelant s'en sert pour ne pas écrire la table des tickets : des tickets
+ * sans document d'historique ne seraient jamais relus — le passage des reçus
+ * part de l'historique — et resteraient en base jusqu'à la fin des temps.
+ *
+ * ## Pourquoi `deliveredCount` vaut `null`, et non `0`
+ *
+ * À cet instant on sait ce que le service a **accepté**, pas ce qu'il a remis.
+ * Écrire `0` affirmerait qu'aucun message n'est parti ; écrire `acceptedCount`
+ * affirmerait qu'ils sont tous arrivés. `null` dit la seule chose vraie : pas
+ * encore relu. Le passage des reçus le remplacera par un nombre — ou laissera
+ * le document tel quel si la relecture échoue, ce qui est précisément
+ * l'information à ne pas perdre.
+ *
+ * ## Pourquoi `receiptsChecked` peut être vrai dès l'écriture
+ *
+ * Quand il n'y a aucun ticket à relire — personne n'était éligible, ou tous les
+ * envois ont échoué —, la remise est connue d'avance : zéro. Marquer le
+ * document comme « à relire » le ferait interroger le service à chaque passage
+ * pendant vingt-quatre heures, pour rien.
  */
-async function purgeTokens(tokens: readonly string[]): Promise<number> {
-  if (tokens.length === 0) return 0;
-
-  const db = adminDb();
-  let supprimes = 0;
-
-  for (let debut = 0; debut < tokens.length; debut += TAILLE_LOT) {
-    const lot = tokens.slice(debut, debut + TAILLE_LOT);
-    const batch = db.batch();
-    for (const token of lot) batch.delete(db.doc(paths.deviceToken(token)));
-    await batch.commit();
-    supprimes += lot.length;
-  }
-
-  return supprimes;
-}
-
-/** Écrit l'historique de l'envoi, sans jamais faire échouer l'envoi. */
 async function writeNotificationLog(
   entry: NotificationJournalEntry,
   message: PushMessage,
-  delivered: number,
-  failed: number,
-): Promise<void> {
+  notificationId: string,
+  comptes: {
+    recipientCount: number;
+    accepted: number;
+    failed: number;
+    tickets: readonly PushTicketRef[];
+  },
+): Promise<boolean> {
+  const rienARelire = comptes.tickets.length === 0;
+
   try {
     await adminDb()
-      .collection(COLLECTIONS.notifications)
-      .add({
+      .doc(paths.notification(notificationId))
+      .set({
         orgId: message.data.orgId,
         type: entry.type,
         category: message.category,
@@ -185,16 +215,70 @@ async function writeNotificationLog(
         sentBy: entry.sentBy,
         sentByName: entry.sentByName,
         sentAt: FieldValue.serverTimestamp(),
-        deliveredCount: delivered,
-        failedCount: failed,
         delivery: 'immediate',
+        recipientCount: comptes.recipientCount,
+        acceptedCount: comptes.accepted,
+        deliveredCount: rienARelire ? 0 : null,
+        failedCount: comptes.failed,
+        pendingCount: 0,
+        ticketIds: comptes.tickets.map((ticket) => ticket.id),
+        receiptsChecked: rienARelire,
       });
+    return true;
   } catch (error) {
     logger.error('[notifications] Historique non écrit', {
       sourceId: entry.sourceId ?? null,
       error: error instanceof Error ? error.message : String(error),
     });
+    return false;
   }
+}
+
+/**
+ * Associe chaque ticket à son jeton, le temps que les reçus soient lisibles.
+ *
+ * ## Pourquoi cette table existe
+ *
+ * Un reçu Expo désigne un **ticket**, jamais un jeton : la réponse de
+ * `/push/getReceipts` ne dit pas à quel appareil elle correspond. Sans cette
+ * association, apprendre qu'un appareil est mort ne dirait pas lequel, et la
+ * purge serait impossible — le reçu serait lu, compté, et sans effet.
+ *
+ * ## Pourquoi elle vit dans sa propre collection
+ *
+ * Elle contient des jetons d'appareil, donc des identifiants. Les ranger dans
+ * `notifications` — que la FCPE lit — aurait exposé l'index des appareils que
+ * la règle de `deviceTokens` protège déjà. Le document est donc inaccessible au
+ * client, et il est supprimé dès que les reçus ont été lus.
+ */
+async function writePushTickets(
+  notificationId: string,
+  orgId: string,
+  tickets: readonly PushTicketRef[],
+): Promise<number> {
+  if (tickets.length === 0) return 0;
+
+  const db = adminDb();
+  let ecrits = 0;
+
+  for (let debut = 0; debut < tickets.length; debut += TAILLE_LOT) {
+    const lot = tickets.slice(debut, debut + TAILLE_LOT);
+    const batch = db.batch();
+
+    for (const ticket of lot) {
+      batch.set(db.doc(paths.pushTicket(ticket.id)), {
+        orgId,
+        notificationId,
+        token: ticket.token,
+        sentAt: FieldValue.serverTimestamp(),
+      });
+    }
+
+    await batch.commit();
+    ecrits += lot.length;
+  }
+
+  return ecrits;
 }
 
 /** Envoie un message à tous les appareils dont l'audience recoupe la sienne. */
@@ -215,22 +299,38 @@ export async function sendToAudience(params: SendToAudienceParams): Promise<Send
   }
 
   const resultat = await dispatcher.send(message, recipients);
-  const purgedTokens = await purgeTokens(resultat.invalidTokens);
+  const purgedTokens = await purgeDeviceTokens(resultat.invalidTokens);
 
-  await writeNotificationLog(journal, message, resultat.delivered, resultat.failed);
+  // L'identifiant est tiré **avant** l'écriture : la table des tickets doit le
+  // porter, et un identifiant créé après coup aurait demandé une seconde
+  // écriture du document d'historique — donc une fenêtre où les deux ne se
+  // connaissent pas.
+  const notificationId = adminDb().collection(COLLECTIONS.notifications).doc().id;
+
+  const historiqueEcrit = await writeNotificationLog(journal, message, notificationId, {
+    recipientCount: recipients.length,
+    accepted: resultat.accepted,
+    failed: resultat.failed,
+    tickets: resultat.tickets,
+  });
+
+  if (historiqueEcrit) {
+    await writePushTickets(notificationId, message.data.orgId, resultat.tickets);
+  }
 
   logger.info('[notifications] Envoi terminé', {
     category: message.category,
     recipientCount: recipients.length,
-    delivered: resultat.delivered,
+    accepted: resultat.accepted,
     failed: resultat.failed,
     purgedTokens,
+    tickets: resultat.tickets.length,
   });
 
   return {
     recipientCount: recipients.length,
     rejectedCount: rejected.length,
-    delivered: resultat.delivered,
+    accepted: resultat.accepted,
     failed: resultat.failed,
     purgedTokens,
   };

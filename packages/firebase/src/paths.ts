@@ -31,6 +31,12 @@ export const COLLECTIONS = {
   classes: 'classes',
   users: 'users',
   deviceTokens: 'deviceTokens',
+  // Aucun usage côté client, et c'est délibéré : cette collection associe un
+  // identifiant de ticket à un jeton, le temps de relire les reçus Expo. Le nom
+  // figure ici parce que la table est comparée à celle du serveur par
+  // `paths.test.ts` — une collection déclarée d'un seul côté est exactement ce
+  // que ce test existe pour attraper.
+  pushTickets: 'pushTickets',
   posts: 'posts',
   channels: 'channels',
   polls: 'polls',

@@ -646,7 +646,33 @@ export interface CouncilAnswer {
 //  10. Notifications, modération, administration
 // ===========================================================================
 
-/** Journal d'un envoi de notification (conservé pour l'historique admin). */
+/**
+ * Journal d'un envoi de notification (conservé pour l'historique admin).
+ *
+ * ## Ce que ces compteurs disent, et ce qu'ils ne disent pas
+ *
+ * **Aucun ne compte les parents qui ont vu l'information** : le service Expo ne
+ * le sait pas. Un écran qui intitulerait `deliveredCount` « reçues » serait faux
+ * deux fois — le reçu dit que le **transport** a reçu, pas le téléphone.
+ *
+ *  - `recipientCount` — appareils visés, après filtrage des préférences. C'est
+ *    la marche du haut, et la seule que l'application connaisse seule.
+ *  - `acceptedCount` — messages pris en charge par Expo (ticket `ok`). Connu dès
+ *    l'envoi, et c'est le seul que l'envoi lui-même peut garantir.
+ *  - `deliveredCount` — messages remis à FCM ou APNs (reçu `ok`). **`null` tant
+ *    que les reçus n'ont pas été relus** : « pas encore su » n'est pas « zéro »,
+ *    et afficher 0 serait un mensonge par défaut.
+ *  - `failedCount` — refusés, **à l'une ou l'autre des deux étapes**. Un message
+ *    peut être accepté puis refusé par le transport ; le document finit par
+ *    compter tout ce qui n'est pas arrivé.
+ *  - `pendingCount` — identifiants dont le reçu n'était pas encore disponible à
+ *    la relecture. Ni livrés, ni échoués : on ne sait pas encore.
+ *
+ * Les reçus ne sont disponibles qu'un moment après l'envoi — Expo recommande de
+ * les relire **quinze minutes** plus tard, et les efface au bout de 24 heures.
+ * D'où `ticketIds` et `receiptsChecked` : l'envoi ne peut pas attendre, et une
+ * seconde passe doit pouvoir retrouver ce qu'il y a à relire.
+ */
 export interface NotificationLog {
   id: NotificationId;
   orgId: OrganizationId;
@@ -664,9 +690,20 @@ export interface NotificationLog {
   sentBy: UserId;
   sentByName: string;
   sentAt: DateLike;
-  /** Compteurs renseignés par le fournisseur push. */
-  deliveredCount: number;
+  /** Appareils visés, après filtrage des préférences. */
+  recipientCount: number;
+  /** Messages acceptés par le service Expo (ticket `ok`). */
+  acceptedCount: number;
+  /** Messages remis au transport (reçu `ok`), ou `null` si non relu. */
+  deliveredCount: number | null;
+  /** Refusés, à l'envoi **ou** à la relecture des reçus. */
   failedCount: number;
+  /** Reçus pas encore disponibles à la relecture. */
+  pendingCount: number;
+  /** Identifiants de ticket, conservés pour relire les reçus plus tard. */
+  ticketIds: readonly string[];
+  /** Vrai une fois les reçus relus — ou quand il n'y avait rien à relire. */
+  receiptsChecked: boolean;
   /** Mode d'envoi réellement utilisé. */
   delivery: 'immediate' | 'scheduled' | 'cancelled';
 }
