@@ -28,7 +28,10 @@ import { getDownloadURL, ref } from 'firebase/storage';
 import { firestore, storage } from '../lib/firebase';
 
 export const organizationId =
-  process.env.EXPO_PUBLIC_ORGANIZATION_ID ?? 'freres-lumieres';
+  typeof process.env.EXPO_PUBLIC_ORGANIZATION_ID === 'string' &&
+  process.env.EXPO_PUBLIC_ORGANIZATION_ID.length > 0
+    ? process.env.EXPO_PUBLIC_ORGANIZATION_ID
+    : 'freres-lumieres';
 const publicAudienceTypes = ['all', 'school', 'level', 'class'] as const;
 
 function validated<T>(
