@@ -1,5 +1,5 @@
 /**
- * Recalcul des clés d'audience d'un utilisateur.
+ * Clés d'audience d'un utilisateur : recalcul, et détection du besoin.
  *
  * Les clés d'audience (`org:…`, `school:…`, `level:…`, `class:…`, `fcpe:…`)
  * sont la pièce maîtresse du fil d'actualité et du ciblage des notifications.
@@ -9,6 +9,10 @@
  *
  * La logique de construction est **partagée** avec le client (`@fl/shared`) :
  * une seule définition, utilisée des deux côtés.
+ *
+ * `audienceChanged` vit ici parce qu'elle répond à la même question — « les
+ * clés ont-elles bougé ? » — et que deux modules en dépendent : le recalcul du
+ * profil et la recopie vers les jetons d'appareil.
  */
 import { logger } from 'firebase-functions/v2';
 
@@ -16,7 +20,7 @@ import { buildUserAudienceKeys } from '@fl/shared';
 import type { ClassId, ClassLevel, OrganizationId, SchoolId, UserRole } from '@fl/types';
 
 import { adminDb } from '../lib/admin.js';
-import { COLLECTIONS, SUBCOLLECTIONS, paths } from '../lib/paths.js';
+import { SUBCOLLECTIONS, paths } from '../lib/paths.js';
 
 /** Recalcule et enregistre les clés d'audience d'un utilisateur. */
 export async function rebuildAudienceKeysForUser(uid: string): Promise<string[]> {
@@ -81,26 +85,60 @@ export async function rebuildAudienceKeysForUser(uid: string): Promise<string[]>
 }
 
 /**
- * Recalcule les clés d'audience de tous les jetons d'un utilisateur.
+ * Profil réduit à ce dont dépendent les clés d'audience.
  *
- * Les jetons d'appareil portent une copie des clés, précisément pour pouvoir
- * cibler un envoi sans lire les profils. Cette copie doit donc être
- * maintenue à jour en même temps que le profil.
+ * Les cinq champs sont nécessaires : `role` et `orgIds` décident de la clé
+ * `fcpe:`, `schoolIds` de `school:`, `levels` et `classIds` du reste.
  */
-export async function rebuildAudienceKeysForTokens(
-  uid: string,
-  audienceKeys: string[],
-): Promise<number> {
-  const db = adminDb();
-  const tokens = await db.collection(COLLECTIONS.deviceTokens).where('uid', '==', uid).get();
+export interface AudienceBearingProfile {
+  role?: unknown;
+  orgIds?: unknown;
+  schoolIds?: unknown;
+  levels?: unknown;
+  classIds?: unknown;
+}
 
-  if (tokens.empty) return 0;
+function sortedStrings(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === 'string').sort();
+}
 
-  const batch = db.batch();
-  for (const token of tokens.docs) {
-    batch.update(token.ref, { audienceKeys });
-  }
-  await batch.commit();
+/**
+ * Signature des rattachements dont dépendent les clés d'audience.
+ *
+ * Les tableaux sont triés : leur ordre n'a aucun sens ici, et un simple
+ * réordonnancement ne doit pas déclencher un recalcul — une lecture de profil,
+ * une requête sur les enfants et une écriture.
+ */
+function audienceSignature(profile: AudienceBearingProfile | undefined): string {
+  if (!profile) return 'absent';
+  return JSON.stringify([
+    profile.role ?? null,
+    sortedStrings(profile.orgIds),
+    sortedStrings(profile.schoolIds),
+    sortedStrings(profile.levels),
+    sortedStrings(profile.classIds),
+  ]);
+}
 
-  return tokens.size;
+/**
+ * Les clés d'audience d'un utilisateur doivent-elles être recalculées ?
+ *
+ * ## Le défaut que cette fonction corrige
+ *
+ * La version d'origine ne comparait que `levels`, `classIds` et `schoolIds`.
+ * Un parent promu au rôle `fcpe` — ou rattaché à une organisation
+ * supplémentaire — ne voyait donc **jamais** sa clé `fcpe:` apparaître : il
+ * restait inscrit au fil d'actualité des parents et n'accédait à aucun contenu
+ * réservé à la FCPE. Le rôle et les organisations font pourtant partie de ce
+ * dont la clé dépend, au même titre que les niveaux.
+ *
+ * Ce défaut était invisible : rien n'échoue, l'utilisateur voit simplement
+ * moins de choses que prévu.
+ */
+export function audienceChanged(
+  before: AudienceBearingProfile | undefined,
+  after: AudienceBearingProfile,
+): boolean {
+  return audienceSignature(before) !== audienceSignature(after);
 }

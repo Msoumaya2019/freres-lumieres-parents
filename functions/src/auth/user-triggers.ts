@@ -28,7 +28,12 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { adminDb } from '../lib/admin.js';
 import { COLLECTIONS, paths } from '../lib/paths.js';
 import { claimsSourceFromProfile, clearUserClaims, syncUserClaims } from './claims.js';
-import { rebuildAudienceKeysForUser } from './audience.js';
+import { audienceChanged, rebuildAudienceKeysForUser } from './audience.js';
+import {
+  syncDeviceTokensForUser,
+  tokenSyncFields,
+  tokensNeedResync,
+} from '../triggers/device-tokens.js';
 
 /**
  * À la création du profil : l'utilisateur reçoit des claims minimaux.
@@ -88,19 +93,37 @@ export const onUserProfileWritten = onDocumentWritten(
     const source = claimsSourceFromProfile(after);
     if (!source) return;
 
-    // Les enfants ont-ils changé ? Si oui, il faut recalculer les clés
-    // d'audience, qui déterminent le fil d'actualité et le ciblage des
-    // notifications.
-    const audienceChanged =
-      JSON.stringify(before?.levels ?? []) !== JSON.stringify(after.levels ?? []) ||
-      JSON.stringify(before?.classIds ?? []) !== JSON.stringify(after.classIds ?? []) ||
-      JSON.stringify(before?.schoolIds ?? []) !== JSON.stringify(after.schoolIds ?? []);
-
-    if (audienceChanged) {
-      await rebuildAudienceKeysForUser(uid);
+    // 1. Les clés d'audience de l'utilisateur.
+    //
+    // Elles dépendent du rattachement — écoles, niveaux, classes — mais aussi
+    // du rôle et des organisations : c'est le rôle qui ouvre la clé `fcpe:`.
+    // Ne comparer que les rattachements laissait un parent promu au rôle
+    // `fcpe` sans accès aux contenus de la FCPE, sans que rien n'échoue.
+    let profileAfter = after;
+    if (audienceChanged(before, after)) {
+      const audienceKeys = await rebuildAudienceKeysForUser(uid);
+      // `after` est le document tel que le client l'a écrit : ses clés sont
+      // encore les anciennes. La suite doit travailler sur la version
+      // recalculée, sinon on recopierait l'état d'avant dans les jetons.
+      profileAfter = { ...after, audienceKeys };
     }
 
-    // Seuls ces trois champs justifient une réécriture des claims.
+    // 2. Les jetons d'appareil portent une copie de ces clés et des
+    //    préférences de catégorie.
+    //
+    //    Ils ne sont réécrits que si quelque chose dont ils dépendent a bougé.
+    //    C'est indispensable pour les préférences : elles sont posées par
+    //    utilisateur et recopiées par appareil, donc une case décochée doit
+    //    atteindre **tous** les appareils du parent, pas seulement celui qui
+    //    l'a saisie.
+    if (tokensNeedResync(before, profileAfter)) {
+      const synced = await syncDeviceTokensForUser(uid, tokenSyncFields(profileAfter));
+      if (synced > 0) {
+        logger.info('[onUserProfileWritten] Jetons resynchronisés', { uid, synced });
+      }
+    }
+
+    // 3. Seuls ces trois champs justifient une réécriture des claims.
     //
     // Aucun contrôle de dérive n'est fait ici, et c'est volontaire : pour le
     // faire il faudrait lire les claims courants via l'API Admin à **chaque**

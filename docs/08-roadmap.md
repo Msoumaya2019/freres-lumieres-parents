@@ -396,29 +396,54 @@ ordinateur ; un parent qui tente d'y accéder est refusé.
 
 ## Phase 5 — Notifications push
 
-- [ ] Enregistrement des jetons (`deviceTokens`) — **la frontière est posée**.
+- [ ] Enregistrement des jetons (`deviceTokens`) — **la frontière est posée, et
+      la recopie est branchée**.
       Les règles vérifient que `orgId` est celui de l'appelant, et que
-      `audienceKeys` est vide à la création puis figé. Ce champ n'est pas une
-      préférence mais une autorisation : le serveur choisit les destinataires
-      d'une notification en le lisant, donc un client qui le déclare librement
-      choisit qui il devient. Trois défauts d'écriture ont été **prouvés par
-      test avant correction** — un parent pouvait enregistrer un appareil au
-      nom d'une autre organisation, s'abonner à l'audience de la FCPE, ou
-      réécrire les clés de son propre appareil. Les règles ne peuvent pas
-      vérifier une clé `class:` ou `level:` — elles ne lisent pas les enfants
-      de l'appelant —, d'où le choix de retirer le champ au client plutôt que
-      de tenter de le valider.
-      **Restent à faire :** l'enregistrement côté application, la Cloud
-      Function qui remplit `audienceKeys` depuis le profil (l'Admin SDK ignore
-      les règles), et l'ajout de `disabledCategories` au type `DeviceToken` —
-      le dispatcher le lit déjà, le type ne le déclare pas.
+      `audienceKeys` **et** `disabledCategories` sont vides à la création puis
+      figés. Ni l'un ni l'autre n'est anodin. Le serveur choisit les
+      destinataires d'une notification en lisant `audienceKeys` : un client qui
+      le déclare librement choisit qui il devient. Trois défauts d'écriture ont
+      été **prouvés par test avant correction** — un parent pouvait enregistrer
+      un appareil au nom d'une autre organisation, s'abonner à l'audience de la
+      FCPE, ou réécrire les clés de son propre appareil. Les règles ne peuvent
+      pas vérifier une clé `class:` ou `level:` — elles ne lisent pas les
+      enfants de l'appelant —, d'où le choix de retirer le champ au client
+      plutôt que de tenter de le valider.
+      `disabledCategories` est serveur pour une tout autre raison, qui n'a rien
+      de sécuritaire : la préférence est posée par **utilisateur** et recopiée
+      par **appareil**, et un client ne peut atteindre que l'appareil courant.
+      Propriétaire du champ, il laisserait diverger les autres — un parent
+      décochant « discussions » sur son téléphone continuerait de les recevoir
+      sur sa tablette, alors que l'écran affiche l'inverse.
+      La recopie est faite par `onDeviceTokenCreated` (à la création) et par
+      `onUserProfileWritten` (statut ou préférences modifiés). Elle était
+      **écrite mais appelée par personne** : `rebuildAudienceKeysForTokens`
+      n'avait aucun appelant, donc les jetons seraient restés avec
+      `audienceKeys: []` — l'état que les règles imposent — et **aucun parent
+      n'aurait jamais reçu la moindre notification**. Aucun test de règles ne
+      pouvait le voir : les règles, elles, étaient satisfaites.
+      Corrigé au passage : `audienceChanged` ne comparait que les
+      rattachements, donc un parent promu au rôle `fcpe` n'obtenait jamais sa
+      clé `fcpe:` et ne voyait aucun contenu de la FCPE. Le rôle et les
+      organisations font maintenant partie de la comparaison.
+      **Restent à faire :** l'enregistrement côté application (demande de
+      permission, obtention du jeton Expo, écriture du document), et le
+      déclencheur sur `users/{uid}/children` — ajouter un enfant ne recalcule
+      rien tant que le profil n'est pas réécrit.
 - [ ] Écran de préférences par catégorie
-- [ ] `ExpoPushDispatcher` derrière l'interface `PushDispatcher`
+- [x] `ExpoPushDispatcher` derrière l'interface `PushDispatcher` — écrit dans
+      `packages/firebase/src/push/expo.ts` et exporté par `@fl/firebase`. Il
+      n'est encore **appelé par aucune Cloud Function** : c'est l'item suivant
+      qui le branche. `filterRecipients`, `chunkRecipients` et
+      `androidChannelId` ne sont couverts par aucun test.
 - [ ] Les 7 déclencheurs (publication, commentaire, réponse, message, sondage, signalement, rappel)
 - [ ] Regroupement des messages (fenêtre de 5 minutes)
 - [ ] Liens profonds vers le contenu concerné
 - [ ] Écran admin : envoyer une notification ciblée, historique
-- [ ] Alertes urgentes non désactivables
+- [ ] Alertes urgentes non désactivables — l'exception `urgent` est appliquée
+      par `filterRecipients`, mais rien ne l'empêche d'entrer dans
+      `notificationPrefs.disabledCategories` : le schéma accepte encore la
+      valeur, et l'écran de préférences devra ne pas la proposer.
 - [ ] Purge des jetons morts
 
 **Critère de sortie :** une publication notifiée atteint les bonnes personnes

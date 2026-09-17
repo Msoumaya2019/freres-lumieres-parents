@@ -49,3 +49,6 @@ export {
   onCommentWritten,
   onCommentReactionWritten,
 } from './triggers/counters.js';
+
+// --- Notifications -----------------------------------------------------------
+export { onDeviceTokenCreated } from './triggers/device-tokens.js';
