@@ -50,12 +50,19 @@ le build de l'admin passent ; l'application Expo démarre.
 | `npm run build -w @fl/functions`     | Compilation sans erreur                                        |
 | `npx expo export --platform android` | Bundle de 5,6 Mo produit                                       |
 
-**Non vérifiable sur la machine de développement :** `npm run rules:test`
-exige Java 21 ; la machine ne dispose que de Java 8. Les tests sont donc
-ignorés localement et exécutés en intégration continue, où le workflow installe
-Java 21. C'est une limite d'environnement, pas un défaut du projet — mais elle
-signifie que **la première exécution réelle des tests de règles aura lieu dans
-la CI**, et qu'il faut la surveiller de près.
+**Les tests de règles ont d'abord été exécutés en CI seulement.** Le poste de
+développement ne disposait alors que de Java 8, et `firebase-tools` refuse toute
+version antérieure à 21 ; les tests étaient donc ignorés localement et exécutés
+par le workflow, qui installe Java 21. C'était une limite d'environnement, pas un
+défaut du projet, mais elle imposait de surveiller la première exécution réelle
+en intégration continue.
+
+**Correction ultérieure (17 septembre 2026) :** un JRE Temurin 21 isolé a été
+installé (`~/.workbuddy-ai/binaries/java/jre21`) et la porte de vérification
+locale le met en tête de `PATH`. `npm run rules:test` tourne donc désormais aussi
+sur le poste, et la couverture des règles n'est plus tributaire de la CI. Le
+`java` du `PATH` global reste `1.8.0_441`, ce qui explique que la limite ait pu
+sembler durable.
 
 ---
 
@@ -180,7 +187,7 @@ annoncée mais absente est pire que pas de garantie — elle dissuade de vérifi
 manuelle, et le restera tant que les règles ne seront pas générées depuis la
 matrice.
 
-**Le critère de sortie de la phase est couvert, mais pas encore exécuté.** Les
+**Le critère de sortie de la phase est couvert, et exécuté.** Les
 tests de règles contiennent bien les cas qui comptent — un compte `pending` ne
 peut ni lire une publication publiée ni lister le fil, un compte suspendu ou
 refusé non plus, un visiteur anonyme non plus, et un compte `pending` peut
@@ -192,13 +199,16 @@ firebase-tools refuse toute version antérieure :
 Error: firebase-tools no longer supports Java version before 21.
 ```
 
-Seul Java 8 est présent sur le poste de développement. Ces tests sont donc
-**écrits mais jamais passés en local** : leur exécution réelle a lieu en CI, où le
-job `rules` installe Temurin 21. L'angle mort a payé — la première exécution a
-révélé un bug de règle qui rendait impossible toute publication sans lien
-externe, la seconde a validé sa correction, et la troisième a confirmé la
-fermeture d'une faille de réécriture des commentaires. Il est signalé ici pour
-qu'il ne soit pas pris pour une couverture acquise.
+L'exécution a d'abord eu lieu en CI uniquement, où le job `rules` installe
+Temurin 21 : le poste ne disposait alors que de Java 8. L'angle mort a payé — la
+première exécution a révélé un bug de règle qui rendait impossible toute
+publication sans lien externe, la seconde a validé sa correction, et la troisième
+a confirmé la fermeture d'une faille de réécriture des commentaires.
+
+**Correction ultérieure (17 septembre 2026) :** un JRE Temurin 21 isolé est
+désormais installé sur le poste et la porte locale le met en tête de `PATH` —
+`npm run rules:test` s'y exécute donc aussi, et cette couverture n'est plus
+tributaire de la CI.
 
 **Les tests de claims sont purs, et c'est délibéré.** Ils vivent dans
 `functions/src/auth/claims.test.ts` plutôt que dans `@fl/testing`, qui porte les

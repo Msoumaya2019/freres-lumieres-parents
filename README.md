@@ -11,10 +11,13 @@ Le projet s'adresse à trois publics, avec des droits très différents :
 | **Membres de la FCPE** | Tout ce qui précède, plus la publication, les réponses aux signalements et l'espace privé |
 | **Administrateurs**    | Tout, plus la validation des comptes, la modération et le journal d'audit                 |
 
-> **État du projet : Phase 1 terminée.** Les fondations (architecture, modèle de
-> données, règles de sécurité, squelette du monorepo, CI) sont en place et
-> vérifiées. Les fonctionnalités arrivent phase par phase — voir
-> [`docs/08-roadmap.md`](docs/08-roadmap.md).
+> **État du projet : Phase 4 en cours.** La Phase 1 (fondations) et la Phase 3
+> (fil d'actualité, publications, commentaires) sont terminées. La Phase 2 l'est
+> à un livrable près : les deux projets Firebase restent à créer dans la console.
+> L'interface d'administration (Phase 4) est à 6 livrables sur 9 — la recherche
+> d'un compte, les paramètres de l'organisation et la section `highlights` sont
+> reportés sur décision, chacun parce qu'aucun code ne lit encore ce qu'il
+> afficherait. Voir [`docs/08-roadmap.md`](docs/08-roadmap.md).
 
 ---
 
