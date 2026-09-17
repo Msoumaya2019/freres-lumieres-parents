@@ -1,4 +1,4 @@
-# Architecture de référence — Phase 1 révisée
+# Architecture de référence — Phase 2
 
 Le produit conserve le monorepo pnpm, Expo SDK 57, Expo Router, Next.js 16, Firebase et les workflows GitHub existants. Il n’existe plus de compte public : le mobile ouvre directement `Accueil / Agenda / Cantine / Contact / Plus`. Firebase Authentication est réservé aux rôles `fcpe`, `moderator` et `admin`.
 
@@ -27,6 +27,15 @@ firebase                 Rules et index
 `createContactConversation` générera un `conversationId` opaque et un secret aléatoire d’au moins 256 bits. Le secret brut sera retourné une seule fois, conservé par `expo-secure-store` sur le téléphone, jamais journalisé ni placé dans une URL. Firestore ne conservera qu’un hash avec sel/pepper serveur. `sendContactMessage`, `getContactConversation` et `getContactMessages` exigeront le couple identifiant/secret, App Check, validation Zod, statut compatible et limites anti-abus.
 
 Les pièces jointes utiliseront une autorisation serveur et une URL signée courte; `contact/**` est fermé par Storage Rules. Les `contactInternalNotes` seront servies par un endpoint membre séparé et ne pourront jamais être incluses dans une réponse publique. Les données privées seront paginées et les conversations fermées auront un `retentionUntil`.
+
+## Parcours membre Phase 2
+
+1. Firebase Auth crée une identité email/mot de passe uniquement depuis « Espace membres FCPE ».
+2. `registerMemberProfile` revalide une organisation active, crée un profil `fcpe/pending` et pose les Custom Claims. L’opération est idempotente pour permettre une reprise après coupure réseau.
+3. Un membre `pending`, `suspended` ou `rejected` peut relire uniquement son profil de statut; il ne peut lire aucun contenu FCPE.
+4. Un administrateur actif approuve, suspend, refuse, réactive ou change le rôle via Functions.
+5. Les Functions vérifient l’organisation, interdisent l’auto-modification de l’admin, reconstruisent les claims depuis le profil et journalisent l’action.
+6. Seul un profil `active` avec rôle `fcpe`, `moderator` ou `admin` franchit la garde de l’espace privé mobile.
 
 ## Coûts et builds
 

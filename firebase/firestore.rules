@@ -16,7 +16,10 @@ service cloud.firestore {
 
     match /memberProfiles/{memberId} {
       allow create, delete: if false;
-      allow read: if activeMember() && (request.auth.uid == memberId || role() == 'admin') && sameOrganization(resource.data);
+      allow read: if signedIn() && sameOrganization(resource.data) && (
+        (request.auth.uid == memberId && role() in ['fcpe', 'moderator', 'admin'] && status() in ['pending', 'active', 'suspended', 'rejected']) ||
+        roleIn(['admin'])
+      );
       allow update: if activeMember() && request.auth.uid == memberId && sameOrganization(resource.data)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['firstName', 'lastName', 'declaredFunction', 'updatedAt']);
     }

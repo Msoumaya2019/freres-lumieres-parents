@@ -114,6 +114,35 @@ export const registerMemberProfile = onCall<Record<string, unknown>>(
       throw new HttpsError('failed-precondition', 'Adresse email manquante.');
     const data = record(request.data);
     const organizationId = requiredId(data, 'organizationId');
+    const db = getFirestore();
+    const organization = await db.doc(`organizations/${organizationId}`).get();
+    if (!organization.exists || organization.data()?.active !== true)
+      throw new HttpsError(
+        'failed-precondition',
+        'Les demandes d’accès sont indisponibles pour cette organisation.',
+      );
+    const ref = db.doc(`memberProfiles/${request.auth.uid}`);
+    const existing = await ref.get();
+    if (existing.exists) {
+      const existingProfile = record(existing.data());
+      const existingRole = text(existingProfile, 'role') as Role;
+      const existingStatus = text(existingProfile, 'status') as Status;
+      if (
+        text(existingProfile, 'email') !== authUser.email.toLowerCase() ||
+        !roles.includes(existingRole) ||
+        !statuses.includes(existingStatus)
+      )
+        throw new HttpsError(
+          'failed-precondition',
+          'Profil membre incohérent.',
+        );
+      await getAuth().setCustomUserClaims(request.auth.uid, {
+        role: existingRole,
+        status: existingStatus,
+        organizationId: text(existingProfile, 'organizationId'),
+      });
+      return { ok: true, status: existingStatus };
+    }
     const profile = {
       id: request.auth.uid,
       firstName: requiredText(data, 'firstName', 80),
@@ -132,9 +161,6 @@ export const registerMemberProfile = onCall<Record<string, unknown>>(
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     };
-    const ref = getFirestore().doc(`memberProfiles/${request.auth.uid}`);
-    if ((await ref.get()).exists)
-      throw new HttpsError('already-exists', 'Une demande existe déjà.');
     await ref.create(profile);
     await getAuth().setCustomUserClaims(request.auth.uid, {
       role: 'fcpe',

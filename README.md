@@ -2,7 +2,7 @@
 
 Application publique iOS/Android pour les familles des écoles maternelle et élémentaire Frères Lumières de Montmagny, avec espace privé FCPE et administration Web. Le dépôt est public sans secret ni donnée réelle.
 
-> État : Phase 1 révisée — architecture adaptée au modèle sans compte parent. Ne pas commencer la Phase 2 avant validation.
+> État : Phase 2 — authentification réservée aux membres FCPE, demandes `pending`, validation administrative et rôles sécurisés. Les contenus publics métier restent prévus pour la Phase 3.
 
 ## Principe produit
 
@@ -34,6 +34,7 @@ pnpm lint
 pnpm typecheck
 pnpm test
 pnpm test:rules:emulated
+pnpm test:phase2:emulated
 pnpm build
 pnpm expo:check
 pnpm expo:config
@@ -56,7 +57,7 @@ L’espace public est la route initiale. Les écrans Documents, Conseils d’éc
 
 Routes prévues : `/login`, `/dashboard`, `/publications`, `/notifications`, `/contact`, `/members`, `/fcpe`, `/events`, `/canteen`, `/documents`, `/school-councils`, `/polls`, `/logs`, `/settings`.
 
-Les pages métier restent des fondations de Phase 1. Les mutations sensibles passent par Functions; le garde client n’est jamais une autorisation.
+La connexion membre, la demande d’accès, les statuts et la validation administrative sont fonctionnels. Les pages éditoriales restent des fondations jusqu’à la Phase 3/4. Les mutations sensibles passent par Functions; le garde client n’est jamais une autorisation.
 
 ## Build iOS non signé
 

@@ -1,7 +1,7 @@
+import type { UserStatus } from '@flp/types';
 import type { MemberRegistrationInput } from '@flp/validation';
 import {
   createUserWithEmailAndPassword,
-  deleteUser,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signOut,
@@ -15,7 +15,13 @@ export async function login(email: string, password: string) {
     email.trim(),
     password,
   );
-  await credential.user.getIdToken(true);
+  const token = await credential.user.getIdTokenResult(true);
+  return {
+    status:
+      typeof token.claims.status === 'string'
+        ? (token.claims.status as UserStatus)
+        : null,
+  };
 }
 export async function logout() {
   await signOut(auth);
@@ -24,26 +30,28 @@ export async function resetPassword(email: string) {
   await sendPasswordResetEmail(auth, email.trim());
 }
 export async function registerMember(input: MemberRegistrationInput) {
-  const credential = await createUserWithEmailAndPassword(
-    auth,
-    input.email.trim(),
-    input.password,
-  );
-  try {
-    await httpsCallable(
-      functions,
-      'registerMemberProfile',
-    )({
-      firstName: input.firstName,
-      lastName: input.lastName,
-      organizationId: input.organizationId,
-      declaredFunction: input.declaredFunction,
-    });
-    await credential.user.getIdToken(true);
-  } catch (error) {
-    await deleteUser(credential.user).catch(() => undefined);
-    throw error;
-  }
+  const normalizedEmail = input.email.trim().toLowerCase();
+  const user =
+    auth.currentUser?.email?.toLowerCase() === normalizedEmail
+      ? auth.currentUser
+      : (
+          await createUserWithEmailAndPassword(
+            auth,
+            normalizedEmail,
+            input.password,
+          )
+        ).user;
+  const result = await httpsCallable(
+    functions,
+    'registerMemberProfile',
+  )({
+    firstName: input.firstName,
+    lastName: input.lastName,
+    organizationId: input.organizationId,
+    declaredFunction: input.declaredFunction,
+  });
+  await user.getIdToken(true);
+  return result.data;
 }
 export function authErrorMessage(error: unknown): string {
   const code =
@@ -62,6 +70,8 @@ export function authErrorMessage(error: unknown): string {
         'auth/too-many-requests': 'Trop de tentatives. Réessayez plus tard.',
         'functions/invalid-argument':
           'Les informations transmises sont invalides.',
+        'functions/failed-precondition':
+          'La demande ne peut pas être traitée pour le moment.',
       } as Record<string, string>
     )[code] ?? 'Une erreur est survenue. Réessayez.'
   );

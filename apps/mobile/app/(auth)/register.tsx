@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Button, Card, Input, Screen } from '../../components/ui';
 import { colors, spacing, typography } from '../../constants/theme';
+import { useAuth } from '../../providers/auth-provider';
 import { authErrorMessage, registerMember } from '../../services/auth';
 
 export default function RegisterPage() {
@@ -15,6 +16,7 @@ export default function RegisterPage() {
   const [message, setMessage] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const router = useRouter();
+  const { refreshProfile } = useAuth();
   async function submit() {
     const parsed = memberRegistrationSchema.safeParse({
       firstName,
@@ -32,6 +34,7 @@ export default function RegisterPage() {
     setMessage('');
     try {
       await registerMember(parsed.data);
+      await refreshProfile();
       router.replace('/(auth)/status');
     } catch (error) {
       setMessage(authErrorMessage(error));

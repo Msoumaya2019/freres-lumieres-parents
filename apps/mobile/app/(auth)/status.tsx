@@ -1,3 +1,4 @@
+import { Redirect, type Href } from 'expo-router';
 import { ScrollView, StyleSheet, Text } from 'react-native';
 import { Button, Card, LoadingState, Screen } from '../../components/ui';
 import { colors, typography } from '../../constants/theme';
@@ -5,6 +6,11 @@ import { useAuth } from '../../providers/auth-provider';
 import { logout } from '../../services/auth';
 
 const content = {
+  active: {
+    title: 'Votre accès est actif.',
+    message: 'Redirection vers l’espace privé FCPE.',
+    tone: 'success' as const,
+  },
   pending: {
     title: 'Votre inscription est en cours de validation.',
     message:
@@ -26,15 +32,28 @@ const content = {
 } as const;
 
 export default function AccountStatusPage() {
-  const { profile, loading, refreshProfile } = useAuth();
-  if (loading || !profile)
+  const { firebaseUser, profile, loading, refreshProfile } = useAuth();
+  if (loading)
     return (
       <Screen>
         <LoadingState />
       </Screen>
     );
-  const copy =
-    content[profile.status as keyof typeof content] ?? content.pending;
+  if (!firebaseUser) return <Redirect href="/(auth)/login" />;
+  if (profile?.status === 'active')
+    return <Redirect href={'/(member)' as Href} />;
+  if (!profile)
+    return (
+      <Screen>
+        <Card tone="danger">
+          <Text style={styles.title}>Profil membre introuvable.</Text>
+          <Text style={styles.message}>
+            Reconnectez-vous ou contactez un administrateur FCPE.
+          </Text>
+        </Card>
+      </Screen>
+    );
+  const copy = content[profile.status];
   return (
     <Screen>
       <ScrollView contentContainerStyle={styles.content}>

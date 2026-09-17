@@ -1,4 +1,4 @@
-# Design QA — Phase 1 révisée
+# Design QA — Phase 2
 
 Référence : `C:\Users\mchik\Desktop\Image Codex 16 sept. 2026, 09_38_21.png`.
 
@@ -8,6 +8,7 @@ Contrôles réalisés :
 
 - aucun parcours public ne demande d’email ni de donnée enfant ;
 - l’espace membre FCPE est relégué dans `Plus` ;
+- les écrans de connexion, statut et accueil membre reprennent les mêmes composants chaleureux sans perturber l’espace public ;
 - les écrans Contact et Préférences expliquent clairement leur disponibilité future sans simuler une sécurité inexistante ;
 - les libellés d’actions et rôles d’accessibilité sont présents sur les nouvelles entrées ;
 - le build Web Expo compile toutes les routes publiques.

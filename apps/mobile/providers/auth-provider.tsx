@@ -29,6 +29,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       setProfile(null);
       return;
     }
+    await current.getIdToken(true);
     const snapshot = await getDoc(
       doc(firestore, 'memberProfiles', current.uid),
     );
