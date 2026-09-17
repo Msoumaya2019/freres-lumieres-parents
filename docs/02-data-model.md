@@ -100,15 +100,14 @@ highlights/{orgId}
 
 ### `organizations/{orgId}`
 
-| Champ                               | Type    | Note                                            |
-| ----------------------------------- | ------- | ----------------------------------------------- |
-| `name`                              | string  | « FCPE Montmagny »                              |
-| `slug`                              | string  | identifiant lisible, unique                     |
-| `city`                              | string  |                                                 |
-| `settings.reportRetentionDays`      | number  | RGPD : durée de conservation                    |
-| `settings.collectiveIssueThreshold` | number  | seuil de regroupement des signalements          |
-| `settings.urgentAlwaysNotifies`     | boolean | les alertes urgentes notifient-elles toujours ? |
-| `active`                            | boolean |                                                 |
+| Champ                               | Type    | Note                                   |
+| ----------------------------------- | ------- | -------------------------------------- |
+| `name`                              | string  | « FCPE Montmagny »                     |
+| `slug`                              | string  | identifiant lisible, unique            |
+| `city`                              | string  |                                        |
+| `settings.reportRetentionDays`      | number  | RGPD : durée de conservation           |
+| `settings.collectiveIssueThreshold` | number  | seuil de regroupement des signalements |
+| `active`                            | boolean |                                        |
 
 ### `schools/{schoolId}`
 

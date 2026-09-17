@@ -85,8 +85,6 @@ const ORGANIZATION = {
     // Nombre de signalements distincts au-delà duquel on propose d'en faire
     // un sujet collectif plutôt que de traiter les cas isolément.
     collectiveIssueThreshold: 5,
-    // Une publication « urgent » notifie toujours, même hors préférences.
-    urgentAlwaysNotifies: true,
   },
   active: true,
 };

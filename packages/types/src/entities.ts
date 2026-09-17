@@ -80,13 +80,24 @@ export interface Organization extends Auditable {
   active: boolean;
 }
 
+/**
+ * Préférences globales de l'organisation.
+ *
+ * ## Pourquoi `urgentAlwaysNotifies` n'y est plus
+ *
+ * Le champ demandait si les alertes urgentes devaient toujours notifier, et il
+ * n'était lu par aucun code. La question est maintenant tranchée : l'exception
+ * est **absolue**, donc un booléen qui n'accepte qu'une valeur aurait laissé
+ * croire qu'un administrateur pouvait l'affaiblir.
+ *
+ * La règle vit dans `MANDATORY_NOTIFICATION_CATEGORIES`, dans le code, et non
+ * dans les données : elle ne se règle pas, elle s'applique.
+ */
 export interface OrganizationSettings {
   /** Durée de conservation des signalements clos, en jours. */
   reportRetentionDays: number;
   /** Nombre de signalements distincts déclenchant une proposition de sujet collectif. */
   collectiveIssueThreshold: number;
-  /** Les publications de catégorie « urgent » déclenchent-elles toujours une notification ? */
-  urgentAlwaysNotifies: boolean;
 }
 
 /** Établissement scolaire. */

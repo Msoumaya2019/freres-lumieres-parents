@@ -237,23 +237,48 @@ recalcul.
 
 ### Ce que la recopie ne couvre pas encore
 
-L'interrupteur général (`notificationPrefs.enabled`) n'est **pas** recopié. Il
-n'a aujourd'hui aucun consommateur — l'écran de préférences n'existe pas — et
-sa portée n'est pas tranchée : doit-il couper aussi les alertes `urgent`, alors
-que la spécification dit qu'elles atteignent tout le monde « quelles que soient
-les préférences » ? La question est ouverte, et elle sera à trancher avec
-l'écran de préférences.
+L'interrupteur général (`notificationPrefs.enabled`) n'est **pas** recopié : il
+n'a aujourd'hui aucun consommateur, puisque l'écran de préférences n'existe pas.
+
+Sa portée, en revanche, est **tranchée** : il ne coupera pas les alertes
+`urgent`. C'est déjà la règle appliquée à `deviceTokens.enabled`, l'interrupteur
+de l'appareil, que `filterRecipients` fait passer outre pour les catégories
+obligatoires. Le jour où ce champ sera recopié, il devra lire
+`MANDATORY_NOTIFICATION_CATEGORIES`, et non comparer à la chaîne `'urgent'`.
+
+**Conséquence à ne pas oublier :** `deviceTokens.enabled` porte aujourd'hui
+**deux sens** — « j'ai coupé les notifications » et, à terme, « je me suis
+déconnecté ». La décision tranchée porte sur le premier. Un appareil déconnecté
+dont le jeton serait simplement désactivé recevrait donc encore les alertes
+urgentes. Voir la note du cycle de vie ci-dessous.
 
 ### Cycle de vie
 
-| Événement                        | Action                                                                     |
-| -------------------------------- | -------------------------------------------------------------------------- |
-| Connexion                        | enregistrement du jeton                                                    |
-| Déconnexion                      | `enabled = false` (on ne supprime pas : l'utilisateur peut se reconnecter) |
-| Changement d'enfants / de classe | recalcul de `audienceKeys` par Cloud Function                              |
-| Modification des préférences     | recalcul de `audienceKeys`                                                 |
-| Erreur `DeviceNotRegistered`     | suppression du jeton                                                       |
-| 180 jours sans activité          | purge par tâche planifiée                                                  |
+| Événement                        | Action                                              |
+| -------------------------------- | --------------------------------------------------- |
+| Connexion                        | enregistrement du jeton                             |
+| Déconnexion                      | **rien, pour l'instant** — voir la note ci-dessous  |
+| Changement d'enfants / de classe | recalcul de `audienceKeys` par Cloud Function       |
+| Modification des préférences     | recalcul de `disabledCategories` par Cloud Function |
+| Erreur `DeviceNotRegistered`     | suppression du jeton                                |
+| 180 jours sans activité          | purge par tâche planifiée — **à écrire** (phase 5)  |
+
+> **La déconnexion ne désactive pas le jeton, et c'est un manque connu.** Le
+> code le dit à l'endroit où il faudrait agir (`signOut`, dans
+> `apps/mobile/src/providers/auth-provider.tsx`) : après une déconnexion,
+> l'appareil continue de recevoir les notifications du compte qui vient de
+> partir. La ligne du tableau annonçait une Cloud Function déclenchée sur la
+> déconnexion — elle n'existe pas, et Firebase Functions v2 n'offre aucun
+> déclencheur de ce genre. Le remède appartient au client, qui peut écrire
+> `enabled` sur son propre jeton ; il lui faut pour cela connaître le jeton,
+> donc l'enregistrement côté application, encore à écrire.
+>
+> **Ce qu'il faudra trancher à ce moment-là :** `enabled` ne doit pas porter
+> deux sens. « J'ai coupé les notifications » laisse passer les alertes
+> urgentes — c'est la décision prise. « Je me suis déconnecté » ne le devrait
+> pas : l'appareil n'est plus celui d'un membre de l'audience. Supprimer le
+> jeton à la déconnexion plutôt que le désactiver sépare les deux cas, la
+> reconnexion le réenregistrant.
 
 ---
 
@@ -279,20 +304,26 @@ client et le serveur calculent le même identifiant sans se parler.
 
 ```ts
 // Cloud Function
+// Cloud Function — `queryTokensByAudience`, dans
+// functions/src/notifications/send.ts
 const tokens = await db
   .collection('deviceTokens')
   .where('orgId', '==', orgId)
-  .where('enabled', '==', true)
-  .where('audienceKeys', 'array-contains-any', audienceKeys)
-  .limit(100)
+  .where('audienceKeys', 'array-contains-any', lot) // au plus 30 clés par lot
   .get();
 ```
 
 **Une seule requête, aucun accès à `users`.** Les clés sont recopiées dans le
 jeton d'appareil précisément pour cela.
 
-> Coût typique : 300 parents → 3 lots de 100 jetons → 3 requêtes Firestore et
-> 3 appels HTTP. Négligeable.
+> `enabled` **n'est pas dans la requête**, et c'est délibéré : une contrainte à
+> cet endroit écarterait un appareil éteint avant que le filtre ne le voie, donc
+> lui ferait manquer les alertes urgentes. C'est `filterRecipients` qui décide,
+> à un seul endroit. Voir § 4.
+
+> Coût typique : ~300 appareils → une requête Firestore par lot de 30 clés
+> d'audience (il y en a une vingtaine au total), puis 3 appels HTTP, l'API Expo
+> acceptant 100 jetons par appel. Négligeable.
 
 ### Comparaison honnête avec les topics FCM
 
@@ -326,34 +357,46 @@ Sept catégories, dont une non désactivable :
 
 ### Comment la préférence est appliquée
 
-`users/{uid}.notificationPrefs.disabledCategories` est recopié par Cloud
-Function dans le champ `enabled` et `audienceKeys` du jeton… **Non :** ce
-serait insuffisant, car une même catégorie peut viser plusieurs audiences.
+Deux niveaux, et un seul endroit qui décide :
 
-La solution retenue est un filtre serveur explicite :
+- **Par catégorie** — `users/{uid}.notificationPrefs.disabledCategories` est
+  recopié par Cloud Function dans `deviceTokens.disabledCategories`
+  (dénormalisé). Cela évite de lire les profils au moment de l'envoi, tout en
+  permettant un filtrage par catégorie.
+- **Général** — `deviceTokens.enabled` est l'interrupteur de **cet appareil**.
+  Le client l'écrit, et les règles Firestore le lui laissent : il ne concerne
+  que son propre téléphone.
+
+La requête qui lit les jetons — `queryTokensByAudience`, dans
+`functions/src/notifications/send.ts` — ne contraint **pas** `enabled`. C'est
+délibéré : une contrainte à cet endroit écarterait un appareil éteint **avant**
+`filterRecipients`, qui ne pourrait plus rien pour lui. La décision se prend
+donc dans le filtre, à un seul endroit :
 
 ```ts
-const tokens = await queryByAudience(orgId, audienceKeys);
-const recipients = tokens.filter((t) => !t.disabledCategories.includes(category));
+const tokens = await queryTokensByAudience(orgId, audienceKeys);
+const recipients = filterRecipients(tokens, category);
 ```
 
-`disabledCategories` est donc **recopié dans `deviceTokens`** (dénormalisé,
-maintenu par Cloud Function). Cela évite de lire les profils utilisateurs au
-moment de l'envoi, tout en permettant un filtrage par catégorie.
+Le prix est de lire les appareils éteints de l'audience pour les écarter juste
+après. À l'échelle d'un groupe scolaire, il est très inférieur au coût d'une
+fermeture d'école non reçue.
 
-> Pour la catégorie `urgent`, le filtre n'est jamais appliqué, et les
-> préférences ne peuvent pas la désactiver côté interface.
+> Pour la catégorie `urgent`, le filtre n'est jamais appliqué : ni les
+> préférences par catégorie, ni l'interrupteur général ne la coupent. Couper le
+> bruit n'est pas couper les alertes.
 
 ### Où l'exception `urgent` est appliquée
 
-Trois endroits, et ils lisent tous la même liste —
+Quatre endroits, et ils lisent tous la même liste —
 `MANDATORY_NOTIFICATION_CATEGORIES`, dans `packages/shared/src/constants.ts` :
 
-| Endroit                            | Ce qu'il fait                                                                 |
-| ---------------------------------- | ----------------------------------------------------------------------------- |
-| `notificationPrefsSchema`          | **refuse** `urgent` dans `disabledCategories`, avec un message explicite      |
-| `filterRecipients` (le dispatcher) | ne filtre **jamais** une catégorie obligatoire, quelle que soit la préférence |
-| `OPTIONAL_NOTIFICATION_CATEGORIES` | liste dérivée : la seule source des interrupteurs de l'écran de préférences   |
+| Endroit                            | Ce qu'il fait                                                                          |
+| ---------------------------------- | -------------------------------------------------------------------------------------- |
+| `notificationPrefsSchema`          | **refuse** `urgent` dans `disabledCategories`, avec un message explicite               |
+| `filterRecipients` (le dispatcher) | ne filtre **jamais** une catégorie obligatoire, ni par catégorie ni par l'interrupteur |
+| `OPTIONAL_NOTIFICATION_CATEGORIES` | liste dérivée : la seule source des interrupteurs de l'écran de préférences            |
+| `queryTokensByAudience`            | ne contraint **pas** `enabled`, pour que le filtre reste le seul juge                  |
 
 **Le refus côté schéma n'est pas la garantie.** Les règles Firestore ne valident
 pas `notificationPrefs` : un document en base peut donc porter `urgent`, écrit
@@ -362,9 +405,9 @@ garantie, c'est le filtre d'envoi, qui l'ignore. Le refus du schéma sert à aut
 chose : ne pas **promettre** à l'utilisateur une préférence sans effet, et
 empêcher l'écran de préférences de la proposer par inadvertance.
 
-Les trois lectures étant dérivées de la même constante, rendre demain une autre
+Les quatre lectures étant dérivées de la même constante, rendre demain une autre
 catégorie obligatoire suffit : le schéma la refuse, le filtre l'ignore, et la
-liste des interrupteurs la retire. Aucun des trois n'a à être modifié.
+liste des interrupteurs la retire. Aucun des quatre n'a à être modifié.
 
 ### Cas particulier : les alertes urgentes
 
@@ -372,7 +415,7 @@ Une publication de catégorie `urgent` :
 
 - apparaît **en tête du fil**, avec un bandeau rouge et une icône dédiée ;
 - génère une notification à **tous** les appareils de l'audience, quelles que
-  soient les préférences ;
+  soient les préférences **et même si l'appareil a coupé les notifications** ;
 - utilise un canal Android à importance maximale
   (`expo-notifications` → `AndroidNotificationPriority.MAX`) ;
 - sur iOS, utilise une interruption critique **uniquement si** l'application

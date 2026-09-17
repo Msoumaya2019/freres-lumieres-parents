@@ -15,7 +15,7 @@
  * exclusion silencieuse serait indiscernable d'un parent qui n'a jamais
  * enregistré d'appareil.
  *
- * ## Les deux replis ne vont pas dans le même sens, et c'est délibéré
+ * ## Les replis ne vont pas tous dans le même sens, et c'est délibéré
  *
  * - `audienceKeys` illisible → **tableau vide**. Un appareil dont on ne sait
  *   pas ce qu'il doit recevoir ne reçoit rien : une notification révèle son
@@ -24,6 +24,10 @@
  *   désactivé*. Rendre muet un parent dont le profil est incomplet serait pire
  *   que de lui envoyer une notification qu'il aurait pu vouloir ignorer — une
  *   fermeture d'école manquée ne se rattrape pas.
+ * - `enabled` absent ou non booléen → **activé**, pour la même raison : c'est
+ *   l'absence d'un champ, pas une décision de l'utilisateur. Seul un `false`
+ *   explicite éteint l'appareil, et `filterRecipients` fait de toute façon
+ *   passer les alertes obligatoires outre.
  *
  * C'est la même règle que dans `triggers/device-tokens.ts`, appliquée au moment
  * de l'envoi plutôt qu'à celui de la recopie. Les deux doivent rester d'accord.
@@ -111,6 +115,8 @@ export function selectRecipients(documents: readonly unknown[]): RecipientSelect
     recipients.push({
       token,
       platform: platform as DevicePlatform,
+      // Seul un `false` explicite éteint l'appareil : voir l'en-tête.
+      enabled: champs.enabled !== false,
       audienceKeys: clesTexte(champs.audienceKeys),
       disabledCategories: categoriesConnues(champs.disabledCategories),
     });

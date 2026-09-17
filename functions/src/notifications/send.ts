@@ -94,12 +94,26 @@ export function createPushDispatcher(): PushDispatcher {
 /**
  * Jetons d'une organisation dont l'audience recoupe celle visée.
  *
- * Le dédoublonnage n'est pas une précaution de confort : `array-contains-any`
- * n'accepte que trente valeurs, donc les clés visées sont découpées en lots, et
- * un appareil dont les clés tombent dans deux lots serait renvoyé deux fois —
- * il recevrait **deux fois** la même notification. La clé du dédoublonnage est
- * l'identifiant du document, qui est le jeton lui-même et ne dépend pas de la
- * forme du contenu.
+ * ## Pourquoi `enabled` n'est **pas** dans la requête
+ *
+ * La requête ne contraint pas `enabled`, et c'est délibéré. Une contrainte ici
+ * écarte un appareil éteint **avant** `filterRecipients`, qui ne peut alors
+ * plus rien pour lui : un parent ayant coupé les notifications de son téléphone
+ * ne recevrait plus aucune alerte urgente, alors que c'est précisément le cas
+ * que l'exception doit couvrir. Le filtre reste donc le seul endroit qui
+ * décide — et lui s'éprouve sans émulateur.
+ *
+ * Le prix est de lire quelques documents de plus, les appareils éteints de
+ * l'audience, pour les écarter juste après. À l'échelle d'un groupe scolaire il
+ * est très inférieur au coût d'une fermeture d'école non reçue.
+ *
+ * ## Pourquoi le dédoublonnage
+ *
+ * `array-contains-any` n'accepte que trente valeurs, donc les clés visées sont
+ * découpées en lots, et un appareil dont les clés tombent dans deux lots serait
+ * renvoyé deux fois — il recevrait **deux fois** la même notification. La clé du
+ * dédoublonnage est l'identifiant du document, qui est le jeton lui-même et ne
+ * dépend pas de la forme du contenu.
  */
 export async function queryTokensByAudience(
   orgId: string,
@@ -112,7 +126,6 @@ export async function queryTokensByAudience(
     const resultat = await db
       .collection(COLLECTIONS.deviceTokens)
       .where('orgId', '==', orgId)
-      .where('enabled', '==', true)
       .where('audienceKeys', 'array-contains-any', lot)
       .get();
 

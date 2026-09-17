@@ -12,6 +12,9 @@
  * alertes `urgent` ne sont jamais filtrées. C'est la règle qui compte le plus,
  * et c'est donc celle qu'il faut éprouver en premier.
  */
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
 import type { NotificationCategory } from '@fl/types';
@@ -23,6 +26,7 @@ import {
   filterRecipients,
   messageTopics,
 } from './dispatcher.js';
+import { findRepoRoot } from '../test-helpers/repo-root.js';
 
 /** Toutes les catégories de la spécification, dans son ordre. */
 const CATEGORIES: readonly NotificationCategory[] = [
@@ -39,6 +43,7 @@ function recipient(overrides: Partial<PushRecipient> = {}): PushRecipient {
   return {
     token: 'ExponentPushToken[abc]',
     platform: 'android',
+    enabled: true,
     disabledCategories: [],
     audienceKeys: ['org:fcpe-montmagny'],
     ...overrides,
@@ -104,6 +109,23 @@ describe('filterRecipients', () => {
     ];
 
     expect(filterRecipients(destinataires, 'urgent').map((r) => r.token)).toEqual(['a', 'b']);
+  });
+
+  it('écarte l’appareil éteint, sauf pour une alerte urgente', () => {
+    // L'interrupteur général d'un téléphone ne coupe pas les alertes. Cette
+    // règle n'était appliquée **nulle part** : la requête Firestore écartait
+    // les appareils éteints avant même que le filtre les voie, donc un parent
+    // ayant coupé ses notifications ne recevait plus aucune fermeture d'école.
+    const destinataires = [
+      recipient({ token: 'allume' }),
+      recipient({ token: 'eteint', enabled: false }),
+    ];
+
+    expect(filterRecipients(destinataires, 'publications').map((r) => r.token)).toEqual(['allume']);
+    expect(filterRecipients(destinataires, 'urgent').map((r) => r.token)).toEqual([
+      'allume',
+      'eteint',
+    ]);
   });
 
   it('ne filtre que la catégorie concernée', () => {
@@ -188,5 +210,38 @@ describe('chunkRecipients', () => {
   it('rend aucun lot pour une liste vide', () => {
     // Un lot vide ferait un appel réseau qui ne peut rien envoyer.
     expect(chunkRecipients([])).toEqual([]);
+  });
+});
+
+/**
+ * L'exception est-elle lue dans la liste, ou recopiée ?
+ *
+ * `filterRecipients` doit interroger `MANDATORY_NOTIFICATION_CATEGORIES`, et
+ * non comparer à la chaîne `'urgent'`. Les deux se comportent **identiquement**
+ * aujourd'hui — la liste ne contient qu'une valeur —, donc aucun test de
+ * comportement ne peut les distinguer. C'est précisément ce qui rend la recopie
+ * dangereuse : le jour où une seconde catégorie deviendrait obligatoire, elle
+ * serait refusée par le schéma, absente des interrupteurs de l'écran, et
+ * appliquée quand même à l'envoi — sans que rien ne tombe.
+ *
+ * La source est donc lue, comme `deeplinks.test.ts` lit le dossier `app/` et
+ * `paths.test.ts` la table des collections.
+ */
+describe('source unique de l’exception', () => {
+  const SOURCE = readFileSync(
+    join(findRepoRoot(), 'packages', 'shared', 'src', 'push', 'dispatcher.ts'),
+    'utf8',
+  );
+
+  it('interroge la liste plutôt que de comparer à `urgent`', () => {
+    expect(SOURCE).toContain('isMandatoryNotificationCategory(category)');
+    expect(SOURCE).not.toContain("=== 'urgent'");
+  });
+
+  it('lit bien le fichier attendu', () => {
+    // Sans cette garde, un chemin erroné ferait échouer le test précédent pour
+    // une mauvaise raison — ou, si la lecture rendait une chaîne vide, le
+    // ferait passer en ne vérifiant rien.
+    expect(SOURCE).toContain('export function filterRecipients');
   });
 });

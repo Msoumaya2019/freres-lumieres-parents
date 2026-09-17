@@ -180,8 +180,10 @@ describe('tokensNeedResync', () => {
   });
 
   it('ne resynchronise pas sur l’interrupteur général', () => {
-    // `notificationPrefs.enabled` n'est **pas** recopié : il n'a pas de
-    // consommateur, et sa portée sur les alertes `urgent` n'est pas tranchée.
+    // `notificationPrefs.enabled` n'est **pas** recopié : l'écran de
+    // préférences n'existe pas, donc rien ne l'écrit et aucun code ne le lit.
+    // Sa portée sur les alertes `urgent` est tranchée — il ne les coupera pas —
+    // mais elle ne se joue pas ici, puisque le champ n'atteint pas le jeton.
     // Le déclarer comme déclencheur ferait une écriture par appareil pour rien.
     expect(
       tokensNeedResync(profile, {

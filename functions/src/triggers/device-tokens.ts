@@ -48,11 +48,14 @@
  * ## Ce que ces fonctions ne font pas
  *
  * L'interrupteur général (`users/{uid}.notificationPrefs.enabled`) n'est **pas**
- * recopié. Il n'a encore aucun consommateur — l'écran de préférences n'existe
- * pas — et surtout sa portée n'est pas tranchée : doit-il couper aussi les
- * alertes `urgent`, alors que la spécification dit qu'elles atteignent tout le
- * monde « quelles que soient les préférences » ? Décider à la place du produit
- * serait poser une règle que personne n'a validée.
+ * recopié : l'écran de préférences n'existe pas, donc rien ne l'écrit, et un
+ * champ que personne ne peut poser est une donnée morte.
+ *
+ * Sa portée, en revanche, est **tranchée** : il ne coupera pas les alertes
+ * `urgent`. Le même choix est déjà appliqué à `deviceTokens.enabled`, dont
+ * `filterRecipients` fait passer les catégories de
+ * `MANDATORY_NOTIFICATION_CATEGORIES` outre. Le jour où ce champ sera recopié,
+ * il devra lire cette liste, et non comparer à la chaîne `'urgent'`.
  */
 import { onDocumentCreated, onDocumentUpdated } from 'firebase-functions/v2/firestore';
 import { logger } from 'firebase-functions/v2';

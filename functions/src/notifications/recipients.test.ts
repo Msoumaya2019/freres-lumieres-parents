@@ -14,12 +14,13 @@
  * entrée est illisible rendrait muets des parents dont l'appareil est
  * parfaitement valide.
  *
- * ## Les deux replis opposés, et pourquoi ils le sont
+ * ## Les replis opposés, et pourquoi ils le sont
  *
  * `audienceKeys` illisible → vide, donc l'appareil ne reçoit rien : une
  * notification s'affiche sur un écran de verrouillage, et on ne devine pas son
- * contenu. `disabledCategories` illisible → vide, donc **rien de désactivé** :
- * rendre muet un parent au profil incomplet serait pire qu'un envoi de trop.
+ * contenu. `disabledCategories` illisible → vide, donc **rien de désactivé**,
+ * et `enabled` absent ou illisible → **activé** : rendre muet un parent au
+ * profil incomplet serait pire qu'un envoi de trop.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -29,6 +30,7 @@ import { selectRecipients } from './recipients.js';
 const jeton = {
   token: 'ExponentPushToken[abc]',
   platform: 'android',
+  enabled: true,
   audienceKeys: ['org:fl', 'school:lumiere'],
   disabledCategories: ['discussions'],
 };
@@ -42,6 +44,7 @@ describe('selectRecipients', () => {
       {
         token: 'ExponentPushToken[abc]',
         platform: 'android',
+        enabled: true,
         audienceKeys: ['org:fl', 'school:lumiere'],
         disabledCategories: ['discussions'],
       },
@@ -145,6 +148,25 @@ describe('selectRecipients', () => {
     expect(recipients[0]?.disabledCategories).toEqual(['urgent', 'discussions']);
   });
 
+  // --- Le repli ouvert : l'interrupteur général ------------------------------
+
+  it('n’éteint un appareil que sur un `false` explicite', () => {
+    // L'interrupteur général est lu ici et appliqué par `filterRecipients`, qui
+    // fait passer les alertes obligatoires outre. Le repli est **ouvert** : un
+    // champ absent n'est pas une décision de l'utilisateur.
+    expect(selectRecipients([{ ...jeton, enabled: false }]).recipients[0]?.enabled).toBe(false);
+    expect(selectRecipients([{ ...jeton, enabled: true }]).recipients[0]?.enabled).toBe(true);
+  });
+
+  it('traite un interrupteur illisible comme activé', () => {
+    // Même sens que pour `disabledCategories`, et pour la même raison : rendre
+    // muet un parent dont le document est incomplet serait pire qu'un envoi de
+    // trop. Une fermeture d'école manquée ne se rattrape pas.
+    for (const enabled of [undefined, null, 0, '', 'false', {}]) {
+      expect(selectRecipients([{ ...jeton, enabled }]).recipients[0]?.enabled).toBe(true);
+    }
+  });
+
   // --- Le repli fermé : l'audience ------------------------------------------
 
   it('traite une audience illisible comme vide', () => {
@@ -165,6 +187,9 @@ describe('selectRecipients', () => {
   });
 
   it('accepte un jeton sans audience ni préférences', () => {
+    // Le document minimal : ni `enabled`, ni `audienceKeys`, ni
+    // `disabledCategories`. L'appareil reste **activé** — c'est le repli ouvert
+    // de l'interrupteur — et il ne recevra rien, faute d'audience.
     const { recipients, rejected } = selectRecipients([
       { token: 'ExponentPushToken[seul]', platform: 'ios' },
     ]);
@@ -173,6 +198,7 @@ describe('selectRecipients', () => {
     expect(recipients[0]).toEqual({
       token: 'ExponentPushToken[seul]',
       platform: 'ios',
+      enabled: true,
       audienceKeys: [],
       disabledCategories: [],
     });

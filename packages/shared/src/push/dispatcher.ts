@@ -32,6 +32,7 @@
 import type { NotificationCategory } from '@fl/types';
 
 import { audienceKeyToTopic } from '../audience.js';
+import { isMandatoryNotificationCategory } from '../constants.js';
 
 /** Un envoi de notification, décrit indépendamment du fournisseur. */
 export interface PushMessage {
@@ -56,6 +57,13 @@ export interface PushMessage {
 export interface PushRecipient {
   token: string;
   platform: 'ios' | 'android' | 'web';
+  /**
+   * Interrupteur général de **cet appareil** (`deviceTokens.enabled`).
+   *
+   * Il ne coupe pas tout : les catégories obligatoires passent outre. La
+   * décision est prise dans `filterRecipients`, à un seul endroit.
+   */
+  enabled: boolean;
   /** Catégories désactivées par l'utilisateur. */
   disabledCategories: readonly NotificationCategory[];
   /** Clés d'audience de l'appareil. */
@@ -104,16 +112,34 @@ export function messageTopics(message: PushMessage): string[] {
 /**
  * Filtre les destinataires selon leurs préférences.
  *
- * Les alertes `urgent` ne sont **jamais** filtrées : une fermeture d'école
- * doit atteindre tout le monde. C'est la seule exception, et elle est
- * volontaire.
+ * ## L'interrupteur général n'atteint pas les alertes obligatoires
+ *
+ * Un appareil dont `enabled` est faux ne reçoit plus rien — **sauf** les
+ * catégories de `MANDATORY_NOTIFICATION_CATEGORIES`. Couper le bruit n'est pas
+ * couper les alertes, et une fermeture d'école annoncée trop tard ne se
+ * rattrape pas.
+ *
+ * Cette exception était auparavant appliquée **à moitié, en deux endroits** :
+ * ici pour `disabledCategories`, et nulle part pour l'interrupteur général, que
+ * la requête Firestore contraignait sans exception. Un parent ayant éteint les
+ * notifications de son téléphone ne recevait donc **aucune** alerte urgente.
+ * La requête ne contraint plus `enabled` (voir `queryTokensByAudience`), et la
+ * décision se prend ici, à un seul endroit.
+ *
+ * ## Pourquoi `isMandatoryNotificationCategory` plutôt que `'urgent'`
+ *
+ * L'exception a une source unique, `MANDATORY_NOTIFICATION_CATEGORIES`.
+ * Comparer à la chaîne `'urgent'` recopierait cette liste ici, et les deux
+ * divergeraient le jour où une seconde catégorie deviendrait obligatoire.
  */
 export function filterRecipients(
   recipients: readonly PushRecipient[],
   category: NotificationCategory,
 ): PushRecipient[] {
-  if (category === 'urgent') return [...recipients];
-  return recipients.filter((recipient) => !recipient.disabledCategories.includes(category));
+  if (isMandatoryNotificationCategory(category)) return [...recipients];
+  return recipients.filter(
+    (recipient) => recipient.enabled && !recipient.disabledCategories.includes(category),
+  );
 }
 
 /**

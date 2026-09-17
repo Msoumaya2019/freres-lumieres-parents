@@ -387,7 +387,8 @@ que les publications de son audience.
 - [x] Gestion des utilisateurs : fiche d'un compte — route imbriquée `utilisateurs/[uid]`, atteignable en cliquant le nom depuis la file. Elle montre l'identité, le rattachement déclaré, les consentements et l'historique du compte, lu dans `adminLogs` par `targetType + targetId` : le second des trois index composites, jusqu'ici déclaré sans consommateur. **En lecture seule** — les décisions d'autorisation restent dans la file, qui les présente avec leur motif obligatoire ; les dupliquer ici donnerait deux implémentations d'une même règle.
 - [ ] Gestion des utilisateurs : recherche — la file se parcourt par statut. Chercher par nom ou par adresse demande de choisir un mécanisme, Firestore n'offrant ni recherche insensible à la casse ni recherche par sous-chaîne : voir `docs/04-security.md` § 10.
 - [x] Journal d'audit (`adminLogs`) : consultation — lecture seule, filtre par type d'action, pagination. Les règles réservent la lecture à `isAdmin()` et refusent toute écriture cliente, administrateur compris : l'écran n'offre donc aucune modification, et ce n'est pas un oubli. Le filtre n'a qu'une dimension parce que Firestore exige un index composite par combinaison — `actorId` et `targetType + targetId` sont prêts pour les fiches de détail.
-- [ ] Paramètres de l'organisation — **reporté sur décision**, pour la raison exacte qui a fait reporter `highlights` : `reportRetentionDays`, `collectiveIssueThreshold` et `urgentAlwaysNotifies` ne sont lus par **aucun** code — les seules occurrences sont le type, le script d'amorçage et le `dist` compilé. Les rendre éditables afficherait « durée de conservation : 365 jours » comme une garantie RGPD alors que rien ne purge : la promesse serait fausse, de la même famille que celle de l'audience `fcpe`. À construire quand chaque réglage aura son consommateur — `urgentAlwaysNotifies` en phase 5, les deux autres en phase 7. La section reste déclarée dans `lib/sections.ts` avec `implemented: false`, donc le menu dit déjà la vérité.
+- [ ] Paramètres de l'organisation — **reporté sur décision**, pour la raison exacte qui a fait reporter `highlights` : `reportRetentionDays` et `collectiveIssueThreshold` ne sont lus par **aucun** code — les seules occurrences sont le type, le script d'amorçage et le `dist` compilé. Les rendre éditables afficherait « durée de conservation : 365 jours » comme une garantie RGPD alors que rien ne purge : la promesse serait fausse, de la même famille que celle de l'audience `fcpe`. À construire quand chaque réglage aura son consommateur, en phase 7.
+      **`urgentAlwaysNotifies` a été retiré**, et non construit : la question qu'il posait — les alertes urgentes peuvent-elles être coupées ? — a reçu une réponse négative en phase 5, donc un booléen qui n'accepte qu'une valeur aurait laissé croire qu'un administrateur pouvait affaiblir l'exception. Elle vit dans `MANDATORY_NOTIFICATION_CATEGORIES`, dans le code. La section reste déclarée dans `lib/sections.ts` avec `implemented: false`, donc le menu dit déjà la vérité.
 
 **Critère de sortie :** l'admin est utilisable sur téléphone, tablette et
 ordinateur ; un parent qui tente d'y accéder est refusé.
@@ -547,10 +548,17 @@ ordinateur ; un parent qui tente d'y accéder est refusé.
       Le refus côté schéma n'est pas la garantie — les règles Firestore ne
       valident pas `notificationPrefs` — c'est le filtre d'envoi qui l'est ;
       le refus sert à ne pas promettre une préférence sans effet.
-      **Reste ouvert :** `settings.urgentAlwaysNotifies` n'est lu par aucun code.
-      S'il venait à l'être, l'exception cesserait d'être absolue et le refus du
-      schéma devrait devenir conditionnel — à trancher quand le réglage aura un
-      consommateur (phase 7).
+      **Complété :** l'exception couvre désormais l'**interrupteur général**, et
+      pas seulement les préférences par catégorie. `queryTokensByAudience`
+      contraignait `enabled == true` sans exception, donc un appareil éteint
+      était écarté **avant** `filterRecipients` : un parent ayant coupé les
+      notifications de son téléphone ne recevait plus aucune alerte urgente. La
+      contrainte a été retirée de la requête, `PushRecipient` porte `enabled`, et
+      la décision se prend à un seul endroit. Prix assumé : lire les appareils
+      éteints de l'audience pour les écarter juste après.
+      `settings.urgentAlwaysNotifies` a été **retiré** : il n'était lu par aucun
+      code, et l'exception étant absolue, un booléen qui n'accepte qu'une valeur
+      aurait laissé croire qu'un administrateur pouvait l'affaiblir.
 - [ ] Purge des jetons morts
 - [ ] **Lire les reçus Expo** (`/push/getReceipts`) — c'est le manque le plus
       important qui reste, et il n'était pas visible : le code n'appelle que

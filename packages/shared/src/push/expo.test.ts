@@ -25,6 +25,7 @@ function recipient(overrides: Partial<PushRecipient> = {}): PushRecipient {
   return {
     token: 'ExponentPushToken[abc]',
     platform: 'android',
+    enabled: true,
     disabledCategories: [],
     audienceKeys: ['org:fcpe-montmagny'],
     ...overrides,

@@ -237,7 +237,6 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "orgId", "order": "ASCENDING" },
-        { "fieldPath": "enabled", "order": "ASCENDING" },
         { "fieldPath": "audienceKeys", "arrayConfig": "CONTAINS" }
       ]
     },
