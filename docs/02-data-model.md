@@ -168,17 +168,35 @@ une information ou une notification.
 
 ### `deviceTokens/{token}`
 
-| Champ          | Type                        | Note                                        |
-| -------------- | --------------------------- | ------------------------------------------- |
-| `uid`, `orgId` | string                      |                                             |
-| `token`        | string                      | jeton Expo / FCM                            |
-| `platform`     | `ios` \| `android` \| `web` |                                             |
-| `audienceKeys` | string[]                    | recopie du profil, pour cibler sans lecture |
-| `enabled`      | boolean                     | désactivation sans suppression              |
-| `lastUsedAt`   | timestamp                   | purge des jetons morts                      |
+| Champ                  | Type                        | Note                                                      |
+| ---------------------- | --------------------------- | --------------------------------------------------------- |
+| `uid`, `orgId`         | string                      |                                                           |
+| `token`                | string                      | jeton Expo / FCM                                          |
+| `platform`             | `ios` \| `android` \| `web` |                                                           |
+| `audienceKeys`         | string[]                    | **serveur** — recopie du profil, pour cibler sans lecture |
+| `disabledCategories`   | string[]                    | **serveur** — recopie des préférences de catégorie        |
+| `enabled`              | boolean                     | **client** — interrupteur de cet appareil                 |
+| `locale`, `appVersion` | string?                     | diagnostic des envois                                     |
+| `createdAt`            | timestamp                   |                                                           |
+| `lastUsedAt`           | timestamp                   | purge des jetons morts                                    |
 
 L'identifiant du document **est** le jeton : l'enregistrement est donc
 idempotent (un même appareil ne crée jamais deux entrées).
+
+Deux champs sont écrits par une Cloud Function, et les règles Firestore les
+refusent au client : vides à la création, puis figés. Le client ne peut plus
+écrire que `enabled` et `lastUsedAt`.
+
+- `audienceKeys` est une **autorisation** : le serveur sélectionne les
+  destinataires d'un envoi en le lisant. Les règles ne peuvent pas vérifier une
+  clé `class:` ou `level:` — elles ne lisent pas les enfants de l'appelant.
+- `disabledCategories` est une **préférence**, donc inoffensive en soi, mais
+  elle est posée par utilisateur et recopiée par appareil. Le client ne peut
+  atteindre que l'appareil courant : propriétaire du champ, il laisserait
+  diverger les autres.
+
+`audienceKeys` est vide tant que le compte n'est pas `active` : un appareil dont
+on ne sait rien ne doit rien recevoir.
 
 ### `posts/{postId}`
 

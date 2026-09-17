@@ -85,26 +85,32 @@ C'est faisable, mais ce n'est pas le bon premier pas.
 4. Écriture dans deviceTokens/{token} — par le client
    {
      uid,
-     orgId,                     // doit être la sienne : les règles le vérifient
-     token,                     // l'identifiant du document
+     orgId,                  // doit être la sienne : les règles le vérifient
+     token,                  // l'identifiant du document
      platform: 'ios' | 'android',
-     audienceKeys: [],          // VIDE — le champ appartient au serveur
-     disabledCategories: [...], // préférences, recopiées du profil
-     enabled: true,
+     audienceKeys: [],       // VIDE — le champ appartient au serveur
+     disabledCategories: [], // VIDE — idem
+     enabled: true,          // interrupteur de CET appareil
      createdAt, lastUsedAt
    }
         │
-4 bis. La Cloud Function complète le document : `audienceKeys` est déduit du
-   profil (école, niveau, classe, appartenance FCPE)
+4 bis. onDeviceTokenCreated complète le document depuis le profil :
+   `audienceKeys` (école, niveau, classe, appartenance FCPE) et
+   `disabledCategories` (préférences de catégorie)
         │
 5. Le jeton est rafraîchi à chaque ouverture de l'application
    (lastUsedAt mis à jour, au plus une fois par jour)
 ```
 
-### Pourquoi `audienceKeys` appartient au serveur
+### Pourquoi `audienceKeys` et `disabledCategories` appartiennent au serveur
 
-Le champ ressemble à une préférence. C'en est une **autorisation** : au moment
-de l'envoi, le serveur sélectionne les destinataires par
+Les deux champs sont recopiés du profil par une Cloud Function, et les règles
+Firestore les refusent au client : vides à la création, puis figés. Le client
+ne peut plus écrire que `enabled` — l'interrupteur de **cet appareil** — et
+`lastUsedAt`. Les raisons sont différentes, et il faut les distinguer.
+
+**`audienceKeys` est une autorisation, pas une préférence.** Au moment de
+l'envoi, le serveur sélectionne les destinataires par
 
 ```ts
 .where('orgId', '==', orgId)
@@ -116,18 +122,47 @@ règles peuvent vérifier `orgId` (comparé au claim) mais **pas** une clé
 `class:` ou `level:` — elles ne savent pas lire les enfants de l'appelant. Un
 parent pourrait s'abonner à l'audience de la FCPE, ou à la classe d'un autre.
 
-`audienceKeys` est donc **vide à la création**, et le client ne peut plus le
-modifier (`unchanged('audienceKeys')`). Seule la Cloud Function l'écrit, ce
-qu'elle peut faire sans contrainte : l'Admin SDK ne passe pas par les règles.
-Le client met à jour par `update()`, jamais par `set()` — un `set()` renverrait
-le champ à vide, et la règle le refuse précisément pour cela.
+**`disabledCategories` est une préférence — inoffensive en soi.** Elle ne fait
+que réduire ce que l'appareil reçoit. Le champ est pourtant serveur, pour une
+raison qui n'a rien à voir avec la sécurité : la préférence est posée par
+**utilisateur** et recopiée par **appareil**. Un client ne peut atteindre que
+l'appareil courant, donc les autres divergeraient. Un parent décochant
+« discussions » sur son téléphone continuerait de les recevoir sur sa tablette,
+alors que l'écran de préférences affiche l'inverse. C'est le serveur qui voit
+tous les appareils d'un même compte, donc c'est lui qui recopie.
 
-`disabledCategories`, lui, reste au client : il ne réduit que ce que l'appareil
-reçoit.
+**Les deux replis ne vont pas dans le même sens**, et c'est délibéré :
+
+- ne rien recevoir (`audienceKeys`) échoue **fermé** — compte non `active`,
+  profil illisible, champ absent donnent un tableau vide. Une notification
+  révèle son contenu dans le bandeau de l'écran de verrouillage ;
+- la préférence (`disabledCategories`) échoue **ouvert** — des préférences
+  illisibles sont traitées comme « rien de désactivé ». Rendre muet un parent
+  dont le profil est incomplet serait pire que de lui envoyer une notification
+  qu'il aurait pu vouloir ignorer.
+
+**Un compte qui n'est plus `active` perd ses clés.** Les règles empêchent un
+compte non actif de _créer_ un jeton, mais rien ne vidait un jeton déjà créé au
+moment d'une suspension : le parent suspendu continuait de tout recevoir. Le
+déclencheur de profil recale donc les jetons sur le statut, dans les deux sens.
 
 L'identifiant du document **est** le jeton : l'enregistrement est idempotent.
 Un même appareil partagé entre deux comptes met à jour `uid` plutôt que de
 créer un doublon.
+
+### Ce que la recopie ne couvre pas encore
+
+L'interrupteur général (`notificationPrefs.enabled`) n'est **pas** recopié. Il
+n'a aujourd'hui aucun consommateur — l'écran de préférences n'existe pas — et
+sa portée n'est pas tranchée : doit-il couper aussi les alertes `urgent`, alors
+que la spécification dit qu'elles atteignent tout le monde « quelles que soient
+les préférences » ? La question est ouverte, et elle sera à trancher avec
+l'écran de préférences.
+
+Un changement dans la sous-collection `users/{uid}/children` ne déclenche rien
+non plus : les clés d'audience d'un parent qui ajoute un enfant ne sont
+recalculées qu'à la prochaine écriture de son profil. Il manque un déclencheur
+sur cette sous-collection.
 
 ### Cycle de vie
 

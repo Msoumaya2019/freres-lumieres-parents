@@ -207,17 +207,51 @@ export interface ChildProfile extends Auditable {
   academicYear: string;
 }
 
-/** Jeton d'appareil pour les notifications. Collection racine `deviceTokens`. */
+/**
+ * Jeton d'appareil pour les notifications. Collection racine `deviceTokens`.
+ *
+ * ## Deux champs appartiennent au serveur, le reste au client
+ *
+ * `audienceKeys` et `disabledCategories` sont recopiés du profil par une
+ * Cloud Function. Les règles Firestore refusent toute écriture du client sur
+ * ces deux champs : ils sont vides à la création, puis figés.
+ *
+ * La raison est différente pour chacun :
+ *
+ *  - `audienceKeys` est une **autorisation**. Le serveur sélectionne les
+ *    destinataires d'une notification en le lisant ; déclaré par le client, il
+ *    permettrait à un parent de s'abonner à l'audience de la FCPE ou à la
+ *    classe d'un autre. Les règles ne peuvent pas vérifier une clé `class:` ou
+ *    `level:` — elles ne lisent pas les enfants de l'appelant.
+ *  - `disabledCategories` est une **préférence**, donc inoffensive en soi. Mais
+ *    elle est posée par utilisateur et recopiée par appareil : un client ne
+ *    peut atteindre que l'appareil courant, donc les autres divergeraient.
+ *    Un parent désactivant « discussions » sur son téléphone continuerait de
+ *    les recevoir sur sa tablette, alors que l'écran de préférences affiche
+ *    l'inverse.
+ *
+ * `enabled`, lui, reste au client : c'est l'interrupteur de **cet appareil**,
+ * qui ne concerne que lui.
+ */
 export interface DeviceToken {
   id: DeviceTokenId;
   uid: UserId;
   orgId: OrganizationId;
   token: string;
   platform: DevicePlatform;
-  /** Clés d'audience recopiées, pour cibler sans lire le profil utilisateur. */
+  /**
+   * Clés d'audience recopiées du profil, pour cibler sans lire le profil.
+   *
+   * Vide tant que le compte n'est pas `active`, ou que l'interrupteur général
+   * des notifications est éteint : un appareil dont on ne veut plus rien
+   * savoir ne doit rien recevoir, et le repli doit être fermé.
+   */
   audienceKeys: readonly string[];
+  /** Catégories désactivées, recopiées du profil par la même Cloud Function. */
+  disabledCategories: readonly NotificationCategory[];
   locale?: string;
   appVersion?: string;
+  /** Interrupteur propre à cet appareil, actionnable par le client. */
   enabled: boolean;
   createdAt: DateLike;
   lastUsedAt: DateLike;

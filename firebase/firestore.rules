@@ -285,29 +285,43 @@ service cloud.firestore {
       // d'une notification en le lisant : un jeton qui déclare une autre
       // organisation recevrait les notifications de celle-ci.
       //
-      // `audienceKeys` est **vide** à la création, et c'est le point qui
-      // compte. Ce champ n'est pas une préférence mais une **autorisation** :
-      // le serveur décide qui reçoit quoi en le lisant. Déclaré par le client,
-      // il permettrait à un parent de s'abonner à l'audience de la FCPE ou à
-      // la classe d'un autre — et les règles ne peuvent pas vérifier une clé
+      // `audienceKeys` et `disabledCategories` sont **vides** à la création,
+      // et c'est le point qui compte.
+      //
+      // `audienceKeys` n'est pas une préférence mais une **autorisation** : le
+      // serveur décide qui reçoit quoi en le lisant. Déclaré par le client, il
+      // permettrait à un parent de s'abonner à l'audience de la FCPE ou à la
+      // classe d'un autre — et les règles ne peuvent pas vérifier une clé
       // `class:` ou `level:`, faute de pouvoir lire les enfants de l'appelant.
-      // Le champ est donc écrit par la Cloud Function qui enregistre
+      //
+      // `disabledCategories` est inoffensif en soi, mais c'est une préférence
+      // posée par **utilisateur** et recopiée par **appareil**. Le client ne
+      // peut atteindre que l'appareil courant : s'il en était propriétaire, les
+      // autres appareils du même parent divergeraient, et l'écran de
+      // préférences afficherait l'inverse de ce qui se passe sur la tablette.
+      //
+      // Les deux champs sont donc écrits par la Cloud Function qui enregistre
       // l'appareil, jamais par le client.
       allow create: if isActive()
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.orgId == orgId()
         && request.resource.data.token == token
-        && request.resource.data.audienceKeys == [];
+        && request.resource.data.audienceKeys == []
+        && request.resource.data.disabledCategories == [];
 
-      // `unchanged('audienceKeys')` interdit au client de réécrire les clés
-      // posées par le serveur. Le client met à jour par `update()`, jamais par
-      // `set()` : un `set()` renverrait `audienceKeys` à vide et effacerait le
-      // travail du serveur — ce que cette clause refuse, précisément.
+      // `unchanged(…)` interdit au client de réécrire ce que le serveur a
+      // posé. Le client met à jour par `update()`, jamais par `set()` : un
+      // `set()` renverrait ces champs à vide et effacerait le travail du
+      // serveur — ce que ces clauses refusent, précisément.
+      //
+      // `enabled` reste libre : c'est l'interrupteur de cet appareil-ci, et il
+      // n'appartient qu'à lui.
       allow update: if isActive()
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.orgId == orgId()
         && request.resource.data.token == token
         && unchanged('audienceKeys')
+        && unchanged('disabledCategories')
         && unchanged('createdAt');
 
       allow delete: if isActive() && resource.data.uid == request.auth.uid;

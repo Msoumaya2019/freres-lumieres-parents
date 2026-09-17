@@ -224,10 +224,11 @@ function messageDocument(overrides: Record<string, unknown> = {}) {
 /**
  * Jeton d'appareil, tel que l'application l'enregistre à la connexion.
  *
- * `audienceKeys` est **vide** : ce champ appartient au serveur, qui le déduit
- * du profil. Le client ne déclare que son appareil. Un fixture qui le
- * remplirait décrirait un document que le client n'a pas le droit d'écrire —
- * et rendrait complaisants les tests de refus qui suivent.
+ * `audienceKeys` et `disabledCategories` sont **vides** : ces deux champs
+ * appartiennent au serveur, qui les déduit du profil. Le client ne déclare que
+ * son appareil. Un fixture qui les remplirait décrirait un document que le
+ * client n'a pas le droit d'écrire — et rendrait complaisants les tests de
+ * refus qui suivent.
  */
 function deviceTokenDocument(id: string, overrides: Record<string, unknown> = {}) {
   return {
@@ -448,12 +449,16 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
         createdAt: new Date('2026-09-01T10:00:00Z'),
       });
 
-      // Jeton déjà enregistré, avec les clés d'audience telles que le serveur
-      // les aurait déduites du profil. C'est l'état réel en production, et
-      // celui contre lequel les tests de mise à jour doivent s'exécuter.
+      // Jeton déjà enregistré, avec les champs tels que le serveur les aurait
+      // déduits du profil : les clés d'audience d'un côté, une préférence de
+      // catégorie de l'autre. C'est l'état réel en production, et celui contre
+      // lequel les tests de mise à jour doivent s'exécuter — un `update` porte
+      // sur le document entier, donc partir d'un document incomplet testerait
+      // un cas qui n'existe pas.
       await setDoc(doc(db, 'deviceTokens', 'token-1'), {
         ...deviceTokenDocument('token-1'),
         audienceKeys: [`org:${TEST_ORG}`],
+        disabledCategories: ['discussions'],
       });
 
       await setDoc(doc(db, 'counters', TEST_ORG), {
@@ -1431,6 +1436,20 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
       );
     });
 
+    it('un parent ne peut pas déclarer ses préférences à l’enregistrement', async () => {
+      // `disabledCategories` est serveur : la préférence vit sur le profil, et
+      // c'est le serveur qui la recopie sur **tous** les appareils du parent.
+      // Un client qui la déclarerait à la création poserait un état que les
+      // autres appareils ne partageraient pas — et l'écran de préférences
+      // afficherait l'inverse de ce que la tablette applique.
+      await assertFails(
+        setDoc(
+          doc(parent.firestore(), 'deviceTokens', 'token-prefs'),
+          deviceTokenDocument('token-prefs', { disabledCategories: ['discussions'] }),
+        ),
+      );
+    });
+
     it('un parent ne peut pas modifier les clés d’audience de son appareil', async () => {
       const db = parent.firestore();
       await assertFails(
@@ -1440,15 +1459,37 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
       );
     });
 
-    it('un parent peut désactiver les notifications de son appareil', async () => {
-      // `disabledCategories` ne réduit que ce que l'appareil reçoit : c'est une
-      // préférence, et elle appartient au client. Seul `audienceKeys` est
-      // serveur.
-      await assertSucceeds(
+    it('un parent ne peut pas modifier les préférences de catégorie de son appareil', async () => {
+      // `disabledCategories` est une préférence, donc inoffensive en soi — mais
+      // elle est posée par **utilisateur** et recopiée par **appareil**. Le
+      // client ne peut atteindre que l'appareil courant : s'il en était
+      // propriétaire, les autres appareils du même parent continueraient de
+      // recevoir ce que l'écran de préférences affiche comme désactivé.
+      await assertFails(
         updateDoc(doc(parent.firestore(), 'deviceTokens', 'token-1'), {
-          enabled: false,
           disabledCategories: ['discussions', 'agenda'],
         }),
+      );
+    });
+
+    it('un parent ne peut pas se réabonner en réinitialisant ses préférences', async () => {
+      // Le pendant du test précédent : sans `unchanged('disabledCategories')`,
+      // un parent pourrait contourner le filtre en réécrivant le tableau à
+      // vide. `update` porte sur le document entier, donc la règle doit porter
+      // sur le champ lui-même et pas seulement sur les clés d'audience.
+      await assertFails(
+        updateDoc(doc(parent.firestore(), 'deviceTokens', 'token-1'), {
+          disabledCategories: [],
+        }),
+      );
+    });
+
+    it('un parent peut désactiver les notifications de son appareil', async () => {
+      // `enabled` est l'interrupteur de **cet appareil** : il ne concerne que
+      // lui, donc le client en reste propriétaire. C'est la seule chose qu'il
+      // puisse encore écrire, avec `lastUsedAt`.
+      await assertSucceeds(
+        updateDoc(doc(parent.firestore(), 'deviceTokens', 'token-1'), { enabled: false }),
       );
     });
   });
