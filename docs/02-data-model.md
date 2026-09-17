@@ -557,7 +557,9 @@ pour le ciblage du contenu **et** des notifications.
 
 Tous les champs de date sont des `Timestamp` Firestore, jamais des chaînes.
 
-- les règles peuvent comparer et valider (`request.time`) ;
+- les règles **pourront** comparer et valider (`request.time`) — capacité réelle
+  du langage, mais **employée nulle part aujourd'hui** : c'est le manque que
+  porte `04-security.md` § 6 ;
 - le tri est natif ;
 - `serverTimestamp()` garantit une horloge serveur, non falsifiable par le
   client.
