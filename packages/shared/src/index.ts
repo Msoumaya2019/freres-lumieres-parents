@@ -17,5 +17,6 @@ export * from './formatting.js';
 export * from './uploads.js';
 export * from './theme.js';
 export * from './push/dispatcher.js';
+export * from './push/errors.js';
 export * from './push/expo.js';
 export * from './push/receipts.js';

@@ -27,6 +27,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { PushMessage, PushRecipient } from './dispatcher.js';
+import { PushCredentialsError } from './errors.js';
 import { ExpoPushDispatcher } from './expo.js';
 
 function recipient(overrides: Partial<PushRecipient> = {}): PushRecipient {
@@ -262,6 +263,60 @@ describe('ExpoPushDispatcher', () => {
     expect(resultat.accepted).toBe(1);
   });
 
+  // --- Le refus d'authentification -----------------------------------------
+
+  describe('jeton d’accès refusé', () => {
+    it('lève une erreur reconnaissable, et interrompt l’envoi au premier refus', async () => {
+      // Deux propriétés, et une seule mutation les emporte toutes les deux —
+      // d'où un seul test plutôt que deux voisins qui se confondraient.
+      //
+      // 1. **L'erreur est reconnaissable.** Un `401` et une panne réseau se
+      //    ressemblent dans un journal, et n'ont rien de commun : l'un se
+      //    répare tout seul, l'autre en remplaçant un secret. Tant que la
+      //    seule différence est une phrase, personne ne peut les distinguer
+      //    par programme. Ce qu'elle ne doit pas devenir non plus : un
+      //    compteur — un « 250 appareils injoignables » désignerait les
+      //    parents, alors que le problème est un secret expiré.
+      //
+      // 2. **L'envoi s'arrête au premier refus.** Le jeton est refusé pour
+      //    *tous* les lots : continuer ferait N appels identiques, tous
+      //    refusés, pour un résultat connu d'avance. Les 250 destinataires
+      //    font trois lots — sans l'arrêt, le compte ci-dessous serait de
+      //    trois.
+      fetchSimule.mockResolvedValue(reponse([], 401));
+
+      const destinataires = Array.from({ length: 250 }, (_, index) =>
+        recipient({ token: `t${index}` }),
+      );
+
+      await expect(dispatcher().send(message(), destinataires)).rejects.toThrow(
+        PushCredentialsError,
+      );
+      expect(fetchSimule).toHaveBeenCalledTimes(1);
+    });
+
+    it('compte toujours une panne ordinaire en échec, et poursuit', async () => {
+      // La contrepartie, sans laquelle le test précédent serait satisfait par
+      // une fonction qui lève au moindre problème : un `500` sur un lot ne doit
+      // ni interrompre les suivants, ni changer de nature.
+      //
+      // Deux lots sont nécessaires pour l'éprouver, donc plus de cent
+      // destinataires — la taille de lot de l'envoi.
+      fetchSimule
+        .mockResolvedValueOnce(reponse([], 500))
+        .mockResolvedValueOnce(reponse([TICKET_OK]));
+
+      const destinataires = Array.from({ length: 101 }, (_, index) =>
+        recipient({ token: `t${index}` }),
+      );
+      const resultat = await dispatcher().send(message(), destinataires);
+
+      expect(fetchSimule).toHaveBeenCalledTimes(2);
+      expect(resultat.failed).toBe(100);
+      expect(resultat.accepted).toBe(1);
+    });
+  });
+
   it('découpe un envoi nombreux en plusieurs requêtes', async () => {
     fetchSimule.mockResolvedValue(reponse([TICKET_OK]));
 
@@ -393,6 +448,16 @@ describe('ExpoPushDispatcher', () => {
       fetchSimule.mockResolvedValueOnce(reponseRecus({}, 500));
 
       await expect(dispatcher().readReceipts(['t1'])).rejects.toThrow('500');
+    });
+
+    it('distingue un refus d’authentification des autres échecs', async () => {
+      // L'appelant doit pouvoir cesser d'insister : un jeton refusé ne se
+      // répare pas en réessayant, et la tâche planifiée le reproduirait toutes
+      // les heures. C'est la seule différence entre une panne qu'on répare et
+      // une panne qu'on subit.
+      fetchSimule.mockResolvedValueOnce(reponseRecus({}, 401));
+
+      await expect(dispatcher().readReceipts(['t1'])).rejects.toThrow(PushCredentialsError);
     });
 
     it('lève quand la réponse n’a pas de table de reçus', async () => {

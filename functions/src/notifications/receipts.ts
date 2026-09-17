@@ -30,12 +30,20 @@
  * seule conséquence d'une reprise est une seconde lecture — les reçus sont
  * idempotents —, et le pire cas est un reçu devenu indisponible, compté
  * `pending` au lieu de `delivered`. C'est une imprécision, pas un mensonge.
+ *
+ * ## Ce qui interrompt le passage
+ *
+ * Un jeton d'accès Expo refusé, et lui seul. Le défaut est global et durable :
+ * réessayer sur les dix-neuf autres envois ne donnerait rien, et le passage de
+ * l'heure suivante recommencerait. Un échec **ordinaire**, au contraire, laisse
+ * le document en attente et sera repris — c'est le comportement voulu, pas une
+ * négligence.
  */
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import type { DocumentReference, Firestore } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions/v2';
 
-import type { PushDispatcher } from '@fl/shared';
+import { PushCredentialsError, type PushDispatcher } from '@fl/shared';
 
 import { adminDb } from '../lib/admin.js';
 import { COLLECTIONS } from '../lib/paths.js';
@@ -130,6 +138,20 @@ export async function readPendingReceipts(
       total.purgedTokens += compte.purgedTokens;
     } catch (error) {
       total.unread += 1;
+
+      // Un jeton d'accès refusé vaut pour **tous** les envois. Insister sur les
+      // suivants produirait vingt fois la même erreur, et le passage de l'heure
+      // suivante la reproduirait indéfiniment. On s'arrête là, avec un message
+      // qui dit quoi faire : c'est la seule différence entre une panne qu'on
+      // répare et une panne qu'on subit.
+      if (error instanceof PushCredentialsError) {
+        logger.error(
+          '[notifications] Jeton d’accès Expo refusé : les reçus ne peuvent pas être relus.',
+          { statut: error.statut },
+        );
+        break;
+      }
+
       logger.error('[notifications] Reçus non relus', {
         notificationId: envoi.id,
         ticketCount: ticketIds.length,

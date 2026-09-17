@@ -52,6 +52,14 @@ GOOGLE_PLAY_SERVICE_ACCOUNT      → GitHub Secret
 EXPO_ACCESS_TOKEN                → variable d'environnement des Functions
 ```
 
+> **Ce que coûte un `EXPO_ACCESS_TOKEN` expiré, et comment le reconnaître.** Il ne
+> fait pas échouer _un_ envoi : il les fait tous échouer. Les fonctions le
+> distinguent maintenant d'une panne ordinaire — `PushCredentialsError` —,
+> interrompent l'envoi, et écrivent une ligne `error` qui nomme la cause. Ni
+> historique ni `notifiedAt` ne sont écrits, donc rien n'affirme qu'un message
+> est parti. C'est le seul message de cette forme : une alerte de journal peut
+> s'y accrocher. Détail dans `docs/05-notifications.md` § 7.
+
 > **Règle absolue : aucune clé Admin ne doit jamais apparaître dans une
 > variable `EXPO_PUBLIC_*` ou `NEXT_PUBLIC_*`.** Le préfixe signifie
 > littéralement « ceci est public ».

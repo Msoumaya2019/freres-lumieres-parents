@@ -1,8 +1,8 @@
 /**
- * Ce que la requête d'envoi ne doit pas contraindre, et ce que le journal ne
- * doit pas affirmer.
+ * Ce que la requête d'envoi ne doit pas contraindre, ce que le journal ne doit
+ * pas affirmer, et ce qui doit interrompre un envoi.
  *
- * ## Les deux décisions que ce test tient
+ * ## Les trois décisions que ce test tient
  *
  * **La requête.** `queryTokensByAudience` lit les jetons d'une audience. Elle ne
  * contraint **pas** `enabled`, et c'est une décision, pas un oubli : une
@@ -17,6 +17,12 @@
  * « delivered » qui comptait des acceptations. Le remettre à `accepted` ne
  * casserait rien, ne lèverait rien, et remettrait en place exactement le
  * mensonge qu'on vient de retirer.
+ *
+ * **Le refus d'authentification.** Un jeton d'accès Expo refusé doit interrompre
+ * l'envoi, et l'erreur doit remonter. La compter en échec écrirait « 412
+ * appareils injoignables » là où il n'y a qu'un secret expiré — le compte rendu
+ * serait faux dans le sens qui rassure, puisqu'il désignerait les parents au lieu
+ * de la configuration.
  *
  * ## Pourquoi il lit la source au lieu d'appeler les fonctions
  *
@@ -82,5 +88,30 @@ describe('writeNotificationLog', () => {
 
     expect(corps).toContain('if (historiqueEcrit)');
     expect(corps).toContain('writePushTickets(');
+  });
+});
+
+describe('sendToAudience, sur un jeton d’accès refusé', () => {
+  it('nomme la panne au lieu de la compter', () => {
+    // Le défaut que tout cet incrément corrige : un `401` se comptait comme une
+    // audience injoignable — « 412 appareils » au lieu de « jeton expiré ». Le
+    // message doit dire lequel des deux, sans quoi aucune alerte de journal ne
+    // peut s'y accrocher, et la panne reste invisible.
+    const corps = corpsDeLaFonction(SOURCE, 'sendToAudience', CHEMIN_SEND);
+
+    expect(corps).toContain('instanceof PushCredentialsError');
+    expect(corps).toContain('logger.error');
+    expect(corps).toContain('Jeton d’accès Expo refusé');
+  });
+
+  it('relance l’erreur, pour qu’aucun historique ne soit écrit', () => {
+    // Lever n'est pas une coquetterie : c'est ce qui empêche l'écriture du
+    // document d'historique **et** du `notifiedAt`. Sans la relance, le journal
+    // annoncerait un envoi complet et la publication serait marquée notifiée —
+    // donc jamais reprise, même après remplacement du secret.
+    const corps = corpsDeLaFonction(SOURCE, 'sendToAudience', CHEMIN_SEND);
+    const rattrapage = corps.slice(corps.indexOf('} catch'));
+
+    expect(rattrapage).toContain('throw error;');
   });
 });

@@ -595,7 +595,7 @@ Le service Expo Push rend **deux** réponses distinctes, et les confondre fait
 | `MessageRateExceeded` | ticket                   | attente exponentielle, nouvel essai                                                          | fait — au niveau HTTP : trois tentatives sur `429`, puis abandon |
 | Réponse incomplète    | ticket                   | les jetons sans ticket comptent en **échec**, jamais en livraison, et l'écart est journalisé | fait                                                             |
 | `MessageTooBig`       | **reçu** seulement       | troncature et nouvel essai                                                                   | **sans objet** — voir ci-dessous                                 |
-| `InvalidCredentials`  | HTTP `401`               | alerte immédiate : le jeton d'accès Expo est expiré                                          | **à faire** — un `401` est journalisé comme un échec ordinaire   |
+| `InvalidCredentials`  | HTTP `401`               | arrêt de l'envoi, erreur journalisée, aucune écriture                                        | fait — voir ci-dessous                                           |
 
 **`MessageTooBig` est sans objet, et c'est mesuré.** La limite du service est de
 **4096 octets** pour la charge utile totale d'un message. Au pire cas autorisé,
@@ -619,9 +619,35 @@ et sans effet. C'est la table `pushTickets`, écrite au moment de l'envoi, qui
 fait le pont ; elle est supprimée dès que les reçus de son envoi sont relus, et
 elle n'est lisible par aucun client, parce qu'elle contient des jetons.
 
-`InvalidCredentials` reste le manque le plus coûteux : un jeton d'accès Expo
-expiré fait échouer **tous** les envois en silence, et rien ne le distingue d'un
-incident réseau passager dans le journal.
+`InvalidCredentials` était le manque le plus coûteux de la phase, et il est
+comblé. Un jeton d'accès Expo refusé faisait échouer **tous** les envois, et
+rien ne le distinguait d'une panne réseau passagère : un `401` était journalisé
+comme un échec ordinaire, et compté comme tel.
+
+Il lève désormais une `PushCredentialsError`, reconnue au plus près du statut
+HTTP — là où l'information existe encore, plutôt que plus tard à partir d'une
+phrase de journal. Trois conséquences, et la troisième est celle qui compte :
+
+1. **L'envoi s'interrompt** au premier refus. Le jeton est refusé pour _tous_ les
+   lots : continuer ne produirait que N appels identiques, tous refusés, pour
+   épuiser le quota d'invocations.
+2. **L'erreur est journalisée à un niveau `error`**, avec une phrase qui dit quoi
+   faire. C'est le seul point d'accroche d'une alerte : une alerte de journal
+   peut viser ce message, qui est le seul de sa forme.
+3. **Rien n'est écrit.** Ni document d'historique, ni `notifiedAt`. Un
+   `failedCount` de 412 aurait présenté une configuration cassée comme une
+   audience injoignable — faux dans le sens qui rassure, puisqu'il désigne les
+   parents au lieu du secret. La publication n'est donc pas marquée notifiée,
+   ce qui est exact : rien n'est parti.
+
+Le passage des reçus s'interrompt sur le même refus, au lieu de reproduire la
+même erreur à chaque heure.
+
+**Une panne ordinaire reste une panne ordinaire.** Un `500` ou un réseau qui
+lâche ne lèvent pas : le lot est compté en échec et l'envoi continue. C'est la
+contrepartie sans laquelle le remède serait pire que le mal — une fonction qui
+s'arrête au premier hoquet perdrait des notifications que le lot suivant aurait
+pu délivrer.
 
 L'abandon après trois tentatives est délibéré : une boucle de retrait infinie
 est la façon la plus rapide d'épuiser le quota d'invocations, et le budget de

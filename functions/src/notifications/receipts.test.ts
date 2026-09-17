@@ -6,9 +6,9 @@
  * `readPendingReceipts` ne fait que trois choses : interroger Firestore,
  * appeler le réseau, écrire. Les éprouver par le comportement demanderait un
  * émulateur, une horloge simulée et un service Expo simulé — beaucoup de
- * machines pour vérifier trois décisions qui tiennent en une ligne chacune.
+ * machines pour vérifier quatre décisions qui tiennent en une ligne chacune.
  *
- * ## Les trois décisions, et ce que chacune empêche
+ * ## Les quatre décisions, et ce que chacune empêche
  *
  * 1. **`deliveredCount` vient des reçus, jamais des tickets.** C'est la raison
  *    d'être de tout l'incrément : le champ comptait des messages *acceptés* en
@@ -22,6 +22,11 @@
  *    s'exécute au moins une fois. Si le document était marqué « relu » avant la
  *    purge, une reprise après incident ne relirait plus rien et laisserait des
  *    jetons morts en place, pour toujours.
+ * 4. **Un refus d'authentification interrompt le passage**, et lui seul. Le
+ *    jeton est refusé pour tous les envois : insister produirait vingt fois la
+ *    même erreur, et le passage de l'heure suivante la reproduirait. Un échec
+ *    ordinaire, au contraire, laisse le document à reprendre — le `break` ne
+ *    doit donc pas l'englober.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -106,5 +111,18 @@ describe('readPendingReceipts', () => {
     // supprimerait rien, tout en annonçant une purge réussie.
     expect(corps).toContain('jetonsMorts.push(token)');
     expect(corps).toContain('Ticket mort sans jeton connu');
+  });
+
+  it('interrompt le passage sur un refus d’authentification, et lui seul', () => {
+    // Un jeton refusé vaut pour **tous** les envois : insister produirait vingt
+    // fois la même erreur, et le passage de l'heure suivante la reproduirait
+    // indéfiniment. Un échec ordinaire, lui, doit laisser le document à
+    // reprendre — le `break` ne doit donc pas l'englober.
+    const corps = corpsDeLaFonction(SOURCE, 'readPendingReceipts', CHEMIN_RECUS);
+    const rattrapage = corps.slice(corps.indexOf('} catch'));
+
+    expect(rattrapage).toContain('instanceof PushCredentialsError');
+    expect(rattrapage).toContain('break;');
+    expect(rattrapage).toContain("logger.error('[notifications] Reçus non relus'");
   });
 });

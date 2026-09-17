@@ -7,6 +7,15 @@
  *
  * Le transport réel reste Firebase Cloud Messaging sur Android et APNs sur
  * iOS : Expo Push Service relaie vers ces deux services.
+ *
+ * ## Deux sortes d'échec, et une seule est un échec d'envoi
+ *
+ * Une panne réseau ou un `500` sont des échecs **de cet envoi** : ils se
+ * comptent, et le prochain envoi se passera peut-être mieux. Un `401` n'est pas
+ * cela — le jeton d'accès est refusé, donc **aucun** envoi ne peut aboutir, ni
+ * maintenant ni dans une heure, et rien ne le réparera sans intervention. Le
+ * confondre avec les premiers rendait la panne invisible : c'est le défaut que
+ * `PushCredentialsError` supprime.
  */
 import type {
   PushDispatcher,
@@ -22,6 +31,7 @@ import {
   chunkTicketIds,
   filterRecipients,
 } from './dispatcher.js';
+import { PushCredentialsError } from './errors.js';
 import { summariseReceipts, type ExpoPushReceipt } from './receipts.js';
 
 const EXPO_PUSH_SEND_ENDPOINT = 'https://exp.host/--/api/v2/push/send';
@@ -133,6 +143,18 @@ export class ExpoPushDispatcher implements PushDispatcher {
           });
         }
       } catch (error) {
+        // Un refus d'authentification interrompt l'envoi, il ne le compte pas.
+        //
+        // Deux raisons, et la seconde est la vraie. D'abord, le jeton est refusé
+        // pour **tous** les lots : continuer ferait N appels identiques, tous
+        // refusés, pour épuiser le quota d'invocations. Ensuite — et c'est ce
+        // qui compte —, compter ces lots en échec écrirait « 412 appareils
+        // injoignables » dans l'historique, alors qu'aucun message n'est parti
+        // et que le problème est un secret expiré. Le compte rendu serait faux
+        // dans le sens qui rassure : il désignerait les parents au lieu de la
+        // configuration.
+        if (error instanceof PushCredentialsError) throw error;
+
         failed += batch.length;
         this.log('Échec de l’appel au service Expo Push.', {
           error: error instanceof Error ? error.message : String(error),
@@ -159,6 +181,10 @@ export class ExpoPushDispatcher implements PushDispatcher {
    * `null`, donc « non relu ». Rendre des zéros à la place écrirait « aucun
    * message remis » dans un document que personne ne relira, et le mensonge
    * deviendrait un fait. L'appelant, lui, peut réessayer.
+   *
+   * Sauf sur un refus d'authentification, qui remonte tel quel
+   * (`PushCredentialsError`) : celui-là ne se répare pas en réessayant, et
+   * l'appelant doit cesser d'insister au lieu de réessayer toutes les heures.
    */
   async readReceipts(ticketIds: readonly string[]): Promise<PushReceipts> {
     if (ticketIds.length === 0) {
@@ -210,6 +236,13 @@ export class ExpoPushDispatcher implements PushDispatcher {
       if (response.status === 429 && attempt < 3) {
         await delay(500 * 2 ** (attempt - 1));
         return this.postJson(url, payload, attempt + 1);
+      }
+
+      // Un `401` n'est pas une panne : c'est un secret à remplacer. Le
+      // distinguer ici, au plus près du statut, évite d'avoir à le deviner plus
+      // tard à partir d'une phrase de journal.
+      if (response.status === 401) {
+        throw new PushCredentialsError(response.status);
       }
 
       if (!response.ok) {

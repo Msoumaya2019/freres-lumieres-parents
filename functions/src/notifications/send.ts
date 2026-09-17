@@ -23,6 +23,16 @@
  * d'historique, pas un défaut de service. L'inverse — perdre l'envoi parce que
  * l'historique a échoué — serait absurde.
  *
+ * ## Ce qui, en revanche, fait bien échouer l'envoi
+ *
+ * Un jeton d'accès Expo refusé. C'est le seul cas où cette fonction lève, et il
+ * le mérite : le défaut est **global** — aucun envoi n'aboutit, pour personne —,
+ * **durable** — il ne se répare pas en réessayant —, et **silencieux** si on le
+ * laisse passer, puisqu'il se comptait jusqu'ici comme une audience
+ * injoignable. Lever a un prix : ni historique, ni `notifiedAt`, donc la
+ * publication ne sera pas renotifiée d'elle-même. C'est exact — rien n'est
+ * parti — et c'est préférable à un document qui affirme le contraire.
+ *
  * ## Le compte rendu se fait en deux temps, et c'est voulu
  *
  * Ce module écrit ce que le service a **accepté** : `acceptedCount`, et
@@ -43,9 +53,11 @@ import { logger } from 'firebase-functions/v2';
 import type { Audience, NotificationType } from '@fl/types';
 import {
   ExpoPushDispatcher,
+  PushCredentialsError,
   chunkAudienceKeys,
   type PushDispatcher,
   type PushMessage,
+  type PushResult,
   type PushTicketRef,
 } from '@fl/shared';
 
@@ -298,7 +310,31 @@ export async function sendToAudience(params: SendToAudienceParams): Promise<Send
     });
   }
 
-  const resultat = await dispatcher.send(message, recipients);
+  let resultat: PushResult;
+  try {
+    resultat = await dispatcher.send(message, recipients);
+  } catch (error) {
+    // Un jeton d'accès refusé n'est pas un envoi qui a échoué : c'est un envoi
+    // qui n'a pas eu lieu, et qui n'aura pas lieu tant que le secret n'est pas
+    // remplacé. Deux conséquences, et la seconde est la plus grave :
+    //
+    //  - l'erreur est journalisée à un niveau `error`, avec une phrase qui dit
+    //    quoi faire. Une alerte de journal peut s'y accrocher ; sans ce message
+    //    distinct, elle se confondait avec une panne réseau passagère ;
+    //  - elle est **relancée**, donc l'appelant n'écrit ni historique ni
+    //    `notifiedAt`. Rien n'affirme qu'un message est parti, et l'incident
+    //    remonte dans les journaux Cloud au lieu d'être absorbé.
+    if (error instanceof PushCredentialsError) {
+      logger.error(
+        '[notifications] Jeton d’accès Expo refusé : aucun envoi ne peut aboutir ' +
+          'tant qu’il n’a pas été remplacé.',
+        { category: message.category, statut: error.statut },
+      );
+    }
+
+    throw error;
+  }
+
   const purgedTokens = await purgeDeviceTokens(resultat.invalidTokens);
 
   // L'identifiant est tiré **avant** l'écriture : la table des tickets doit le

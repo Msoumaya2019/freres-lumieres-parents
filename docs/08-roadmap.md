@@ -582,11 +582,23 @@ ordinateur ; un parent qui tente d'y accéder est refusé.
       le reçu à la relecture. Les deux passent par `purgeDeviceTokens`, une seule
       implémentation : écrire la suppression deux fois aurait produit deux
       comportements qui divergent à la première modification.
-- [ ] Rendre `InvalidCredentials` visible — un jeton d'accès Expo expiré fait
-      échouer **tous** les envois, et rien ne le distingue aujourd'hui d'un
-      incident réseau passager : un `401` est journalisé comme un échec
-      ordinaire. C'est le manque le plus coûteux de la phase, parce qu'il est
-      silencieux et global.
+- [x] Rendre `InvalidCredentials` visible — un jeton d'accès Expo expiré fait
+      échouer **tous** les envois, et rien ne le distinguait d'un incident réseau
+      passager : un `401` était journalisé comme un échec ordinaire. C'était le
+      manque le plus coûteux de la phase, parce qu'il est silencieux et global.
+      **Complété :** le `401` devient une `PushCredentialsError`, reconnue au
+      plus près du statut HTTP. Le passage des reçus s'interrompt lui aussi sur
+      ce refus, au lieu de reproduire la même erreur à chaque heure. Pour
+      l'envoi, trois conséquences — il **s'interrompt** au premier refus,
+      puisque le jeton est refusé pour tous les lots et qu'insister ne
+      produirait que N appels identiques ; `sendToAudience` journalise à un
+      niveau `error` une phrase qui dit quoi faire, puis **relance** l'erreur ;
+      et rien n'est écrit, ni document d'historique ni `notifiedAt`. C'est la
+      troisième qui compte : un `failedCount` de 412 aurait présenté une
+      configuration cassée comme une audience injoignable — faux dans le sens
+      qui rassure, puisqu'il désigne les parents au lieu du secret. La
+      publication n'est donc pas marquée notifiée, ce qui est exact : rien n'est
+      parti.
 - [x] `MessageTooBig` — **sans objet, et mesuré.** La limite du service est de
       4096 octets par message ; au pire cas autorisé, la charge utile pèse
       **590 octets**. Le titre est borné à 140 caractères par les règles
