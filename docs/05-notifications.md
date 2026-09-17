@@ -208,6 +208,33 @@ donc l'enregistrement côté application, qui reste à écrire.
 > gêne, pas une fuite — et les clés de l'ancien porteur sont effacées au
 > passage.
 
+### Ce qui déclenche un recalcul
+
+Deux écritures, et deux seulement, recalculent les clés d'un parent :
+
+| Écriture                         | Déclencheur             |
+| -------------------------------- | ----------------------- |
+| `users/{uid}`                    | `onUserProfileWritten`  |
+| `users/{uid}/children/{childId}` | `onUserChildrenWritten` |
+
+Le second manquait. `rebuildAudienceKeysForUser` lit la sous-collection
+`children` — c'est la seule façon de construire `level:{école}:{niveau}` quand
+une famille a des enfants dans deux écoles — mais **rien ne la surveillait**.
+Le formulaire d'inscription masquait le défaut : il écrit l'enfant et le profil
+d'un seul geste. Ajouter un enfant plus tard ne recalculait donc rien, le parent
+ne voyait pas le fil de sa classe, et rien n'échouait.
+
+Le filtre est volontairement étroit : seuls l'école, le niveau et la classe
+comptent. Corriger l'orthographe d'un prénom ne doit pas coûter une lecture de
+profil, une requête sur les enfants et une écriture.
+
+Le recalcul se fait en deux passes, et c'est normal :
+`rebuildAudienceKeysForUser` écrit le profil, ce qui retraverse
+`onUserProfileWritten`. La seconde passe recalcule les mêmes valeurs, la
+comparaison devient fausse, et la chaîne s'arrête. Deux lectures et deux
+écritures pour un enfant ajouté — le prix de ne pas dupliquer la logique de
+recalcul.
+
 ### Ce que la recopie ne couvre pas encore
 
 L'interrupteur général (`notificationPrefs.enabled`) n'est **pas** recopié. Il
@@ -216,11 +243,6 @@ sa portée n'est pas tranchée : doit-il couper aussi les alertes `urgent`, alor
 que la spécification dit qu'elles atteignent tout le monde « quelles que soient
 les préférences » ? La question est ouverte, et elle sera à trancher avec
 l'écran de préférences.
-
-Un changement dans la sous-collection `users/{uid}/children` ne déclenche rien
-non plus : les clés d'audience d'un parent qui ajoute un enfant ne sont
-recalculées qu'à la prochaine écriture de son profil. Il manque un déclencheur
-sur cette sous-collection.
 
 ### Cycle de vie
 
@@ -401,12 +423,13 @@ historique complet : qui a envoyé quoi, à qui, quand.
 
 ### Gestion des erreurs
 
-| Erreur Expo/FCM       | Action                                                                                |
-| --------------------- | ------------------------------------------------------------------------------------- |
-| `DeviceNotRegistered` | suppression du jeton                                                                  |
-| `MessageTooBig`       | troncature et nouvel essai                                                            |
-| `MessageRateExceeded` | attente exponentielle, nouvel essai                                                   |
-| `InvalidCredentials`  | **alerte immédiate** dans `adminLogs` : le jeton d'accès Expo est probablement expiré |
+| Erreur Expo/FCM       | Action                                                                                       |
+| --------------------- | -------------------------------------------------------------------------------------------- |
+| `DeviceNotRegistered` | suppression du jeton                                                                         |
+| `MessageTooBig`       | troncature et nouvel essai                                                                   |
+| `MessageRateExceeded` | attente exponentielle, nouvel essai                                                          |
+| `InvalidCredentials`  | **alerte immédiate** dans `adminLogs` : le jeton d'accès Expo est probablement expiré        |
+| Réponse incomplète    | les jetons sans ticket comptent en **échec**, jamais en livraison, et l'écart est journalisé |
 
 ---
 

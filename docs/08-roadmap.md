@@ -464,15 +464,25 @@ ordinateur ; un parent qui tente d'y accéder est refusé.
       **Restent à faire :** l'enregistrement côté application (demande de
       permission, obtention du jeton Expo, écriture du document) — bloqué par
       `extra.eas.projectId`, **vide** dans `app.json`, sans lequel
-      `getExpoPushTokenAsync` ne peut rien obtenir ; la désactivation du jeton à
-      la déconnexion ; et le déclencheur sur `users/{uid}/children` — ajouter un
-      enfant ne recalcule rien tant que le profil n'est pas réécrit.
+      `getExpoPushTokenAsync` ne peut rien obtenir ; et la désactivation du jeton
+      à la déconnexion.
+      **Le déclencheur sur `users/{uid}/children` est fait** :
+      `onUserChildrenWritten` recalcule les clés du parent quand son école, son
+      niveau ou sa classe change. Il manquait, et le formulaire d'inscription
+      masquait le défaut — il écrit l'enfant et le profil d'un seul geste, si
+      bien qu'ajouter un enfant plus tard ne faisait rien : le parent ne voyait
+      pas le fil de sa classe, et rien n'échouait.
 - [ ] Écran de préférences par catégorie
 - [x] `ExpoPushDispatcher` derrière l'interface `PushDispatcher` — écrit dans
       `packages/firebase/src/push/expo.ts` et exporté par `@fl/firebase`. Il
       n'est encore **appelé par aucune Cloud Function** : c'est l'item suivant
-      qui le branche. `filterRecipients`, `chunkRecipients` et
-      `androidChannelId` ne sont couverts par aucun test.
+      qui le branche. Ses fonctions sont désormais couvertes — 32 tests dans
+      `packages/firebase/src/push/`, dont le filtrage, le découpage en lots et
+      le compte rendu d'un envoi. Ces tests ont trouvé un défaut : une réponse
+      **plus courte que la demande** était comptée comme une livraison partielle
+      réussie, alors que les jetons sans ticket n'ont pas été confirmés.
+      `delivered + failed` pouvait donc être inférieur au nombre de
+      destinataires, et l'administration annoncer un envoi complet.
 - [ ] Les 7 déclencheurs (publication, commentaire, réponse, message, sondage, signalement, rappel)
 - [ ] Regroupement des messages (fenêtre de 5 minutes)
 - [ ] Liens profonds vers le contenu concerné
