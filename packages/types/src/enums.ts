@@ -88,9 +88,32 @@ export type NotificationType =
   | 'event_reminder'
   | 'account_validated';
 
-/** Catégories de notifications que le parent peut désactiver. */
+/**
+ * Catégories de notifications.
+ *
+ * `urgent` en fait partie — une fermeture d'école est bien une notification —
+ * mais elle n'est pas désactivable. Le commentaire précédent affirmait
+ * l'inverse (« que le parent peut désactiver ») alors que le type contient
+ * `urgent` : l'écart entre les deux était invisible pour le compilateur, donc
+ * la distinction vit maintenant dans deux types dérivés.
+ */
 export type NotificationCategory =
   'urgent' | 'publications' | 'discussions' | 'sondages' | 'signalements' | 'agenda' | 'vie_fcpe';
+
+/** Catégories que l'utilisateur ne peut pas désactiver. */
+export type MandatoryNotificationCategory = 'urgent';
+
+/**
+ * Catégories que l'utilisateur peut désactiver.
+ *
+ * Dérivé de `NotificationCategory` : ajouter demain une catégorie obligatoire
+ * la retire d'ici automatiquement, et le compilateur signalera les écrans de
+ * préférences qui la proposaient encore.
+ */
+export type OptionalNotificationCategory = Exclude<
+  NotificationCategory,
+  MandatoryNotificationCategory
+>;
 
 export type DevicePlatform = 'ios' | 'android' | 'web';
 

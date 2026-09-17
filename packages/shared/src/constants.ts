@@ -20,6 +20,7 @@ import type {
   FcpeTaskPriority,
   FcpeTaskStatus,
   IssueSupportValue,
+  MandatoryNotificationCategory,
   ModeratedStatus,
   ModerationAction,
   ModerationReason,
@@ -27,6 +28,7 @@ import type {
   ModerationTargetType,
   NotificationCategory,
   NotificationType,
+  OptionalNotificationCategory,
   PollResultsVisibility,
   PollStatus,
   PostCategory,
@@ -191,11 +193,42 @@ export const NOTIFICATION_CATEGORIES = [
 
 /**
  * Catégories que l'utilisateur ne peut PAS désactiver.
- * Les alertes urgentes doivent toujours passer.
+ *
+ * Les alertes urgentes doivent toujours passer : une fermeture d'école
+ * annoncée trop tard ne se rattrape pas.
+ *
+ * Cette liste est la **source unique** de l'exception, et elle est lue par les
+ * deux endroits qui l'appliquent :
+ *
+ *  - `notificationPrefsSchema` refuse ces valeurs dans `disabledCategories` —
+ *    une préférence sans effet serait un mensonge à l'utilisateur ;
+ *  - `filterRecipients` ne filtre jamais ces catégories à l'envoi. C'est la
+ *    garantie réelle, celle qui tient même si un document en base porte la
+ *    valeur : les règles Firestore ne valident pas `notificationPrefs`, donc
+ *    un document écrit par une version antérieure, ou par un client qui
+ *    contourne le schéma, peut très bien la contenir.
  */
 export const MANDATORY_NOTIFICATION_CATEGORIES = [
   'urgent',
-] as const satisfies readonly NotificationCategory[];
+] as const satisfies readonly MandatoryNotificationCategory[];
+
+/** Vrai si la catégorie ne peut pas être désactivée par l'utilisateur. */
+export function isMandatoryNotificationCategory(category: NotificationCategory): boolean {
+  return (MANDATORY_NOTIFICATION_CATEGORIES as readonly NotificationCategory[]).includes(category);
+}
+
+/**
+ * Catégories que l'utilisateur PEUT désactiver : toutes sauf les obligatoires.
+ *
+ * Dérivée de `NOTIFICATION_CATEGORIES` plutôt que recopiée, pour que l'écran de
+ * préférences ne puisse ni proposer un interrupteur sans effet, ni oublier une
+ * catégorie ajoutée plus tard.
+ */
+export const OPTIONAL_NOTIFICATION_CATEGORIES: readonly OptionalNotificationCategory[] =
+  NOTIFICATION_CATEGORIES.filter(
+    (category): category is OptionalNotificationCategory =>
+      !isMandatoryNotificationCategory(category),
+  );
 
 export const DEVICE_PLATFORMS = [
   'ios',
