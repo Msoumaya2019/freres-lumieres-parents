@@ -10,9 +10,10 @@
  * La logique de construction est **partagée** avec le client (`@fl/shared`) :
  * une seule définition, utilisée des deux côtés.
  *
- * `audienceChanged` vit ici parce qu'elle répond à la même question — « les
- * clés ont-elles bougé ? » — et que deux modules en dépendent : le recalcul du
- * profil et la recopie vers les jetons d'appareil.
+ * `audienceChanged` et `childAudienceChanged` vivent ici parce qu'elles
+ * répondent à la même question — « les clés ont-elles bougé ? » — et que deux
+ * modules en dépendent : le recalcul du profil et la recopie vers les jetons
+ * d'appareil.
  */
 import { logger } from 'firebase-functions/v2';
 
@@ -141,4 +142,53 @@ export function audienceChanged(
   after: AudienceBearingProfile,
 ): boolean {
   return audienceSignature(before) !== audienceSignature(after);
+}
+
+/**
+ * Ce dont dépend l'audience d'un enfant.
+ *
+ * Un enfant porte son école, son niveau et sa classe : ce sont ces trois champs
+ * qui décident des clés `school:`, `level:` et `class:`. Le prénom, la date de
+ * naissance ou le rang dans la fratrie n'y changent rien — les faire entrer
+ * dans la signature ferait payer une lecture de profil, une requête sur les
+ * enfants et une écriture à chaque correction d'orthographe.
+ */
+export interface ChildAudienceSource {
+  schoolId?: unknown;
+  level?: unknown;
+  classId?: unknown;
+}
+
+function childAudienceSignature(child: ChildAudienceSource): string {
+  return JSON.stringify([
+    typeof child.schoolId === 'string' ? child.schoolId : null,
+    typeof child.level === 'string' ? child.level : null,
+    typeof child.classId === 'string' ? child.classId : null,
+  ]);
+}
+
+/**
+ * Les clés d'audience du parent doivent-elles être recalculées ?
+ *
+ * ## Le défaut que cette fonction corrige
+ *
+ * `rebuildAudienceKeysForUser` lit la sous-collection `children` — c'est même
+ * la seule façon de construire `level:{école}:{niveau}` quand une famille a des
+ * enfants dans deux écoles. Mais **rien ne surveillait cette sous-collection** :
+ * ajouter un enfant ne recalculait donc rien tant que le profil n'était pas
+ * réécrit. Le parent ne voyait pas le fil de la classe de son enfant, et rien
+ * n'échouait — le contenu existait simplement pas pour lui.
+ *
+ * La création et la suppression comptent toutes les deux : ajouter un enfant
+ * ouvre sa classe, en retirer la referme.
+ */
+export function childAudienceChanged(
+  before: ChildAudienceSource | undefined,
+  after: ChildAudienceSource | undefined,
+): boolean {
+  // Création : il n'y avait pas d'enfant, il y en a un.
+  if (!before) return after !== undefined;
+  // Suppression : il y en avait un, il n'y en a plus.
+  if (!after) return true;
+  return childAudienceSignature(before) !== childAudienceSignature(after);
 }

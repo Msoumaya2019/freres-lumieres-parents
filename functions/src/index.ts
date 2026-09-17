@@ -38,7 +38,11 @@ setGlobalOptions({
 });
 
 // --- Comptes et droits -------------------------------------------------------
-export { onUserProfileCreated, onUserProfileWritten } from './auth/user-triggers.js';
+export {
+  onUserProfileCreated,
+  onUserProfileWritten,
+  onUserChildrenWritten,
+} from './auth/user-triggers.js';
 
 // --- Actions d'administration ------------------------------------------------
 export { adminSetUserStatus, adminSetUserRole, adminDeleteUser } from './callable/admin-users.js';

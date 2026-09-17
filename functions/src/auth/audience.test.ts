@@ -24,7 +24,8 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { audienceChanged } from './audience.js';
+import type { ChildAudienceSource } from './audience.js';
+import { audienceChanged, childAudienceChanged } from './audience.js';
 
 /** Profil parent ordinaire, point de départ des variations. */
 const profile = {
@@ -119,5 +120,91 @@ describe('audienceChanged', () => {
     // attendue.
     expect(audienceChanged(profile, { ...profile, levels: 'ce1' })).toBe(true);
     expect(audienceChanged(profile, { ...profile, levels: undefined })).toBe(true);
+  });
+});
+
+/**
+ * Détection d'un changement dans la sous-collection des enfants.
+ *
+ * Même enjeu, autre source : les clés d'un parent se déduisent aussi de ses
+ * enfants, et `rebuildAudienceKeysForUser` va les lire. La question est de
+ * savoir si cette lecture vaut la peine.
+ */
+describe('childAudienceChanged', () => {
+  const enfant = { schoolId: 'lumiere', level: 'ce1', classId: 'ce1-a' };
+
+  /**
+   * Un enfant, plus des champs qui ne doivent déclencher aucun recalcul.
+   *
+   * `Object.assign` plutôt qu'un littéral : `ChildAudienceSource` ne décrit que
+   * ce dont l'audience dépend, et un littéral portant `firstName` serait refusé
+   * par TypeScript — or c'est précisément le sujet de ces deux tests.
+   */
+  function enfantEtAutres(champs: Record<string, unknown>): ChildAudienceSource {
+    return Object.assign({ ...enfant }, champs);
+  }
+
+  it('ne détecte rien sur un enfant identique', () => {
+    expect(childAudienceChanged(enfant, { ...enfant })).toBe(false);
+  });
+
+  it('détecte l’ajout d’un enfant', () => {
+    // Le défaut d'origine : rien ne surveillait cette sous-collection, donc
+    // ajouter un enfant ne recalculait rien tant que le profil n'était pas
+    // réécrit. Le parent ne voyait pas le fil de la classe de son enfant, et
+    // rien n'échouait.
+    expect(childAudienceChanged(undefined, enfant)).toBe(true);
+  });
+
+  it('détecte le retrait d’un enfant', () => {
+    // Le sens inverse compte autant : sans recalcul, le parent garderait
+    // l'accès à la classe qu'il vient de quitter.
+    expect(childAudienceChanged(enfant, undefined)).toBe(true);
+  });
+
+  it('détecte un changement de classe', () => {
+    expect(childAudienceChanged(enfant, { ...enfant, classId: 'ce1-b' })).toBe(true);
+  });
+
+  it('détecte un changement de niveau', () => {
+    expect(childAudienceChanged(enfant, { ...enfant, level: 'cm2' })).toBe(true);
+  });
+
+  it('détecte un changement d’école', () => {
+    expect(childAudienceChanged(enfant, { ...enfant, schoolId: 'jean-moulin' })).toBe(true);
+  });
+
+  // --- Ce qui ne doit PAS déclencher de recalcul ---------------------------
+
+  it('ne détecte rien sur une correction de prénom', () => {
+    // Corriger une faute de frappe ne doit pas coûter une lecture de profil,
+    // une requête sur les enfants et une écriture.
+    expect(
+      childAudienceChanged(
+        enfantEtAutres({ firstName: 'Léa' }),
+        enfantEtAutres({ firstName: 'Léo' }),
+      ),
+    ).toBe(false);
+  });
+
+  it('ne détecte rien sur la disparition d’un champ qui ne compte pas', () => {
+    expect(childAudienceChanged(enfantEtAutres({ birthDate: '2016-03-01' }), enfant)).toBe(false);
+  });
+
+  // --- Les cas limites -----------------------------------------------------
+
+  it('ignore les valeurs qui ne sont pas des chaînes', () => {
+    // Firestore ne garantit pas le type d'un champ : une classe non textuelle
+    // vaut « aucune classe », et deux valeurs non textuelles différentes ne
+    // doivent pas provoquer un recalcul en boucle.
+    expect(childAudienceChanged(enfant, { ...enfant, classId: 42 })).toBe(true);
+    expect(childAudienceChanged({ ...enfant, classId: 42 }, { ...enfant, classId: 43 })).toBe(
+      false,
+    );
+  });
+
+  it('ne détecte rien quand il n’y a ni avant ni après', () => {
+    // Cas défensif : un déclencheur Firestore a toujours l'un des deux.
+    expect(childAudienceChanged(undefined, undefined)).toBe(false);
   });
 });

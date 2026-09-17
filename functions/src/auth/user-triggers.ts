@@ -1,5 +1,5 @@
 /**
- * Déclencheurs liés au cycle de vie des comptes.
+ * Déclencheurs liés au cycle de vie des comptes et au rattachement des familles.
  *
  * ## Le parcours complet
  *
@@ -17,6 +17,10 @@
  *                              → l'utilisateur accède à l'application
  * ```
  *
+ * À côté de ce parcours, `onUserChildrenWritten` surveille la sous-collection
+ * des enfants : c'est elle qui porte l'école, le niveau et la classe dont les
+ * clés d'audience se déduisent.
+ *
  * Ce découplage est volontaire : le client ne peut pas s'attribuer un statut
  * (les règles Firestore figent `role` et `status`), et seule une Function
  * dotée de l'Admin SDK peut écrire les Custom Claims.
@@ -28,7 +32,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { adminDb } from '../lib/admin.js';
 import { COLLECTIONS, paths } from '../lib/paths.js';
 import { claimsSourceFromProfile, clearUserClaims, syncUserClaims } from './claims.js';
-import { audienceChanged, rebuildAudienceKeysForUser } from './audience.js';
+import { audienceChanged, childAudienceChanged, rebuildAudienceKeysForUser } from './audience.js';
 import {
   syncDeviceTokensForUser,
   tokenSyncFields,
@@ -161,6 +165,52 @@ export const onUserProfileWritten = onDocumentWritten(
       role: source.role,
       status: source.status,
       previousStatus: before?.status,
+    });
+  },
+);
+
+/**
+ * À chaque modification des enfants : les clés du parent sont recalculées.
+ *
+ * ## Le trou que ce déclencheur ferme
+ *
+ * `rebuildAudienceKeysForUser` lit la sous-collection `children` — c'est la
+ * seule façon de construire `level:{école}:{niveau}` quand une famille a des
+ * enfants dans deux écoles. Mais **rien ne surveillait cette sous-collection**.
+ * Le profil ne portait donc pas trace du nouvel enfant avant sa prochaine
+ * réécriture : le parent ne voyait pas le fil de la classe, et rien n'échouait.
+ * Le formulaire d'inscription écrit l'enfant et le profil d'un seul geste, ce
+ * qui masquait le défaut ; ajouter un enfant plus tard ne faisait rien.
+ *
+ * Le filtre est volontairement étroit : seuls l'école, le niveau et la classe
+ * comptent. Corriger l'orthographe d'un prénom ne doit pas coûter une lecture
+ * de profil, une requête sur les enfants et une écriture.
+ *
+ * ## Le recalcul se fait en deux passes, et c'est normal
+ *
+ * `rebuildAudienceKeysForUser` écrit `levels`, `classIds`, `schoolIds` et
+ * `audienceKeys` sur le profil, ce qui traverse `onUserProfileWritten` : la
+ * recopie vers les jetons d'appareil y est faite, et n'est donc pas répétée
+ * ici. La seconde passe recalcule les mêmes valeurs, la comparaison devient
+ * fausse et la chaîne s'arrête. Deux lectures de profil et deux écritures pour
+ * un enfant ajouté — le prix de ne pas dupliquer la logique de recalcul.
+ */
+export const onUserChildrenWritten = onDocumentWritten(
+  { document: 'users/{uid}/children/{childId}', region: 'europe-west1' },
+  async (event) => {
+    const uid = event.params.uid;
+    const before = event.data?.before.data();
+    const after = event.data?.after.data();
+
+    if (!childAudienceChanged(before, after)) return;
+
+    const audienceKeys = await rebuildAudienceKeysForUser(uid);
+
+    logger.info('[onUserChildrenWritten] Clés d’audience recalculées', {
+      uid,
+      keyCount: audienceKeys.length,
+      created: !before,
+      deleted: !after,
     });
   },
 );
