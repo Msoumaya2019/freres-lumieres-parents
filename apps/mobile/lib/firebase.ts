@@ -12,6 +12,7 @@ import {
 } from 'firebase/auth';
 import { connectFirestoreEmulator, getFirestore } from 'firebase/firestore';
 import { connectFunctionsEmulator, getFunctions } from 'firebase/functions';
+import { connectStorageEmulator, getStorage } from 'firebase/storage';
 
 const projectId =
   process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID ?? 'demo-freres-lumieres';
@@ -46,6 +47,7 @@ try {
 
 const firestore = getFirestore(app);
 const functions = getFunctions(app, 'europe-west1');
+const storage = getStorage(app);
 const useEmulators =
   process.env.EXPO_PUBLIC_USE_FIREBASE_EMULATORS === 'true' ||
   (__DEV__ && projectId.startsWith('demo-'));
@@ -55,6 +57,7 @@ if (useEmulators) {
   connectAuthEmulator(auth, `http://${host}:9099`, { disableWarnings: true });
   connectFirestoreEmulator(firestore, host, 8080);
   connectFunctionsEmulator(functions, host, 5001);
+  connectStorageEmulator(storage, host, 9199);
 }
 
-export { app, auth, firestore, functions, projectId, useEmulators };
+export { app, auth, firestore, functions, projectId, storage, useEmulators };

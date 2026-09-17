@@ -7,6 +7,9 @@
 - La création de profil membre est idempotente : une reprise après coupure reconstruit les claims depuis le profil serveur existant.
 - Le client est hostile : masquage UI et helpers de permissions ne remplacent jamais Rules/Functions.
 - Les contenus publics exigent `published=true` (ou `status=published`) et une audience non `fcpe`.
+- Les requêtes publiques mobiles reproduisent ces contraintes, ciblent une organisation, imposent une limite et sont testées contre les Rules dans l’Emulator Suite.
+- Les réponses Firestore sont validées par les schémas Zod partagés avant affichage; les types TypeScript seuls ne sont pas considérés comme une frontière de confiance.
+- Une pièce jointe publique n’est lisible dans Storage que si son enregistrement Firestore associé est publié pour une audience publique.
 - `contactConversations`, `contactMessages`, `contactInternalNotes`, `pollResponses` et `contact/**` sont fermés à tout accès direct.
 - Le futur chat exigera App Check, secret fort haché, limitation par installation/IP, délais, limites de longueur/fichiers et blocage serveur. Aucun secret ou message complet ne sera écrit dans les logs.
 - Les notes internes utilisent une collection et un endpoint séparés; un test d’isolation est obligatoire avant activation.

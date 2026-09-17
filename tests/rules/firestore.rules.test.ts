@@ -7,7 +7,20 @@ import {
   initializeTestEnvironment,
   type RulesTestEnvironment,
 } from '@firebase/rules-unit-testing';
-import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  limit,
+  orderBy,
+  query,
+  setDoc,
+  updateDoc,
+  where,
+} from 'firebase/firestore';
+
+const publicAudienceTypes = ['all', 'school', 'level', 'class'];
 
 let env: RulesTestEnvironment;
 function endpoint(value: string | undefined, fallbackPort: number) {
@@ -45,6 +58,7 @@ async function seed() {
       authorId: 'admin-1',
       status: 'published',
       audience: { type: 'all', ids: [] },
+      publishedAt: new Date('2026-09-01T08:00:00Z'),
     });
     await setDoc(doc(db, 'posts/draft'), {
       organizationId: 'org-1',
@@ -61,11 +75,25 @@ async function seed() {
     await setDoc(doc(db, 'canteenMenus/week'), {
       organizationId: 'org-1',
       published: true,
+      startsOn: '2026-09-14',
+    });
+    await setDoc(doc(db, 'events/public'), {
+      organizationId: 'org-1',
+      published: true,
+      audience: { type: 'all', ids: [] },
+      startsAt: new Date('2026-09-22T16:30:00Z'),
     });
     await setDoc(doc(db, 'documents/public'), {
       organizationId: 'org-1',
       published: true,
       audience: { type: 'school', ids: ['elementary'] },
+      createdAt: new Date('2026-09-01T08:00:00Z'),
+    });
+    await setDoc(doc(db, 'schoolCouncils/public'), {
+      organizationId: 'org-1',
+      published: true,
+      audience: { type: 'school', ids: ['elementary'] },
+      scheduledAt: new Date('2026-10-01T16:30:00Z'),
     });
     await setDoc(doc(db, 'memberProfiles/fcpe-1'), {
       id: 'fcpe-1',
@@ -114,6 +142,54 @@ describe('Firestore rules without parent accounts', () => {
         audience: { type: 'all', ids: [] },
       }),
     );
+  });
+  it('authorizes the bounded public list queries used by the mobile app', async () => {
+    await seed();
+    const db = env.unauthenticatedContext().firestore();
+    const queries = [
+      query(
+        collection(db, 'posts'),
+        where('organizationId', '==', 'org-1'),
+        where('status', '==', 'published'),
+        where('audience.type', 'in', publicAudienceTypes),
+        orderBy('publishedAt', 'desc'),
+        limit(30),
+      ),
+      query(
+        collection(db, 'events'),
+        where('organizationId', '==', 'org-1'),
+        where('published', '==', true),
+        where('audience.type', 'in', publicAudienceTypes),
+        orderBy('startsAt', 'asc'),
+        limit(40),
+      ),
+      query(
+        collection(db, 'canteenMenus'),
+        where('organizationId', '==', 'org-1'),
+        where('published', '==', true),
+        orderBy('startsOn', 'desc'),
+        limit(12),
+      ),
+      query(
+        collection(db, 'documents'),
+        where('organizationId', '==', 'org-1'),
+        where('published', '==', true),
+        where('audience.type', 'in', publicAudienceTypes),
+        orderBy('createdAt', 'desc'),
+        limit(40),
+      ),
+      query(
+        collection(db, 'schoolCouncils'),
+        where('organizationId', '==', 'org-1'),
+        where('published', '==', true),
+        where('audience.type', 'in', publicAudienceTypes),
+        orderBy('scheduledAt', 'desc'),
+        limit(20),
+      ),
+    ];
+    for (const publicQuery of queries) {
+      await assertSucceeds(getDocs(publicQuery));
+    }
   });
   it('keeps every contact record and internal note server-only', async () => {
     await seed();

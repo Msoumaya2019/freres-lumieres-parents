@@ -20,7 +20,7 @@
     "test:phase2:emulated": "pnpm --filter @flp/functions build && firebase emulators:exec --project demo-freres-lumieres --only auth,firestore,functions \"vitest run tests/integration/member-lifecycle.emulator.test.ts\"",
     "build": "pnpm -r --if-present build",
     "emulators": "firebase emulators:start --project demo-freres-lumieres --export-on-exit=.firebase/emulator-data",
-    "seed:demo": "firebase emulators:exec --project demo-freres-lumieres --only auth,firestore \"pnpm --filter @flp/functions seed:demo\"",
+    "seed:demo": "firebase emulators:exec --project demo-freres-lumieres --only auth,firestore,storage \"pnpm --filter @flp/functions seed:demo\"",
     "expo:check": "pnpm --filter @flp/mobile run expo:check",
     "expo:config": "pnpm --filter @flp/mobile run expo:config"
   },

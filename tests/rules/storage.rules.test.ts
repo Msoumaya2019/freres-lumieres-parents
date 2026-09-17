@@ -53,6 +53,15 @@ describe('Storage rules', () => {
         status: 'published',
         audience: { type: 'fcpe', ids: [] },
       });
+      await setDoc(doc(context.firestore(), 'documents/flyer'), {
+        organizationId: 'org-1',
+        published: true,
+        audience: { type: 'school', ids: ['elementary'] },
+      });
+      await setDoc(doc(context.firestore(), 'canteenMenus/week'), {
+        organizationId: 'org-1',
+        published: true,
+      });
       await uploadBytes(
         ref(context.storage(), 'posts/public/flyer.webp'),
         new Uint8Array([1]),
@@ -63,9 +72,21 @@ describe('Storage rules', () => {
         new Uint8Array([1]),
         { contentType: 'image/webp' },
       );
+      await uploadBytes(
+        ref(context.storage(), 'documents/flyer/flyer.png'),
+        new Uint8Array([1]),
+        { contentType: 'image/png' },
+      );
+      await uploadBytes(
+        ref(context.storage(), 'canteen/week/menu.pdf'),
+        new Uint8Array([1]),
+        { contentType: 'application/pdf' },
+      );
     });
     const storage = env.unauthenticatedContext().storage();
     await assertSucceeds(getBytes(ref(storage, 'posts/public/flyer.webp')));
+    await assertSucceeds(getBytes(ref(storage, 'documents/flyer/flyer.png')));
+    await assertSucceeds(getBytes(ref(storage, 'canteen/week/menu.pdf')));
     await assertFails(getBytes(ref(storage, 'posts/private/internal.webp')));
   });
   it('denies every direct contact upload and read, including to admins', async () => {

@@ -113,6 +113,43 @@ export const canteenMenuSchema = z.object({
   createdAt: dateValue,
   updatedAt: dateValue,
 });
+export const documentSchema = z.object({
+  id,
+  organizationId: id,
+  title: z.string().trim().min(1).max(160),
+  category: z.enum(['flyer', 'canteen', 'minutes', 'city', 'fcpe', 'other']),
+  year: z.number().int().min(2000).max(2100),
+  audience: audienceSchema,
+  storagePath: z.string().min(1).max(500),
+  contentType: z.enum([
+    'application/pdf',
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+  ]),
+  sizeBytes: z
+    .number()
+    .int()
+    .nonnegative()
+    .max(10 * 1024 * 1024),
+  published: z.boolean(),
+  createdAt: dateValue,
+  updatedAt: dateValue,
+});
+export const schoolCouncilSchema = z.object({
+  id,
+  organizationId: id,
+  schoolId: id,
+  title: z.string().trim().min(1).max(160),
+  scheduledAt: dateValue,
+  publicAgenda: z.array(z.string().trim().min(1).max(500)).max(30),
+  publicDecisions: z.array(z.string().trim().min(1).max(1_000)).max(50),
+  publicDocumentIds: z.array(id).max(20),
+  audience: audienceSchema,
+  published: z.boolean(),
+  createdAt: dateValue,
+  updatedAt: dateValue,
+});
 export const pollSchema = z.object({
   id,
   organizationId: id,

@@ -1,4 +1,4 @@
-# Architecture de référence — Phase 2
+# Architecture de référence — Phase 3
 
 Le produit conserve le monorepo pnpm, Expo SDK 57, Expo Router, Next.js 16, Firebase et les workflows GitHub existants. Il n’existe plus de compte public : le mobile ouvre directement `Accueil / Agenda / Cantine / Contact / Plus`. Firebase Authentication est réservé aux rôles `fcpe`, `moderator` et `admin`.
 
@@ -19,8 +19,14 @@ firebase                 Rules et index
 - Les profils authentifiés sont des `memberProfiles`. Le rôle par défaut d’une demande membre est `fcpe/pending`; seul un admin peut changer rôle ou statut via Function et Custom Claims.
 - Les commentaires publics, profils enfants, forums parent-parent, votes liés à un UID et signalements propriétaires sont supprimés.
 - Les conversations sans compte ne sont jamais accessibles directement via Firestore ou Storage, même à un client admin. Une couche Functions dédiée sera la seule frontière d’accès.
-- Le design system existant (crème, vert profond, couleurs sémantiques) est conservé et appliqué aux nouveaux placeholders.
+- Le design system existant (crème, vert profond, couleurs sémantiques) est conservé et appliqué aux écrans publics connectés.
 - CNG reste utilisé : `ios/` et `android/` sont générés, pas versionnés.
+
+## Lecture publique Phase 3
+
+Le mobile interroge directement Firestore pour les données explicitement publiées. Chaque requête impose l’organisation, l’état publié, l’audience publique lorsqu’elle existe, un ordre déterministe et une limite. Les index composites versionnés correspondent exactement à ces requêtes. Chaque document est ensuite validé par le schéma Zod partagé; une donnée invalide est ignorée au lieu d’être rendue.
+
+Les actualités, événements, menus, documents et conseils d’école disposent d’états de chargement, d’erreur, de liste vide et de rafraîchissement. Les pièces jointes publiques sont servies par Storage seulement lorsque le document Firestore correspondant est publiquement lisible. Les écritures éditoriales et l’interface d’administration de contenu restent hors de cette phase.
 
 ## Chat sans compte préparé pour la Phase 6
 
@@ -39,4 +45,4 @@ Les pièces jointes utiliseront une autorisation serveur et une URL signée cour
 
 ## Coûts et builds
 
-Les lectures publiques utilisent des requêtes bornées et paginées. Les topics FCM évitent une écriture par destinataire. Aucune vidéo n’est prévue. Le workflow iOS reste sur `macos-26`, Xcode 26.4.1, CocoaPods 1.17.0, Expo 57.0.23 et produit une IPA `iphoneos` ARM64 non signée. Le modèle sans compte ne modifie ni le prebuild iOS ni Android.
+Les lectures publiques utilisent des requêtes bornées; la pagination par curseur pourra prolonger les limites actuelles lorsque le volume le justifiera. Les topics FCM évitent une écriture par destinataire. Aucune vidéo n’est prévue. Le workflow iOS reste sur `macos-26`, Xcode 26.4.1, CocoaPods 1.17.0, Expo 57.0.23 et produit une IPA `iphoneos` ARM64 non signée. Le modèle sans compte et la lecture Firestore/Storage ne modifient ni le prebuild iOS ni Android.

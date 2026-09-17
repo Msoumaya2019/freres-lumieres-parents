@@ -1,32 +1,73 @@
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
-import { Badge, Card, Screen } from '../../components/ui';
+import {
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+import { PublicAssetButton } from '../../components/public-asset-button';
+import {
+  Badge,
+  Card,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  Screen,
+} from '../../components/ui';
 import { colors, spacing, typography } from '../../constants/theme';
+import { usePublicContent } from '../../hooks/use-public-content';
+import { loadPublicCanteenMenus } from '../../services/public-content';
+
+function dateLabel(value: string) {
+  return new Date(`${value}T12:00:00`).toLocaleDateString('fr-FR', {
+    day: 'numeric',
+    month: 'long',
+  });
+}
 
 export default function CanteenPage() {
+  const { items, loading, refreshing, error, refresh } = usePublicContent(
+    loadPublicCanteenMenus,
+  );
   return (
     <Screen>
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={refresh} />
+        }
+      >
         <View>
           <Text style={styles.eyebrow}>CANTINE</Text>
-          <Text style={styles.title}>Menus de la semaine</Text>
+          <Text style={styles.title}>Menus</Text>
           <Text style={styles.subtitle}>
-            Les menus publics seront disponibles ici, sans connexion.
+            Menus actuels, semaines à venir et informations exceptionnelles.
           </Text>
         </View>
-        <Card tone="warning">
-          <Badge tone="accent">À VENIR</Badge>
-          <Text style={styles.heading}>Menu du jour</Text>
-          <Text style={styles.body}>
-            Le module cantine sera alimenté pendant la Phase 3.
-          </Text>
-        </Card>
-        <Card>
-          <Text style={styles.heading}>Informations exceptionnelles</Text>
-          <Text style={styles.body}>
-            Les changements de menu et alertes allergènes pourront être mis en
-            avant.
-          </Text>
-        </Card>
+        {loading ? <LoadingState label="Chargement des menus…" /> : null}
+        {!loading && error ? <ErrorState message={error} /> : null}
+        {!loading && !error && items.length === 0 ? (
+          <EmptyState
+            title="Aucun menu publié"
+            message="Les menus seront affichés ici dès leur publication."
+          />
+        ) : null}
+        {items.map((menu, index) => (
+          <Card key={menu.id} tone={index === 0 ? 'warning' : 'default'}>
+            <Badge tone="accent">
+              {index === 0 ? 'MENU LE PLUS RÉCENT' : 'MENU'}
+            </Badge>
+            <Text style={styles.heading}>{menu.title}</Text>
+            <Text style={styles.period}>
+              Du {dateLabel(menu.startsOn)} au {dateLabel(menu.endsOn)}
+            </Text>
+            {menu.description ? (
+              <Text style={styles.body}>{menu.description}</Text>
+            ) : null}
+            <PublicAssetButton path={menu.imagePath} label="Voir le menu" />
+            <PublicAssetButton path={menu.pdfPath} label="Ouvrir le PDF" />
+          </Card>
+        ))}
       </ScrollView>
     </Screen>
   );
@@ -37,5 +78,6 @@ const styles = StyleSheet.create({
   title: { ...typography.title, color: colors.primaryDark },
   subtitle: { ...typography.body, color: colors.muted },
   heading: { ...typography.heading, color: colors.text },
-  body: { ...typography.body, color: colors.muted },
+  period: { ...typography.small, color: colors.primary, fontWeight: '700' },
+  body: { ...typography.body, color: colors.text },
 });

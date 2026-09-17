@@ -2,7 +2,7 @@
 
 Application publique iOS/Android pour les familles des écoles maternelle et élémentaire Frères Lumières de Montmagny, avec espace privé FCPE et administration Web. Le dépôt est public sans secret ni donnée réelle.
 
-> État : Phase 2 — authentification réservée aux membres FCPE, demandes `pending`, validation administrative et rôles sécurisés. Les contenus publics métier restent prévus pour la Phase 3.
+> État : Phase 3 — actualités, agenda, cantine, documents et conseils d’école sont alimentés par Firestore et Storage, sans compte parent. L’authentification reste réservée aux membres FCPE, avec demandes `pending`, validation administrative et rôles sécurisés.
 
 ## Principe produit
 
@@ -40,7 +40,9 @@ pnpm expo:check
 pnpm expo:config
 ```
 
-`pnpm emulators` démarre Auth, Firestore, Storage et Functions. `pnpm seed:demo` injecte uniquement un admin, un membre FCPE en attente, les deux écoles et une publication fictive; la commande refuse tout project ID qui ne commence pas par `demo-`.
+`pnpm emulators` démarre Auth, Firestore, Storage et Functions. `pnpm seed:demo` injecte uniquement des comptes et contenus fictifs : membres, écoles, actualités, événements, menus, document et conseil d’école. La commande exige les émulateurs Auth, Firestore et Storage ainsi qu’un project ID commençant par `demo-`.
+
+Pour tester depuis l’émulateur Android, définir `EXPO_PUBLIC_FIREBASE_EMULATOR_HOST=10.0.2.2`; sur un appareil physique, utiliser l’adresse LAN de la machine de développement. Web et simulateur iOS local peuvent conserver `127.0.0.1`.
 
 ## Mobile
 
@@ -51,13 +53,13 @@ pnpm --filter @flp/mobile ios
 pnpm --filter @flp/mobile web
 ```
 
-L’espace public est la route initiale. Les écrans Documents, Conseils d’école, Sondages, Préférences notifications et Espace membres sont accessibles depuis Plus. La direction visuelle est centralisée dans `apps/mobile/constants/theme.ts` : fond crème, vert profond, cartes sémantiques et hiérarchie accessible.
+L’espace public est la route initiale. Accueil, Agenda, Cantine, Documents et Conseils d’école lisent des requêtes publiques bornées, validées avec Zod avant affichage et rafraîchissables par geste. Les fichiers publics sont résolus dans Storage au moment de leur ouverture. Sondages, Préférences notifications et Espace membres restent accessibles depuis Plus selon leur état de phase. La direction visuelle est centralisée dans `apps/mobile/constants/theme.ts` : fond crème, vert profond, cartes sémantiques et hiérarchie accessible.
 
 ## Administration Web
 
 Routes prévues : `/login`, `/dashboard`, `/publications`, `/notifications`, `/contact`, `/members`, `/fcpe`, `/events`, `/canteen`, `/documents`, `/school-councils`, `/polls`, `/logs`, `/settings`.
 
-La connexion membre, la demande d’accès, les statuts et la validation administrative sont fonctionnels. Les pages éditoriales restent des fondations jusqu’à la Phase 3/4. Les mutations sensibles passent par Functions; le garde client n’est jamais une autorisation.
+La connexion membre, la demande d’accès, les statuts et la validation administrative sont fonctionnels. Les interfaces d’édition des contenus publics restent prévues pour la Phase 4. Les mutations sensibles passent par Functions; le garde client n’est jamais une autorisation.
 
 ## Build iOS non signé
 
