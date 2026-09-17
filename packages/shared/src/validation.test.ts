@@ -9,11 +9,25 @@
  * invalide » — et aucune erreur de compilation pour l'annoncer.
  *
  * Le test est donc là pour rendre cet échec bruyant, et immédiat.
+ *
+ * Le dernier bloc vérifie autre chose : une **promesse tenue**. Le schéma des
+ * préférences acceptait `urgent` dans les catégories désactivées alors que le
+ * filtre d'envoi ne la filtre jamais — l'utilisateur aurait « désactivé » une
+ * alerte sans rien désactiver. Deux tests encadrent la frontière, ce qui est
+ * refusé et ce qui doit continuer de passer : un schéma trop strict casserait
+ * l'écran de préférences aussi sûrement qu'un schéma trop permissif le rend
+ * menteur.
  */
 import { describe, expect, it } from 'vitest';
 
 import {
+  MANDATORY_NOTIFICATION_CATEGORIES,
+  NOTIFICATION_CATEGORIES,
+  OPTIONAL_NOTIFICATION_CATEGORIES,
+} from './constants.js';
+import {
   firstIssueByField,
+  notificationPrefsSchema,
   postInputSchema,
   userRoleUpdateSchema,
   userStatusUpdateSchema,
@@ -114,5 +128,80 @@ describe('lecture d’un résultat de validation', () => {
 
     expect(messages.title).toBe('Le titre est trop court.');
     expect(messages.body).toBe('Le contenu est obligatoire.');
+  });
+});
+
+describe('préférences de notification', () => {
+  const prefs = (disabledCategories: string[]) => ({ enabled: true, disabledCategories });
+
+  it('refuse les alertes urgentes dans les catégories désactivées', () => {
+    // L'exception est appliquée à l'envoi par `filterRecipients`. L'accepter
+    // ici laissait l'utilisateur croire qu'il l'avait désactivée : la
+    // préférence était enregistrée, et aucun envoi n'en tenait compte.
+    expect(notificationPrefsSchema.safeParse(prefs(['urgent'])).success).toBe(false);
+  });
+
+  it('refuse urgent même noyée parmi des catégories valides', () => {
+    // Le cas réel : une liste où seul un élément pose problème. Un contrôle
+    // qui ne regarderait que le premier élément passerait ce test à tort.
+    expect(
+      notificationPrefsSchema.safeParse(prefs(['discussions', 'urgent', 'agenda'])).success,
+    ).toBe(false);
+  });
+
+  it('refuse avec un message explicite, pas un échec d’énumération', () => {
+    // Prouve que le refus vient bien de la règle métier. Sans cela, une
+    // faute de frappe dans le nom de la catégorie produirait le même `false`,
+    // et le test resterait vert en ne vérifiant rien.
+    const parsed = notificationPrefsSchema.safeParse(prefs(['urgent']));
+    const messages = firstIssueByField(parsed.success ? [] : parsed.error.issues);
+
+    expect(messages.disabledCategories).toContain('urgent');
+  });
+
+  it('accepte les six catégories désactivables', () => {
+    expect(
+      notificationPrefsSchema.safeParse(prefs([...OPTIONAL_NOTIFICATION_CATEGORIES])).success,
+    ).toBe(true);
+  });
+
+  it('accepte une liste vide', () => {
+    // Le cas par défaut de tout profil : `repositories/users.ts` écrit
+    // `disabledCategories: []` à la création.
+    expect(notificationPrefsSchema.safeParse(prefs([])).success).toBe(true);
+  });
+
+  it('refuse toute catégorie déclarée obligatoire', () => {
+    // Boucle sur la constante plutôt qu'une liste recopiée : rendre demain une
+    // catégorie obligatoire sans la refuser dans le schéma fait échouer ce
+    // test, sans qu'on ait à y penser.
+    for (const category of MANDATORY_NOTIFICATION_CATEGORIES) {
+      expect(notificationPrefsSchema.safeParse(prefs([category])).success).toBe(false);
+    }
+  });
+
+  it('accepte toute catégorie qui n’est pas obligatoire', () => {
+    // La borne opposée, et elle compte : un schéma qui refuserait tout
+    // passerait tous les tests ci-dessus. Sans ce pendant, la correction
+    // « refuse urgent » serait indiscernable de « refuse les préférences ».
+    const facultatives = NOTIFICATION_CATEGORIES.filter(
+      (category) => !(MANDATORY_NOTIFICATION_CATEGORIES as readonly string[]).includes(category),
+    );
+
+    expect(facultatives).toHaveLength(OPTIONAL_NOTIFICATION_CATEGORIES.length);
+    for (const category of facultatives) {
+      expect(notificationPrefsSchema.safeParse(prefs([category])).success).toBe(true);
+    }
+  });
+
+  it('borne la liste au nombre de catégories désactivables', () => {
+    // Sept entrées ne sont plus atteignables : la borne suit la même source
+    // que la règle, au lieu de rester sur le nombre total de catégories.
+    const trop = Array.from(
+      { length: OPTIONAL_NOTIFICATION_CATEGORIES.length + 1 },
+      () => 'discussions',
+    );
+
+    expect(notificationPrefsSchema.safeParse(prefs(trop)).success).toBe(false);
   });
 });

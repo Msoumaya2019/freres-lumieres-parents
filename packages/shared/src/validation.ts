@@ -21,12 +21,14 @@ import {
   ISSUE_SUPPORT_VALUES,
   MODERATION_REASONS,
   NOTIFICATION_CATEGORIES,
+  OPTIONAL_NOTIFICATION_CATEGORIES,
   POLL_RESULTS_VISIBILITIES,
   POST_CATEGORIES,
   REPORT_CATEGORIES,
   TEXT_LIMITS,
   UPLOAD_LIMITS,
   USER_ROLES,
+  isMandatoryNotificationCategory,
 } from './constants.js';
 
 // ---------------------------------------------------------------------------
@@ -262,9 +264,35 @@ export const profileUpdateSchema = z
   })
   .strict();
 
+/**
+ * Préférences de notification.
+ *
+ * ## Pourquoi `urgent` est refusée ici
+ *
+ * Le schéma acceptait toutes les catégories, `urgent` comprise, alors que le
+ * filtre d'envoi ne la filtre jamais : le code promettait donc une chose et en
+ * faisait une autre. Un utilisateur qui aurait « désactivé » les alertes
+ * urgentes n'aurait rien désactivé du tout — et l'écran de préférences, écrit
+ * plus tard, aurait pu proposer un interrupteur sans effet sans que rien ne le
+ * signale.
+ *
+ * La liste refusée est **dérivée** de `MANDATORY_NOTIFICATION_CATEGORIES` :
+ * rendre demain une autre catégorie obligatoire suffit, le schéma suit.
+ *
+ * Le refus porte sur toute la liste, comme pour une catégorie inconnue : une
+ * préférence qu'on ne sait pas lire est ignorée en bloc (voir
+ * `readDisabledCategories`), ce qui va dans le sens du repli ouvert — ne
+ * jamais rendre muet un parent dont le profil est incomplet.
+ */
 export const notificationPrefsSchema = z.object({
   enabled: z.boolean(),
-  disabledCategories: z.array(z.enum(NOTIFICATION_CATEGORIES)).max(NOTIFICATION_CATEGORIES.length),
+  disabledCategories: z
+    .array(z.enum(NOTIFICATION_CATEGORIES))
+    .max(OPTIONAL_NOTIFICATION_CATEGORIES.length)
+    .refine((categories) => categories.every((c) => !isMandatoryNotificationCategory(c)), {
+      message:
+        'Les alertes urgentes ne peuvent pas être désactivées : elles atteignent tout le monde.',
+    }),
 });
 
 export const consentsSchema = z.object({
