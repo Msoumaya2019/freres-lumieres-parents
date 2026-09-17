@@ -93,6 +93,21 @@ export class ExpoPushDispatcher implements PushDispatcher {
             });
           }
         });
+
+        // L'API Expo rend un ticket par jeton envoyé, dans le même ordre. Un
+        // lot plus court que prévu n'est donc pas un succès partiel : les
+        // jetons sans ticket n'ont pas été confirmés. Les ignorer rendait
+        // `delivered + failed` inférieur au nombre de destinataires, et
+        // l'administration annonçait un envoi complet alors qu'une partie des
+        // parents n'avait rien reçu.
+        const sansTicket = batch.length - tickets.length;
+        if (sansTicket > 0) {
+          failed += sansTicket;
+          this.log('Réponse incomplète du service Expo Push.', {
+            batchSize: batch.length,
+            tickets: tickets.length,
+          });
+        }
       } catch (error) {
         failed += batch.length;
         this.log('Échec de l’appel au service Expo Push.', {
