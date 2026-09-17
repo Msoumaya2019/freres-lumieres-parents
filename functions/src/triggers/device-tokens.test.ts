@@ -22,7 +22,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { tokenSyncFields, tokensNeedResync } from './device-tokens.js';
+import { tokenOwnerChanged, tokenSyncFields, tokensNeedResync } from './device-tokens.js';
 
 /** Profil actif et complet, point de départ des variations. */
 const profile = {
@@ -189,5 +189,53 @@ describe('tokensNeedResync', () => {
         notificationPrefs: { enabled: false, disabledCategories: ['discussions'] },
       }),
     ).toBe(false);
+  });
+});
+
+describe('tokenOwnerChanged', () => {
+  /** Jeton tel qu'il existe en base, avec son porteur. */
+  const jeton = {
+    uid: 'parent-1',
+    status: 'active',
+    audienceKeys: ['org:fl'],
+    notificationPrefs: { enabled: true, disabledCategories: [] },
+  };
+
+  it('ne détecte rien quand le client écrit `enabled` ou `lastUsedAt`', () => {
+    // Les seules écritures que le client peut faire sur son propre jeton. Les
+    // recalculer coûterait une lecture de profil à chaque ouverture de
+    // l'application.
+    expect(tokenOwnerChanged(jeton, { ...jeton })).toBe(false);
+  });
+
+  it('ne détecte rien quand la Cloud Function a écrit les champs dérivés', () => {
+    // **C'est cette propriété qui termine la chaîne.** Le déclencheur écrit
+    // dans le document qu'il écoute, donc il est rappelé : le porteur est
+    // inchangé, il sort sans rien lire ni écrire. Sans cela, la boucle serait
+    // infinie.
+    expect(tokenOwnerChanged(jeton, { ...jeton, audienceKeys: ['org:fl', 'fcpe:fl'] })).toBe(false);
+  });
+
+  it('détecte un changement de porteur', () => {
+    expect(tokenOwnerChanged(jeton, { ...jeton, uid: 'parent-2' })).toBe(true);
+  });
+
+  it('ne détecte rien à la création', () => {
+    // `onDeviceTokenCreated` s'en charge : laisser cette garde répondre `true`
+    // ferait deux fois le même travail sur le même événement.
+    expect(tokenOwnerChanged(undefined, jeton)).toBe(false);
+  });
+
+  it('ne détecte rien à la suppression', () => {
+    // Un jeton supprimé n'a plus rien à recaler.
+    expect(tokenOwnerChanged(jeton, undefined)).toBe(false);
+  });
+
+  it('détecte l’apparition d’un porteur là où il n’y en avait pas', () => {
+    // Un jeton sans `uid` ne reçoit rien — la Cloud Function de création l'a
+    // laissé tel quel. Le jour où un porteur lui est attribué, il faut le
+    // recalculer.
+    const orphelin = { ...jeton, uid: undefined };
+    expect(tokenOwnerChanged(orphelin, jeton)).toBe(true);
   });
 });

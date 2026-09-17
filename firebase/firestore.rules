@@ -316,13 +316,48 @@ service cloud.firestore {
       //
       // `enabled` reste libre : c'est l'interrupteur de cet appareil-ci, et il
       // n'appartient qu'à lui.
+      //
+      // `resource.data.orgId == orgId()` : un jeton ne change pas
+      // d'organisation. Les deux comparaisons encadrent le champ — celui qu'on
+      // écrit, et celui qu'on remplace — ce qui le rend immuable en pratique.
+      // Sans la seconde, un parent du groupe B reprenait un jeton du groupe A
+      // en réécrivant `orgId` : le document franchissait la frontière, et
+      // l'appareil du groupe A cessait de recevoir ses propres notifications.
+      // `orgId` est le seul champ qui rattache un jeton à un groupe ; c'était
+      // aussi le seul que le client pouvait réécrire.
+      //
+      // Conséquence, aujourd'hui théorique : un compte dont l'organisation
+      // changerait ne pourrait plus mettre à jour ses jetons, et devrait les
+      // supprimer puis les recréer. Aucun chemin de code n'écrit `orgId` sur un
+      // profil — les règles le figent pour le client, et les fonctions
+      // appelables ne font que le lire —, mais si un tel chemin apparaissait,
+      // la suppression resterait possible : elle ne dépend volontairement pas
+      // de l'organisation.
       allow update: if isActive()
         && request.resource.data.uid == request.auth.uid
+        && resource.data.orgId == orgId()
         && request.resource.data.orgId == orgId()
         && request.resource.data.token == token
-        && unchanged('audienceKeys')
-        && unchanged('disabledCategories')
-        && unchanged('createdAt');
+        && unchanged('createdAt')
+        && (
+          // Le porteur ne change pas : le client ne touche qu'à ce qui lui
+          // appartient en propre — `enabled`, `lastUsedAt`, `appVersion`.
+          (
+            resource.data.uid == request.auth.uid
+            && unchanged('audienceKeys')
+            && unchanged('disabledCategories')
+          )
+          // Le porteur change : l'appareil repart de zéro. Les deux champs
+          // déduits par le serveur sont exigés **séparément**, car effacer
+          // l'audience en gardant les préférences laisserait le nouveau porteur
+          // avec les catégories désactivées de l'ancien, et l'écran de
+          // préférences afficherait l'inverse de ce que l'appareil applique.
+          || (
+            resource.data.uid != request.auth.uid
+            && request.resource.data.audienceKeys == []
+            && request.resource.data.disabledCategories == []
+          )
+        );
 
       allow delete: if isActive() && resource.data.uid == request.auth.uid;
     }

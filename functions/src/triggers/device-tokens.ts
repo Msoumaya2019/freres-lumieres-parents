@@ -54,8 +54,9 @@
  * monde « quelles que soient les préférences » ? Décider à la place du produit
  * serait poser une règle que personne n'a validée.
  */
-import { onDocumentCreated } from 'firebase-functions/v2/firestore';
+import { onDocumentCreated, onDocumentUpdated } from 'firebase-functions/v2/firestore';
 import { logger } from 'firebase-functions/v2';
+import type { DocumentReference } from 'firebase-admin/firestore';
 
 import { notificationPrefsSchema } from '@fl/shared';
 import type { NotificationCategory } from '@fl/types';
@@ -74,6 +75,8 @@ export interface TokenSyncSource {
   status?: unknown;
   audienceKeys?: unknown;
   notificationPrefs?: unknown;
+  /** Lu par la seule garde de changement de porteur, jamais par la signature. */
+  uid?: unknown;
 }
 
 function strings(value: unknown): string[] {
@@ -139,6 +142,32 @@ export function tokensNeedResync(
 }
 
 /**
+ * Le porteur du jeton a-t-il changé ?
+ *
+ * C'est la seule mise à jour d'un jeton qui oblige à recalculer ses champs
+ * dérivés : l'appareil a un nouveau propriétaire, et les règles ont exigé
+ * qu'il reparte de zéro. Les autres écritures du client — `enabled`,
+ * `lastUsedAt` — ne changent rien à l'audience, et les recalculer coûterait
+ * une lecture de profil à chaque ouverture de l'application.
+ *
+ * Cette garde est aussi ce qui **termine la chaîne**. Le déclencheur écrit
+ * dans le document qu'il écoute, donc il est rappelé : mais `uid` est alors
+ * inchangé, et il sort immédiatement — une invocation, aucune lecture, aucune
+ * écriture. Sans cette garde, la boucle serait infinie.
+ *
+ * Une création (`before` absent) ou une suppression (`after` absent) ne
+ * compte pas comme un changement de porteur : la création est traitée par
+ * `onDeviceTokenCreated`, et un jeton supprimé n'a plus rien à recaler.
+ */
+export function tokenOwnerChanged(
+  before: TokenSyncSource | undefined,
+  after: TokenSyncSource | undefined,
+): boolean {
+  if (!before || !after) return false;
+  return before.uid !== after.uid;
+}
+
+/**
  * Recopie les champs dérivés sur tous les jetons d'un utilisateur.
  *
  * Une requête, puis une écriture par appareil. Le nombre d'appareils d'un
@@ -168,6 +197,30 @@ export async function syncDeviceTokensForUser(
 }
 
 /**
+ * Lit le profil d'un porteur et recopie ses champs dérivés sur le jeton.
+ *
+ * Les deux déclencheurs ci-dessous ne diffèrent que par leur condition
+ * d'entrée ; le travail, lui, est identique.
+ */
+async function applyTokenSync(uid: string, ref: DocumentReference, source: string): Promise<void> {
+  const profile = await adminDb().doc(paths.user(uid)).get();
+  if (!profile.exists) {
+    // Profil introuvable : le jeton garde des clés vides, et l'appareil ne
+    // reçoit rien. C'est le seul comportement sûr.
+    logger.error(`[${source}] Profil introuvable, jeton laissé sans audience`, { uid });
+    return;
+  }
+
+  const fields = tokenSyncFields(profile.data() ?? {});
+  await ref.update(fields);
+
+  logger.info(`[${source}] Jeton rattaché à son audience`, {
+    uid,
+    keyCount: fields.audienceKeys.length,
+  });
+}
+
+/**
  * À la création d'un jeton : le serveur le rattache à l'audience de son
  * porteur.
  *
@@ -192,20 +245,39 @@ export const onDeviceTokenCreated = onDocumentCreated(
       return;
     }
 
-    const profile = await adminDb().doc(paths.user(uid)).get();
-    if (!profile.exists) {
-      logger.error('[onDeviceTokenCreated] Profil introuvable, jeton laissé sans audience', {
-        uid,
+    await applyTokenSync(uid, snapshot.ref, 'onDeviceTokenCreated');
+  },
+);
+
+/**
+ * Au changement de porteur : le jeton est recalculé pour le nouveau.
+ *
+ * Les règles ont exigé que `audienceKeys` et `disabledCategories` soient
+ * remis à vide lors d'un transfert — sans quoi le nouveau porteur hériterait
+ * des notifications de l'ancien. Il faut donc les remplir, sinon l'appareil
+ * resterait muet pour toujours : le déclencheur de création ne se déclenche
+ * plus, et rien d'autre ne recalcule un jeton existant.
+ *
+ * La chaîne s'arrête d'elle-même : l'écriture ci-dessous rappelle ce
+ * déclencheur, mais `uid` est alors inchangé et `tokenOwnerChanged` le fait
+ * sortir sans rien lire ni écrire.
+ */
+export const onDeviceTokenOwnerChanged = onDocumentUpdated(
+  { document: 'deviceTokens/{token}', region: 'europe-west1' },
+  async (event) => {
+    const change = event.data;
+    if (!change) return;
+
+    if (!tokenOwnerChanged(change.before.data(), change.after.data())) return;
+
+    const uid = change.after.get('uid');
+    if (typeof uid !== 'string' || uid.length === 0) {
+      logger.error('[onDeviceTokenOwnerChanged] Nouveau porteur illisible', {
+        token: event.params.token,
       });
       return;
     }
 
-    const fields = tokenSyncFields(profile.data() ?? {});
-    await snapshot.ref.update(fields);
-
-    logger.info('[onDeviceTokenCreated] Jeton rattaché à son audience', {
-      uid,
-      keyCount: fields.audienceKeys.length,
-    });
+    await applyTokenSync(uid, change.after.ref, 'onDeviceTokenOwnerChanged');
   },
 );

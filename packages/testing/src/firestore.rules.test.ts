@@ -1492,6 +1492,71 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
         updateDoc(doc(parent.firestore(), 'deviceTokens', 'token-1'), { enabled: false }),
       );
     });
+
+    it('un appareil change de porteur en repartant de zéro', async () => {
+      // Un appareil partagé entre deux parents, ou transmis. Le nouveau
+      // porteur reprend le jeton — l'identifiant du document **est** le jeton,
+      // donc il n'y a pas de doublon possible — mais il doit effacer ce que le
+      // serveur avait déduit pour l'ancien.
+      const nouveauPorteur = testEnv.authenticatedContext(UID.otherParent, CLAIMS.parent);
+
+      await assertSucceeds(
+        updateDoc(doc(nouveauPorteur.firestore(), 'deviceTokens', 'token-1'), {
+          uid: UID.otherParent,
+          audienceKeys: [],
+          disabledCategories: [],
+        }),
+      );
+    });
+
+    it('un appareil ne peut pas changer de porteur en gardant l’audience de l’ancien', async () => {
+      // Le défaut que cette clause ferme. Sans elle, le nouveau porteur
+      // héritait des clés d'audience de l'ancien et recevait **ses**
+      // notifications, indéfiniment : rien ne les recalculait, puisque ce sont
+      // les clés du profil du nouveau porteur qui les déterminent, et que ce
+      // profil-là n'a pas changé.
+      const nouveauPorteur = testEnv.authenticatedContext(UID.otherParent, CLAIMS.parent);
+
+      await assertFails(
+        updateDoc(doc(nouveauPorteur.firestore(), 'deviceTokens', 'token-1'), {
+          uid: UID.otherParent,
+        }),
+      );
+    });
+
+    it('un appareil ne peut pas changer de porteur en gardant les préférences de l’ancien', async () => {
+      // Les deux champs sont exigés séparément : effacer l'audience mais
+      // conserver les préférences laisserait le nouveau porteur avec les
+      // catégories désactivées de l'ancien, et l'écran de préférences
+      // afficherait l'inverse de ce que l'appareil applique.
+      const nouveauPorteur = testEnv.authenticatedContext(UID.otherParent, CLAIMS.parent);
+
+      await assertFails(
+        updateDoc(doc(nouveauPorteur.firestore(), 'deviceTokens', 'token-1'), {
+          uid: UID.otherParent,
+          audienceKeys: [],
+        }),
+      );
+    });
+
+    it('un appareil ne peut pas changer de porteur vers une autre organisation', async () => {
+      // Le transfert ne doit pas devenir un moyen de sortir de son
+      // organisation : `orgId` reste comparé au claim de l'appelant, dans les
+      // deux branches.
+      const autreOrganisation = testEnv.authenticatedContext(
+        'parent-autre-organisation',
+        CLAIMS.parentOtherOrg,
+      );
+
+      await assertFails(
+        updateDoc(doc(autreOrganisation.firestore(), 'deviceTokens', 'token-1'), {
+          uid: 'parent-autre-organisation',
+          orgId: TEST_OTHER_ORG,
+          audienceKeys: [],
+          disabledCategories: [],
+        }),
+      );
+    });
   });
 
   // -------------------------------------------------------------------------

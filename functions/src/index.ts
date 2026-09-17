@@ -51,4 +51,4 @@ export {
 } from './triggers/counters.js';
 
 // --- Notifications -----------------------------------------------------------
-export { onDeviceTokenCreated } from './triggers/device-tokens.js';
+export { onDeviceTokenCreated, onDeviceTokenOwnerChanged } from './triggers/device-tokens.js';

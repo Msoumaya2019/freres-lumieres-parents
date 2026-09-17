@@ -83,10 +83,25 @@ export const onUserProfileWritten = onDocumentWritten(
     const before = event.data?.before.data();
     const after = event.data?.after.data();
 
-    // Suppression du profil : on retire tous les droits.
+    // Suppression du profil : droits retirés, et données nettoyées.
+    //
+    // Retirer les droits ne suffit **pas** à faire taire un appareil. Le chemin
+    // d'envoi d'une notification ne consulte jamais les Custom Claims : il
+    // interroge `deviceTokens` par organisation et par clés d'audience. Un
+    // compte supprimé continuerait donc de recevoir les notifications de sa
+    // classe, indéfiniment.
+    //
+    // Ce cas se produit dès qu'un profil est supprimé autrement que par
+    // `adminDeleteUser` — un effacement depuis la console Firebase, par
+    // exemple —, puisque c'est le seul appelant de `cleanupDeletedUser`.
+    // Celui-ci est idempotent : sur un profil déjà absent, il ne fait
+    // qu'effacer les jetons et anonymiser les contributions.
     if (!after) {
       await clearUserClaims(uid);
-      logger.warn('[onUserProfileWritten] Profil supprimé, droits retirés', { uid });
+      await cleanupDeletedUser(uid);
+      logger.warn('[onUserProfileWritten] Profil supprimé, droits retirés et données nettoyées', {
+        uid,
+      });
       return;
     }
 
@@ -151,7 +166,16 @@ export const onUserProfileWritten = onDocumentWritten(
 );
 
 /**
- * À la suppression du compte Firebase Auth : nettoyage des données liées.
+ * Nettoyage des données d'un compte supprimé.
+ *
+ * Appelée de deux endroits, et c'est volontaire :
+ *
+ *  - `adminDeleteUser`, après suppression du compte Firebase Auth ;
+ *  - `onUserProfileWritten`, quand le profil disparaît sans passer par là —
+ *    un effacement depuis la console Firebase, par exemple.
+ *
+ * Elle est donc **idempotente** : rien n'est supposé sur l'état antérieur, et
+ * supprimer un document déjà absent est sans effet.
  *
  * Les jetons d'appareil doivent disparaître, sinon les notifications
  * continueraient d'être envoyées à un compte supprimé. Les contributions
