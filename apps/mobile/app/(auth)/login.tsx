@@ -1,5 +1,5 @@
 import { loginSchema } from '@flp/validation';
-import { Link, useRouter, type Href } from 'expo-router';
+import { Link, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Button, Card, Input, Screen } from '../../components/ui';
@@ -25,7 +25,7 @@ export default function LoginPage() {
       const session = await login(parsed.data.email, parsed.data.password);
       const destination =
         session.status === 'active' ? '/(member)' : '/(auth)/status';
-      router.replace(destination as Href);
+      router.replace(destination);
     } catch (error) {
       setMessage(authErrorMessage(error));
     } finally {

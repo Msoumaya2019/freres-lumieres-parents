@@ -1,4 +1,4 @@
-import { Redirect, type Href } from 'expo-router';
+import { Redirect } from 'expo-router';
 import { ScrollView, StyleSheet, Text } from 'react-native';
 import { Button, Card, LoadingState, Screen } from '../../components/ui';
 import { colors, typography } from '../../constants/theme';
@@ -40,8 +40,7 @@ export default function AccountStatusPage() {
       </Screen>
     );
   if (!firebaseUser) return <Redirect href="/(auth)/login" />;
-  if (profile?.status === 'active')
-    return <Redirect href={'/(member)' as Href} />;
+  if (profile?.status === 'active') return <Redirect href="/(member)" />;
   if (!profile)
     return (
       <Screen>
