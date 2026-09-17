@@ -247,12 +247,12 @@ npm run dev:admin         # Next.js, connecté aux émulateurs
 
 ## 7. Décisions structurantes à valider
 
-| #   | Décision                                                                              | Alternative écartée                                    | Impact si l'on change d'avis                                                                          |
-| --- | ------------------------------------------------------------------------------------- | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
-| D1  | Notifications via **Expo Notifications**, qui relaie vers FCM (Android) et APNs (iOS) | `@react-native-firebase/messaging` + topics FCM natifs | L'abstraction `PushDispatcher` isole le changement ; seul `packages/firebase/src/push` est à réécrire |
-| D2  | Fil d'actualité par **clés d'audience dénormalisées**                                 | Fan-out dans une collection `feeds/{uid}`              | Le fan-out coûte une écriture par destinataire ; les clés coûtent zéro écriture supplémentaire        |
-| D3  | **npm workspaces**                                                                    | pnpm + Turborepo                                       | Migration mécanique                                                                                   |
-| D4  | Rôles dans les **Custom Claims**                                                      | Lecture du document `users/{uid}` dans chaque règle    | Les claims évitent une lecture facturée par évaluation de règle                                       |
-| D5  | **Pas de messagerie privée 1-à-1** en V1                                              | Ajouter `conversations`                                | Ajout additif, aucun impact sur l'existant                                                            |
+| #   | Décision                                                                              | Alternative écartée                                    | Impact si l'on change d'avis                                                                        |
+| --- | ------------------------------------------------------------------------------------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| D1  | Notifications via **Expo Notifications**, qui relaie vers FCM (Android) et APNs (iOS) | `@react-native-firebase/messaging` + topics FCM natifs | L'abstraction `PushDispatcher` isole le changement ; seul `packages/shared/src/push` est à réécrire |
+| D2  | Fil d'actualité par **clés d'audience dénormalisées**                                 | Fan-out dans une collection `feeds/{uid}`              | Le fan-out coûte une écriture par destinataire ; les clés coûtent zéro écriture supplémentaire      |
+| D3  | **npm workspaces**                                                                    | pnpm + Turborepo                                       | Migration mécanique                                                                                 |
+| D4  | Rôles dans les **Custom Claims**                                                      | Lecture du document `users/{uid}` dans chaque règle    | Les claims évitent une lecture facturée par évaluation de règle                                     |
+| D5  | **Pas de messagerie privée 1-à-1** en V1                                              | Ajouter `conversations`                                | Ajout additif, aucun impact sur l'existant                                                          |
 
 Ces cinq points sont détaillés dans les documents suivants.

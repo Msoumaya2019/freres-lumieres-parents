@@ -477,18 +477,59 @@ ordinateur ; un parent qui tente d'y accéder est refusé.
       proposer `urgent` afficherait un interrupteur sans effet, que le schéma
       refuserait de toute façon à l'enregistrement.
 - [x] `ExpoPushDispatcher` derrière l'interface `PushDispatcher` — écrit dans
-      `packages/firebase/src/push/expo.ts` et exporté par `@fl/firebase`. Il
-      n'est encore **appelé par aucune Cloud Function** : c'est l'item suivant
-      qui le branche. Ses fonctions sont désormais couvertes — 32 tests dans
-      `packages/firebase/src/push/`, dont le filtrage, le découpage en lots et
-      le compte rendu d'un envoi. Ces tests ont trouvé un défaut : une réponse
-      **plus courte que la demande** était comptée comme une livraison partielle
-      réussie, alors que les jetons sans ticket n'ont pas été confirmés.
-      `delivered + failed` pouvait donc être inférieur au nombre de
-      destinataires, et l'administration annoncer un envoi complet.
-- [ ] Les 7 déclencheurs (publication, commentaire, réponse, message, sondage, signalement, rappel)
+      `packages/shared/src/push/expo.ts` et exporté par `@fl/shared`. Il est
+      **appelé** depuis l'item « premier envoi de bout en bout », ci-dessous.
+      Ses fonctions sont couvertes — 32 tests dans `packages/shared/src/push/`,
+      dont le filtrage, le découpage en lots et le compte rendu d'un envoi. Ces
+      tests ont trouvé un défaut : une réponse **plus courte que la demande**
+      était comptée comme une livraison partielle réussie, alors que les jetons
+      sans ticket n'ont pas été confirmés. `delivered + failed` pouvait donc
+      être inférieur au nombre de destinataires, et l'administration annoncer un
+      envoi complet.
+      **Le module a changé de paquet, et ce n'était pas cosmétique.** Il vivait
+      dans `@fl/firebase`, qui importe le SDK Firebase **client** ; or il
+      n'importe aucun SDK — seulement `@fl/shared`, `@fl/types` et des
+      primitives universelles (`fetch`, `AbortController`, `setTimeout`). Son
+      unique consommateur réel est `functions/`, qui ne peut pas dépendre de
+      `@fl/firebase` : c'est la raison pour laquelle `paths.ts` duplique les noms
+      de collections au lieu de créer cette arête. Le module était donc rangé
+      dans le seul paquet que son consommateur ne peut pas atteindre.
+      **Une garantie structurelle a été déplacée, pas perdue.** `@fl/shared`
+      compilait avec `"types": []`, ce qui interdisait _par construction_
+      `process.env` ou `node:fs` — le paquet restait sûr pour React Native.
+      Accueillir le module d'envoi a exigé `"types": ["node"]`. La garantie est
+      désormais tenue par `portability.test.ts`, qui lit la source du paquet et
+      refuse trente modules intégrés de Node et cinq globales propres à Node.
+- [x] Premier envoi de bout en bout : `onPostPublished` — le module d'envoi
+      n'était appelé par **aucune** Cloud Function, et `queryByAudience`, nommé
+      dans `docs/05-notifications.md`, **n'existait pas**. Le chemin est
+      maintenant complet : `posts/{postId}` publié → `postNotificationPlan`
+      (décision pure) → `selectRecipients` (conversion défensive) →
+      `sendToAudience` (requête, envoi, purge, journal) → `notifiedAt` et
+      `stats.notifiedCount` écrits **après** l'envoi, jamais avant : marquer
+      d'abord perdrait silencieusement la notification si l'envoi échouait.
+      `onDocumentWritten` et non `onDocumentCreated`, parce qu'une publication
+      peut naître `published` **ou** le devenir ; le rejeu est fermé par
+      `notifiedAt`. Les deux replis opposés sont appliqués ici et sont
+      délibérés : `audienceKeys` illisible → liste vide (un appareil qui ne
+      reçoit rien plutôt qu'une notification qui dévoile son contenu sur
+      l'écran verrouillé), `disabledCategories` illisible → rien de désactivé
+      (une fermeture d'école manquée ne se rattrape pas). Un jeton dont les clés
+      s'étalent sur deux lots est **dédoublonné par identifiant de document** :
+      sans cela il recevrait la notification deux fois.
+      Sept clauses prouvées par mutation, chacune tombant seule. La mutation de
+      `after.status !== 'published'` n'a fait tomber **aucun** test : la garde
+      était masquée par celle du dessus, et le cas qu'elle protège vraiment — un
+      brouillon retiré avant publication — n'avait pas de test. Le test manquant
+      a été écrit.
+- [ ] Les 7 déclencheurs — **1 sur 7** : publication faite. Restent commentaire,
+      réponse, message, sondage, signalement et rappel.
 - [ ] Regroupement des messages (fenêtre de 5 minutes)
-- [ ] Liens profonds vers le contenu concerné
+- [ ] Liens profonds vers le contenu concerné — la **construction** du lien est
+      faite (`buildDeeplink` dans `@fl/shared`, schéma vérifié contre
+      `app.json` par un test, qui refuse la copie d'un schéma désynchronisé) ;
+      il reste la **réception** côté application, c'est-à-dire router
+      `frereslumieres://post/{id}` vers le bon écran.
 - [ ] Écran admin : envoyer une notification ciblée, historique
 - [x] Alertes urgentes non désactivables — l'exception `urgent` est appliquée
       par `filterRecipients`, **refusée** par `notificationPrefsSchema`, et
@@ -503,6 +544,13 @@ ordinateur ; un parent qui tente d'y accéder est refusé.
       schéma devrait devenir conditionnel — à trancher quand le réglage aura un
       consommateur (phase 7).
 - [ ] Purge des jetons morts
+- [ ] Rendre `InvalidCredentials` visible — un jeton d'accès Expo expiré fait
+      échouer **tous** les envois, et rien ne le distingue aujourd'hui d'un
+      incident réseau passager : un `401` est journalisé comme un échec
+      ordinaire. C'est le manque le plus coûteux de la phase, parce qu'il est
+      silencieux et global.
+- [ ] `MessageTooBig` : tronquer et réessayer, au lieu de compter en échec. Un
+      corps trop long est aujourd'hui perdu pour le destinataire concerné.
 
 **Critère de sortie :** une publication notifiée atteint les bonnes personnes
 et uniquement celles-là ; les préférences sont respectées, sauf pour `urgent`.

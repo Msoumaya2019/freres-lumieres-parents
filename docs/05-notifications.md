@@ -50,7 +50,7 @@ Raisons, dans l'ordre d'importance pour un projet maintenu par une personne :
 Le code d'envoi est isolé derrière une interface unique :
 
 ```ts
-// packages/firebase/src/push/dispatcher.ts
+// packages/shared/src/push/dispatcher.ts
 export interface PushDispatcher {
   sendToAudience(params: SendParams): Promise<SendResult>;
 }
@@ -400,6 +400,11 @@ Deux règles de bon sens appliquées partout :
 - **On regroupe.** Un canal actif ne génère pas 40 notifications : une fenêtre
   de 5 minutes regroupe les messages (« 3 nouveaux messages dans CE1 »).
 
+**État : le déclencheur 1 est branché** (`onPostPublished`), les six autres ne
+le sont pas. Les règles ci-dessus sont donc, à ce jour, tenues par le seul
+déclencheur qui existe ; les déclencheurs 2 à 7 devront les appliquer à leur
+tour — le regroupement en particulier n'a encore aucune implémentation.
+
 ---
 
 ## 6. Anatomie d'une notification
@@ -428,30 +433,78 @@ notification qu'on ignore.
 
 ## 7. Envoi : où et comment
 
-| Envoi               | Déclencheur                            | Fonction                                    |
-| ------------------- | -------------------------------------- | ------------------------------------------- |
-| À la publication    | case « notifier » cochée à la création | `onPostPublished`                           |
-| Nouveau commentaire | `onDocumentCreated('comments/{id}')`   | `notifyCommentAuthor`                       |
-| Réponse             | idem, avec `parentId`                  | `notifyCommentAuthor`                       |
-| Nouveau message     | `onDocumentCreated('messages/{id}')`   | `notifyChannelAudience` (avec regroupement) |
-| Nouveau sondage     | `onDocumentCreated('polls/{id}')`      | `notifyPollAudience`                        |
-| Signalement         | `onDocumentUpdated('reports/{id}')`    | `notifyReportAuthor`                        |
-| Rappel d'événement  | tâche planifiée horaire                | `sendEventReminders`                        |
-| Manuel              | depuis l'admin                         | `sendManualNotification` (callable)         |
+| Envoi               | Déclencheur                           | Fonction                                    | État    |
+| ------------------- | ------------------------------------- | ------------------------------------------- | ------- |
+| À la publication    | `onDocumentWritten('posts/{postId}')` | `onPostPublished`                           | fait    |
+| Nouveau commentaire | `onDocumentCreated('comments/{id}')`  | `notifyCommentAuthor`                       | à faire |
+| Réponse             | idem, avec `parentId`                 | `notifyCommentAuthor`                       | à faire |
+| Nouveau message     | `onDocumentCreated('messages/{id}')`  | `notifyChannelAudience` (avec regroupement) | à faire |
+| Nouveau sondage     | `onDocumentCreated('polls/{id}')`     | `notifyPollAudience`                        | à faire |
+| Signalement         | `onDocumentUpdated('reports/{id}')`   | `notifyReportAuthor`                        | à faire |
+| Rappel d'événement  | tâche planifiée horaire               | `sendEventReminders`                        | à faire |
+| Manuel              | depuis l'admin                        | `sendManualNotification` (callable)         | à faire |
 
 Chaque envoi écrit un document dans `notifications/{id}` avec les compteurs
 `deliveredCount` et `failedCount`. L'administration dispose ainsi d'un
 historique complet : qui a envoyé quoi, à qui, quand.
 
+### Le chemin d'un envoi, tel qu'il est écrit
+
+Le déclencheur ne décide de rien : il lit, appelle, et marque. La décision est
+une fonction pure, testable sans émulateur.
+
+```
+posts/{postId} écrit
+   │
+   ├─ postNotificationPlan(postId, before, after)   → plan | null   (fonctions/src/notifications/post-plan.ts)
+   │     aucune écriture si : pas de « after » · statut ≠ published ·
+   │     déjà publié avant · notifiedAt déjà posé · champ requis manquant ·
+   │     audience vide
+   │
+   ├─ selectRecipients(documents)                   → { recipients, rejected }   (…/recipients.ts)
+   │     chaque rejet est nommé avec sa raison : une exclusion silencieuse est
+   │     indiscernable d'un parent qui ne s'est jamais inscrit
+   │
+   ├─ sendToAudience({ message, journal })          → SendOutcome   (…/send.ts)
+   │     requête par lots de 30 clés, dédoublonnage par identifiant de document,
+   │     envoi, purge des jetons morts, journal
+   │
+   └─ update posts/{postId} : notifiedAt, stats.notifiedCount
+```
+
+Trois points de ce chemin sont des décisions, pas des détails :
+
+- **`onDocumentWritten`, pas `onDocumentCreated`.** Une publication peut naître
+  `published` ou le devenir plus tard ; les deux cas doivent notifier. Le rejeu
+  est fermé par `notifiedAt`, écrit **après** l'envoi — marquer d'abord perdrait
+  la notification si l'envoi échouait, et personne ne le verrait.
+- **Dédoublonnage par identifiant de document.** `array-contains-any` plafonne
+  à 30 valeurs, donc les clés d'un même appareil peuvent s'étaler sur deux
+  lots. Sans dédoublonnage, cet appareil recevrait la notification deux fois.
+- **Deux replis opposés, et c'est délibéré.** `audienceKeys` illisible → liste
+  vide : un appareil qui ne reçoit rien plutôt qu'une notification qui dévoile
+  son contenu sur l'écran verrouillé. `disabledCategories` illisible → rien de
+  désactivé : une fermeture d'école manquée ne se rattrape pas.
+
 ### Gestion des erreurs
 
-| Erreur Expo/FCM       | Action                                                                                       |
-| --------------------- | -------------------------------------------------------------------------------------------- |
-| `DeviceNotRegistered` | suppression du jeton                                                                         |
-| `MessageTooBig`       | troncature et nouvel essai                                                                   |
-| `MessageRateExceeded` | attente exponentielle, nouvel essai                                                          |
-| `InvalidCredentials`  | **alerte immédiate** dans `adminLogs` : le jeton d'accès Expo est probablement expiré        |
-| Réponse incomplète    | les jetons sans ticket comptent en **échec**, jamais en livraison, et l'écart est journalisé |
+| Erreur Expo/FCM       | Action prévue                                                                                | État                                                                       |
+| --------------------- | -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `DeviceNotRegistered` | suppression du jeton                                                                         | fait                                                                       |
+| `MessageRateExceeded` | attente exponentielle, nouvel essai                                                          | fait — au niveau HTTP : trois tentatives sur `429`, puis abandon           |
+| Réponse incomplète    | les jetons sans ticket comptent en **échec**, jamais en livraison, et l'écart est journalisé | fait                                                                       |
+| `MessageTooBig`       | troncature et nouvel essai                                                                   | **à faire** — un corps trop long est aujourd'hui compté en échec           |
+| `InvalidCredentials`  | **alerte immédiate** dans `adminLogs` : le jeton d'accès Expo est probablement expiré        | **à faire** — un `401` est aujourd'hui journalisé comme un échec ordinaire |
+
+Les deux dernières lignes sont écrites ici comme des **manques**, pas comme des
+intentions : tant qu'elles ne sont pas implémentées, la table ne doit pas les
+présenter au passé. Le cas `InvalidCredentials` est le plus gênant des deux —
+un jeton d'accès Expo expiré fait échouer **tous** les envois en silence, et
+rien ne le distingue d'un incident réseau passager dans le journal.
+
+L'abandon après trois tentatives est délibéré : une boucle de retrait infinie
+est la façon la plus rapide d'épuiser le quota d'invocations, et le budget de
+cette association ne le supporte pas.
 
 ---
 
