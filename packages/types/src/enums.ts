@@ -86,7 +86,21 @@ export type NotificationType =
   | 'new_poll'
   | 'report_update'
   | 'event_reminder'
-  | 'account_validated';
+  | 'account_validated'
+  /**
+   * Annonce rédigée à la main depuis l'administration.
+   *
+   * Elle ne se rattache à aucun contenu : c'est ce qui la distingue des huit
+   * autres, qui répondent toutes à « quelque chose a été publié ». La valeur
+   * existe pour que l'historique des envois ne mente pas — sans elle, une
+   * annonce manuelle devrait emprunter `post_published` et laisser croire
+   * qu'une publication a été créée.
+   *
+   * L'urgence, elle, ne se lit pas ici : elle vit dans `category`, qui porte
+   * aussi la question « l'utilisateur peut-il la désactiver ». Deux questions,
+   * deux champs.
+   */
+  | 'manual_announcement';
 
 /**
  * Catégories de notifications.

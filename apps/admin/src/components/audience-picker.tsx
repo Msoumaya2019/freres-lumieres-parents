@@ -1,7 +1,14 @@
 'use client';
 
 /**
- * Choix du ciblage d'une publication.
+ * Choix du ciblage d'un contenu — publication ou annonce.
+ *
+ * Il vit dans `components/` et non dans `features/posts/` depuis que l'écran
+ * des notifications s'en sert : deux fonctionnalités qui partagent un contrôle
+ * de formulaire ne doivent pas dépendre l'une de l'autre, sans quoi retoucher
+ * la première casse la seconde sans que rien ne le signale. Le ciblage est par
+ * ailleurs le même des deux côtés, et c'est le schéma partagé qui le définit —
+ * une seconde copie finirait par accepter une audience que l'autre refuse.
  *
  * ## Pourquoi l'audience est reconstruite et non amendée
  *
@@ -16,8 +23,8 @@
  * Si les données de référence ne sont pas encore chargées, `initialAudienceFor`
  * produit une audience **incomplète** (identifiant vide) plutôt que de retomber
  * sur « Tous les parents ». Une audience incomplète fait échouer la validation,
- * ce qui est visible et corrigeable ; un repli silencieux enverrait une
- * publication destinée à une classe à toutes les familles du groupe scolaire.
+ * ce qui est visible et corrigeable ; un repli silencieux enverrait un contenu
+ * destiné à une classe à toutes les familles du groupe scolaire.
  * Les options concernées sont désactivées tant que la liste manque, pour que le
  * cas ne se présente pas.
  */

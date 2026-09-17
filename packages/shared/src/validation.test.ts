@@ -28,6 +28,7 @@ import {
 import {
   firstIssueByField,
   notificationPrefsSchema,
+  notificationSendSchema,
   postInputSchema,
   userRoleUpdateSchema,
   userStatusUpdateSchema,
@@ -203,5 +204,59 @@ describe('préférences de notification', () => {
     );
 
     expect(notificationPrefsSchema.safeParse(prefs(trop)).success).toBe(false);
+  });
+});
+
+describe('notificationSendSchema', () => {
+  /** Annonce écrite à la main depuis l'administration. */
+  const annonce = {
+    title: 'Fermeture de l’école',
+    body: 'L’école sera fermée vendredi.',
+    category: 'publications',
+    audience: { type: 'all' },
+  };
+
+  it('accepte une annonce sans lien profond', () => {
+    expect(notificationSendSchema.safeParse(annonce).success).toBe(true);
+  });
+
+  it('refuse un lien profond qui n’ouvre aucun écran', () => {
+    // La forme seule ne suffit pas : `frereslumieres://poll/…` est un lien
+    // valide dont l'écran n'existe pas encore. L'accepter ici le ferait
+    // échouer **en silence** sur le téléphone, et l'administrateur croirait
+    // avoir posé un lien qui marche.
+    const resultat = notificationSendSchema.safeParse({
+      ...annonce,
+      deeplink: 'frereslumieres://poll/p1',
+    });
+
+    expect(resultat.success).toBe(false);
+  });
+
+  it('accepte un lien profond qui ouvre un écran', () => {
+    // La borne opposée : un schéma qui refuserait **tous** les liens passerait
+    // le test précédent. Elle se relira d'elle-même le jour où un écran
+    // s'ajoute à `DEEPLINK_ROUTES` — c'est la table qui décide, pas une liste
+    // recopiée ici.
+    const resultat = notificationSendSchema.safeParse({
+      ...annonce,
+      deeplink: 'frereslumieres://post/p1',
+    });
+
+    expect(resultat.success).toBe(true);
+  });
+
+  it('refuse un champ que le serveur ne lit pas', () => {
+    // `orgId` surtout : l'accepter laisserait croire qu'un administrateur peut
+    // choisir l'organisation destinataire, alors que le plan la lit sur le
+    // profil de l'appelant.
+    expect(notificationSendSchema.safeParse({ ...annonce, orgId: 'autre' }).success).toBe(false);
+  });
+
+  it('refuse un titre trop court et une catégorie inconnue', () => {
+    expect(notificationSendSchema.safeParse({ ...annonce, title: 'ok' }).success).toBe(false);
+    expect(notificationSendSchema.safeParse({ ...annonce, category: 'urgente' }).success).toBe(
+      false,
+    );
   });
 });

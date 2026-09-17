@@ -110,6 +110,16 @@ export interface SendOutcome {
   failed: number;
   /** Jetons supprimés : appareil désinstallé, jeton expiré. */
   purgedTokens: number;
+  /**
+   * Identifiant du document d'historique écrit, ou `null` quand son écriture a
+   * échoué.
+   *
+   * `null` ne veut pas dire « rien n'a été envoyé » : les messages sont partis,
+   * c'est l'historique qui manque. L'appelant s'en sert pour ne pas désigner
+   * dans le journal d'audit un document qui n'existe pas — une référence morte
+   * dans un journal d'audit est pire qu'une référence absente.
+   */
+  notificationId: string | null;
 }
 
 /**
@@ -369,5 +379,6 @@ export async function sendToAudience(params: SendToAudienceParams): Promise<Send
     accepted: resultat.accepted,
     failed: resultat.failed,
     purgedTokens,
+    notificationId: historiqueEcrit ? notificationId : null,
   };
 }

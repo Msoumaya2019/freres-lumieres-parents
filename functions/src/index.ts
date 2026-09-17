@@ -49,6 +49,7 @@ export {
 
 // --- Actions d'administration ------------------------------------------------
 export { adminSetUserStatus, adminSetUserRole, adminDeleteUser } from './callable/admin-users.js';
+export { sendManualNotification } from './callable/send-notification.js';
 
 // --- Compteurs agrégés -------------------------------------------------------
 export {

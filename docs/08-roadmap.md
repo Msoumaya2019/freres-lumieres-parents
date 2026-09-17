@@ -539,7 +539,58 @@ ordinateur ; un parent qui tente d'y accéder est refusé.
       `report`) sont reconnus mais sans écran ; ils sont déclarés dans
       `TYPES_SANS_ROUTE` avec leur raison, et le test refuse un type qui ne
       serait ni ouvrable ni excusé.
-- [ ] Écran admin : envoyer une notification ciblée, historique
+- [x] Écran admin : envoyer une notification ciblée, historique — le formulaire,
+      la fonction appelable et la lecture de l'historique sont faits.
+      **Le type ne dit pas l'urgence.** Une annonce urgente reste
+      `manual_announcement` et porte `category: 'urgent'` : le type répond à
+      « qu'est-ce qui a produit cet envoi » — une main —, la catégorie à
+      « l'utilisateur peut-il la désactiver ». Emprunter `urgent_alert` ferait
+      écrire dans l'historique qu'une publication a été créée alors que personne
+      n'a publié, et l'écran ne saurait plus distinguer une annonce du bureau
+      d'un fil de classe.
+      **L'organisation n'est jamais transmise.** `notificationSendSchema` ne
+      porte aucun `orgId` : elle est lue dans le profil de l'appelant, relu **en
+      base** par la fonction. Le schéma est `.strict()`, donc un client qui
+      l'ajouterait « au cas où » verrait son appel refusé — et ce serait mérité,
+      une organisation fournie par le client étant une organisation qu'on peut
+      choisir.
+      **Le lien profond est refusé quand il n'ouvre rien.** La validation porte
+      sur `routeForDeeplink`, pas sur la forme : `parseDeeplink` reconnaît cinq
+      types de cible dont quatre sans écran (phases 6 à 9), et un tel lien
+      passerait la validation pour échouer en silence sur le téléphone. Le jour
+      où un écran apparaît, la condition s'élargit d'elle-même.
+      **Le journal d'audit est écrit dans les deux issues**, y compris quand
+      l'envoi est interrompu par un `401` : sans cette écriture, une tentative
+      d'annonce urgente à huit cents téléphones ne laisserait aucune trace
+      attribuable. `targetId` porte l'organisation, qui existe avant comme
+      après ; désigner le document d'historique serait plus précis, mais il
+      n'existe pas encore à l'instant où l'envoi échoue. C'est la contrepartie
+      assumée de laisser tout détenteur de `notification.send` — `fcpe`,
+      `moderator`, `admin`, exactement l'ensemble qui peut déjà publier une
+      information urgente — envoyer une alerte : un envoi de masse est
+      attribuable, pas anonyme.
+      **`deliveredCount: null` s'affiche « pas encore connu ».** À l'envoi, on
+      sait ce que le service a **accepté** ; les remises n'existent qu'après la
+      relecture des reçus. Afficher « 0 remis » avant cette relecture
+      affirmerait qu'aucun message n'est arrivé — l'inverse de la vérité, qui
+      est « on ne sait pas encore ».
+      **La requête de l'historique est tenue par un test, et c'est le point le
+      moins visible.** Elle contraint `orgId` — les règles ne sont pas des
+      filtres, un `list` non contraint est refusé — et trie sur `sentAt`
+      décroissant, ce que l'écran promet en toutes lettres. Ni l'une ni l'autre
+      ne se voit à la lecture : sans `orderBy`, Firestore rend un ordre par
+      identifiant de document, sans erreur ni message. Et une requête non
+      couverte par un index composite est refusée **à l'exécution**, avec un
+      message qui ne dit pas lequel manque — donc au premier affichage de
+      l'écran, en production, au moment où quelqu'un cherche à prévenir huit
+      cents familles. `notifications-index.test.ts` lit donc la source du dépôt
+      **et** `firestore.indexes.json`, et exige un index
+      `notifications(orgId ↑, sentAt ↓)`.
+      Quatorze mutations éprouvées, chacune sur son ensemble **exact** de tests
+      tombés — deux d'entre elles en font tomber deux, et l'écart a été constaté
+      avant d'être inscrit : l'organisation voyage jusqu'à la charge utile du
+      message, et l'assertion d'index relit les champs extraits par les deux
+      autres.
 - [x] Alertes urgentes non désactivables — l'exception `urgent` est appliquée
       par `filterRecipients`, **refusée** par `notificationPrefsSchema`, et
       `OPTIONAL_NOTIFICATION_CATEGORIES` donne à l'écran de préférences la seule

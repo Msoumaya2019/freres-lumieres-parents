@@ -48,7 +48,7 @@ export const ADMIN_SECTIONS: readonly AdminSection[] = [
     description: 'Envoyer une notification ciblée, consulter l’historique',
     permission: 'notification.send',
     phase: 'Phase 5',
-    implemented: false,
+    implemented: true,
   },
   {
     slug: 'utilisateurs',
@@ -162,4 +162,9 @@ export const ADMIN_SECTION_SLUGS: readonly string[] = ADMIN_SECTIONS.map((sectio
  * L'oubli n'est pas laissé à la vigilance : `sections.test.ts` compare cette
  * liste aux dossiers réellement présents sous `app/(dashboard)/`.
  */
-export const DEDICATED_ROUTE_SLUGS: readonly string[] = ['journal', 'publications', 'utilisateurs'];
+export const DEDICATED_ROUTE_SLUGS: readonly string[] = [
+  'journal',
+  'notifications',
+  'publications',
+  'utilisateurs',
+];

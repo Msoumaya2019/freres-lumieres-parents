@@ -60,33 +60,52 @@ export function lireSource(cheminRelatif: readonly string[]): string {
 }
 
 /**
- * Corps d'une fonction, exportée ou non, ou **lève** si elle est introuvable.
+ * Corps d'une fonction ou d'une fonction appelable, ou **lève** si introuvable.
  *
- * Le motif cherche `function <nom>(`, sans exiger `export` : la plupart des
- * fonctions qui portent une décision dans ce projet sont privées — c'est même
- * un signe qu'elles sont au bon endroit —, et exiger `export` obligerait à
- * ouvrir une fonction uniquement pour la tester.
+ * ## Deux formes, et deux fins de corps
  *
- * Le corps s'arrête à la première accolade fermante en début de ligne, ce qui
- * suffit pour les fonctions plates de ce dépôt. Une fonction dont le corps
- * contiendrait lui-même une accolade en colonne zéro serait tronquée : le test
- * resterait vert, mais sur un fragment — préférer alors un motif cherché dans le
- * fichier entier.
+ *  - `function <nom>(` — sans exiger `export` : la plupart des fonctions qui
+ *    portent une décision dans ce projet sont privées, c'est même un signe
+ *    qu'elles sont au bon endroit, et exiger `export` obligerait à ouvrir une
+ *    fonction uniquement pour la tester. Le corps s'arrête à la première
+ *    accolade fermante en début de ligne ;
+ *  - `const <nom> = ` — la forme d'une fonction **appelable**, `onCall` rendant
+ *    une valeur au lieu de se déclarer. Sa fin n'est pas `\n}` mais `\n});`,
+ *    et chercher l'accolade en colonne zéro ne trouverait rien.
+ *
+ * Un comptage d'accolades serait plus général, et il a été écarté : il faudrait
+ * ignorer celles qui vivent dans une chaîne ou un littéral de gabarit, et ce
+ * projet en contient — `paths.ts` en est plein. Une règle fausse appliquée
+ * partout vaut moins que deux règles justes, chacune pour sa forme.
+ *
+ * ## La limite, écrite
+ *
+ * Une fonction dont le corps contiendrait lui-même une accolade en colonne zéro
+ * — ou un `\n});` — serait tronquée : le test resterait vert, mais sur un
+ * fragment. Préférer alors un motif cherché dans le fichier entier.
  */
 export function corpsDeLaFonction(
   source: string,
   nom: string,
   cheminRelatif: readonly string[] = REPERE,
 ): string {
-  const debut = source.indexOf(`function ${nom}(`);
-  const fin = debut === -1 ? -1 : source.indexOf('\n}', debut);
+  const formes = [
+    { debut: `function ${nom}(`, fin: '\n}' },
+    { debut: `const ${nom} = `, fin: '\n});' },
+  ];
 
-  if (debut === -1 || fin === -1) {
-    throw new Error(
-      `Fonction « ${nom} » introuvable dans ${cheminRelatif.join('/')}. ` +
-        'Le format a changé : adapter ce test plutôt que le neutraliser.',
-    );
+  for (const forme of formes) {
+    const debut = source.indexOf(forme.debut);
+    if (debut === -1) continue;
+
+    const fin = source.indexOf(forme.fin, debut);
+    if (fin === -1) break;
+
+    return source.slice(debut, fin);
   }
 
-  return source.slice(debut, fin);
+  throw new Error(
+    `Fonction « ${nom} » introuvable dans ${cheminRelatif.join('/')}. ` +
+      'Le format a changé : adapter ce test plutôt que le neutraliser.',
+  );
 }

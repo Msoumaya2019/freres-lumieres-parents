@@ -27,50 +27,11 @@ import { userRoleUpdateSchema, userStatusUpdateSchema } from '@fl/shared';
 
 import { adminAuth, adminDb } from '../lib/admin.js';
 import { diffContext, writeAuditLog } from '../lib/audit.js';
+import { resolveCaller, type CallerContext } from '../lib/caller.js';
 import { ADMIN_ACTIONS, paths } from '../lib/paths.js';
 import { syncUserClaims, type ClaimsSource } from '../auth/claims.js';
 
 const REGION = 'europe-west1';
-
-interface CallerContext {
-  uid: string;
-  name: string;
-  role: UserRole;
-  orgId: string;
-}
-
-/**
- * Identifie l'appelant à partir de la **base de données**, pas du jeton.
- *
- * Un administrateur fraîchement rétrogradé pourrait sinon continuer à agir
- * pendant près d'une heure avec son ancien jeton.
- */
-async function resolveCaller(auth: { uid: string } | undefined): Promise<CallerContext> {
-  if (!auth?.uid) {
-    throw new HttpsError('unauthenticated', 'Vous devez être connecté.');
-  }
-
-  const snapshot = await adminDb().doc(paths.user(auth.uid)).get();
-  if (!snapshot.exists) {
-    throw new HttpsError('permission-denied', 'Profil introuvable.');
-  }
-
-  const data = snapshot.data() ?? {};
-  const role = data.role as UserRole | undefined;
-  const status = data.status as UserStatus | undefined;
-  const orgId = data.orgId as string | undefined;
-
-  if (status !== 'active' || !role || !orgId) {
-    throw new HttpsError('permission-denied', 'Votre compte doit être actif.');
-  }
-
-  return {
-    uid: auth.uid,
-    name: `${data.firstName ?? ''} ${data.lastName ?? ''}`.trim() || 'Administrateur',
-    role,
-    orgId,
-  };
-}
 
 /** Charge le profil cible et vérifie qu'il appartient à la même organisation. */
 async function resolveTarget(targetUid: string, caller: CallerContext) {

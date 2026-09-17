@@ -503,7 +503,7 @@ où elle est, plutôt que d'aller sur un écran « introuvable ».
 | Signalement         | `onDocumentUpdated('reports/{id}')`   | `notifyReportAuthor`                        | à faire |
 | Rappel d'événement  | tâche planifiée horaire               | `sendEventReminders`                        | à faire |
 | Relecture des reçus | tâche planifiée horaire               | `onReceiptsDue`                             | fait    |
-| Manuel              | depuis l'admin                        | `sendManualNotification` (callable)         | à faire |
+| Manuel              | depuis l'admin                        | `sendManualNotification` (callable)         | fait    |
 
 > **Prérequis de déploiement.** `onReceiptsDue` est la première fonction planifiée
 > du projet : son déploiement demande l'**API Cloud Scheduler**, que Firebase
@@ -578,6 +578,54 @@ Trois points de ce chemin sont des décisions, pas des détails :
   vide : un appareil qui ne reçoit rien plutôt qu'une notification qui dévoile
   son contenu sur l'écran verrouillé. `disabledCategories` illisible → rien de
   désactivé : une fermeture d'école manquée ne se rattrape pas.
+
+### Le chemin d'une annonce manuelle
+
+La plomberie est la même — `sendToAudience` —, la décision vient d'ailleurs.
+C'est `manualNotificationPlan` qui la prend, et elle est pure, donc éprouvable
+sans émulateur.
+
+```
+admin : formulaire  →  sendManualNotification (callable)
+   │
+   ├─ resolveCaller(request.auth)                    (functions/src/lib/caller.ts)
+   │     rôle, statut et organisation relus **en base**, jamais dans le jeton
+   │
+   ├─ hasPermission(caller.role, 'notification.send')
+   │     vérifiée AVANT la validation : un appelant sans droit n'a pas à
+   │     apprendre, par un message détaillé, quelle forme d'entrée est attendue
+   │
+   ├─ notificationSendSchema.safeParse(request.data)   (@fl/shared)
+   │     le **même objet** que celui du formulaire, et strict : l'organisation
+   │     n'y figure pas, donc un client qui l'ajouterait serait refusé
+   │
+   ├─ manualNotificationPlan(input, caller)          → plan | null   (…/manual-plan.ts)
+   │     orgId ← caller.orgId, jamais la requête · audience vide → null ·
+   │     corps tronqué par extraitNotification, et c'est la version **coupée**
+   │     qui est journalisée · priority `max` pour `urgent` seule
+   │
+   └─ sendToAudience({ message, journal })           → SendOutcome   (…/send.ts)
+         aucun `sourceId` : une annonce ne se rattache à aucun contenu, et en
+         inventer un écrirait une référence qui ne désigne rien
+```
+
+Deux points méritent d'être dits, parce qu'ils ne se lisent pas dans ce schéma.
+
+**Le type ne dit pas l'urgence.** Une annonce urgente reste
+`manual_announcement` et porte `category: 'urgent'`. Le type répond à
+« qu'est-ce qui a produit cet envoi » — une main —, la catégorie à
+« l'utilisateur peut-il la désactiver ». Emprunter `urgent_alert` ferait écrire
+dans l'historique qu'une publication a été créée alors que personne n'a publié.
+
+**Le journal d'audit est écrit dans les deux issues.** Il est posé après la
+tentative, avec `issue: 'envoyé'` ou `issue: 'interrompu'` — un `401` du service
+faisant lever `sendToAudience` sans rien écrire dans l'historique des envois.
+Sans cette écriture-là, une tentative d'annonce urgente à huit cents téléphones
+ne laisserait **aucune trace attribuable**, et c'est précisément le geste qu'un
+journal d'audit existe pour rendre visible. C'est la contrepartie assumée de
+laisser tout détenteur de `notification.send` — `fcpe`, `moderator`, `admin`,
+exactement l'ensemble qui peut déjà publier une information urgente — envoyer
+une alerte : l'envoi de masse est attribuable, pas anonyme.
 
 ### Gestion des erreurs
 

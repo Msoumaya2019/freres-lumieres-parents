@@ -179,6 +179,7 @@ export const NOTIFICATION_TYPES = [
   'report_update',
   'event_reminder',
   'account_validated',
+  'manual_announcement',
 ] as const satisfies readonly NotificationType[];
 
 export const NOTIFICATION_CATEGORIES = [

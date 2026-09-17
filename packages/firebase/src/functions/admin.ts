@@ -25,6 +25,7 @@
  */
 import { httpsCallable, type Functions } from 'firebase/functions';
 
+import type { NotificationSendInput } from '@fl/shared';
 import type { UserRole, UserStatus } from '@fl/types';
 
 import { toAppError } from '../errors.js';
@@ -43,6 +44,7 @@ const FUNCTION_NAMES = {
   setUserStatus: 'adminSetUserStatus',
   setUserRole: 'adminSetUserRole',
   deleteUser: 'adminDeleteUser',
+  sendNotification: 'sendManualNotification',
 } as const;
 
 export interface SetUserStatusInput {
@@ -56,6 +58,42 @@ export interface SetUserRoleInput {
   uid: string;
   role: UserRole;
   reason?: string;
+}
+
+/**
+ * Compte rendu d'un envoi, tel que la fonction le retourne.
+ *
+ * ## Ce que ces nombres comptent, et ce qu'ils ne comptent pas
+ *
+ * **Aucun ne compte de parents.** Le service de notification dit qu'il a reçu
+ * le message, pas que le téléphone l'a affiché : « 120 messages pris en charge »
+ * est vrai, « 120 familles prévenues » ne le serait pas.
+ *
+ * ## Pourquoi `deliveredCount` n'est pas ici
+ *
+ * Parce qu'il n'existe pas encore. À l'envoi, on sait ce que le service a
+ * **accepté** ; le nombre de remises n'apparaît qu'après la relecture des reçus,
+ * une quinzaine de minutes plus tard, sur un déclencheur planifié. Le lire ici
+ * supposerait d'attendre, et cette attente serait plus longue que la durée de
+ * vie de la fonction.
+ *
+ * ## `notificationId` à `null` ne veut pas dire « rien n'a été envoyé »
+ *
+ * Les messages sont partis ; c'est le **document d'historique** qui manque, son
+ * écriture étant rattrapée pour qu'un défaut de journal ne fasse pas perdre un
+ * envoi. L'écran doit donc le dire ainsi, et non comme un échec.
+ */
+export interface SendNotificationResult {
+  /** Appareils visés, après filtrage des préférences. */
+  readonly recipientCount: number;
+  /** Messages pris en charge par le service (ticket `ok`). */
+  readonly acceptedCount: number;
+  /** Refusés dès l'envoi. La relecture des reçus peut en ajouter. */
+  readonly failedCount: number;
+  /** Appareils disparus dont le jeton a été retiré pendant l'envoi. */
+  readonly purgedTokens: number;
+  /** Document d'historique écrit, ou `null` s'il n'a pas pu l'être. */
+  readonly notificationId: string | null;
 }
 
 export interface AdminFunctionsClient {
@@ -73,6 +111,22 @@ export interface AdminFunctionsClient {
 
   /** Supprime un compte et ses données (droit à l'effacement). */
   deleteUser(uid: string): Promise<void>;
+
+  /**
+   * Envoie une annonce écrite à la main à une audience.
+   *
+   * L'entrée est celle du schéma partagé, **organisation exclue** : elle est
+   * lue dans le profil de l'appelant, côté serveur. Le schéma est strict, donc
+   * l'ajouter ici ferait refuser l'appel — et c'est le comportement voulu,
+   * puisqu'une organisation fournie par le client est une organisation qu'on
+   * peut choisir.
+   *
+   * Rejette si l'audience ne désigne personne, si l'appelant n'a pas la
+   * permission, ou si un jeton d'accès du service est refusé — ce dernier cas
+   * interrompant l'envoi plutôt que d'être compté comme une audience
+   * injoignable.
+   */
+  sendNotification(input: NotificationSendInput): Promise<SendNotificationResult>;
 }
 
 /** Réponse de `adminSetUserStatus`. */
@@ -88,6 +142,15 @@ interface SetRoleResponse {
   unchanged?: boolean;
 }
 
+/**
+ * Réponse de `sendManualNotification`.
+ *
+ * Dérivée de `SendNotificationResult` plutôt que recopiée : la fonction
+ * retourne exactement ces compteurs, et deux listes de champs écrites à la main
+ * de part et d'autre divergent au premier ajout.
+ */
+type SendNotificationResponse = SendNotificationResult & { ok: boolean };
+
 export function createAdminFunctionsClient(functions: Functions): AdminFunctionsClient {
   const callSetStatus = httpsCallable<SetUserStatusInput, SetStatusResponse>(
     functions,
@@ -100,6 +163,10 @@ export function createAdminFunctionsClient(functions: Functions): AdminFunctions
   const callDeleteUser = httpsCallable<{ uid: string }, { ok: boolean }>(
     functions,
     FUNCTION_NAMES.deleteUser,
+  );
+  const callSendNotification = httpsCallable<NotificationSendInput, SendNotificationResponse>(
+    functions,
+    FUNCTION_NAMES.sendNotification,
   );
 
   return {
@@ -127,6 +194,24 @@ export function createAdminFunctionsClient(functions: Functions): AdminFunctions
     async deleteUser(uid) {
       try {
         await callDeleteUser({ uid });
+      } catch (error) {
+        throw toAppError(error);
+      }
+    },
+
+    async sendNotification(input) {
+      try {
+        const result = await callSendNotification(input);
+        return {
+          recipientCount: result.data.recipientCount,
+          acceptedCount: result.data.acceptedCount,
+          failedCount: result.data.failedCount,
+          purgedTokens: result.data.purgedTokens,
+          // `?? null` couvre le cas d'un déploiement plus ancien que ce client,
+          // qui ne renverrait pas le champ. L'absence se lit alors comme « pas
+          // de compte rendu », ce qui est exactement ce qu'elle est.
+          notificationId: result.data.notificationId ?? null,
+        };
       } catch (error) {
         throw toAppError(error);
       }

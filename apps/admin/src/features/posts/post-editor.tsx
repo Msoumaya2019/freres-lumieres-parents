@@ -36,7 +36,7 @@ import { userMessage } from '@fl/firebase';
 import { POST_CATEGORIES, POST_CATEGORY_LABELS, postInputSchema } from '@fl/shared';
 import type { Audience, Post, PostCategory, School, SchoolClass, UserRole } from '@fl/types';
 
-import { AudiencePicker } from '@/features/posts/audience-picker';
+import { AudiencePicker } from '@/components/audience-picker';
 
 const FIELD_CLASS =
   'w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground';

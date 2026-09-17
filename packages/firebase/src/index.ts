@@ -25,6 +25,7 @@ export * from './repositories/users.js';
 export * from './repositories/posts.js';
 export * from './repositories/reference.js';
 export * from './repositories/admin-logs.js';
+export * from './repositories/notifications.js';
 
 export * from './functions/admin.js';
 

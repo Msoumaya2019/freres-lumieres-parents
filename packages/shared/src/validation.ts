@@ -30,6 +30,7 @@ import {
   USER_ROLES,
   isMandatoryNotificationCategory,
 } from './constants.js';
+import { routeForDeeplink } from './deeplinks.js';
 
 // ---------------------------------------------------------------------------
 // Primitives
@@ -555,13 +556,39 @@ export const contentStatusUpdateSchema = z.object({
   reason: z.string().trim().max(500).optional(),
 });
 
+/**
+ * Annonce rédigée à la main depuis l'administration.
+ *
+ * `orgId` n'y figure pas, et c'est délibéré : il vient du profil de l'appelant,
+ * relu en base par la Cloud Function. Un `orgId` dans la requête laisserait un
+ * administrateur d'une organisation écrire dans l'historique d'une autre — la
+ * frontière d'organisation ne se demande pas au client.
+ */
 export const notificationSendSchema = z
   .object({
     title: z.string().trim().min(3).max(120),
     body: z.string().trim().min(3).max(400),
     category: z.enum(NOTIFICATION_CATEGORIES),
     audience: audienceSchema,
-    deeplink: z.string().trim().max(1024).optional(),
+    /**
+     * Lien ouvert au tap, s'il y en a un.
+     *
+     * Refusé quand il n'ouvre **rien**. La forme seule ne suffirait pas :
+     * `parseDeeplink` reconnaît cinq types, dont quatre sans écran (phases 6 à
+     * 9), et un tel lien passerait ici pour échouer en silence sur le
+     * téléphone. La condition porte donc sur `routeForDeeplink`, qui lit
+     * `DEEPLINK_ROUTES` — le jour où un écran apparaît, la validation s'élargit
+     * d'elle-même, et le test de couverture des liens empêche déjà d'oublier la
+     * table.
+     */
+    deeplink: z
+      .string()
+      .trim()
+      .max(1024)
+      .refine((valeur) => routeForDeeplink(valeur) !== null, {
+        error: "Ce lien n'ouvre aucun écran de l'application.",
+      })
+      .optional(),
   })
   .strict();
 
