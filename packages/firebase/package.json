@@ -2,7 +2,7 @@
   "name": "@fl/firebase",
   "version": "0.1.0",
   "private": true,
-  "description": "Accès Firebase : chemins, converters, repositories typés, notifications",
+  "description": "Accès Firebase : chemins, converters, repositories typés",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {

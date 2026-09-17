@@ -14,9 +14,24 @@
  *
  * Tout le code d'envoi passe donc par cette interface. Basculer d'une
  * implémentation à l'autre ne touche qu'un fichier.
+ *
+ * ## Pourquoi ce module vit dans `@fl/shared`, et pas dans `@fl/firebase`
+ *
+ * Il n'importe **aucun** SDK Firebase : ni `firebase/firestore`, ni
+ * `firebase-admin`. Le transport Expo Push est un simple appel HTTP. Or une
+ * Cloud Function ne peut pas dépendre de `@fl/firebase`, qui embarque le SDK
+ * client — c'est une règle du projet, et `paths.ts` va jusqu'à recopier les
+ * noms de collections pour ne pas créer cette arête. Le module a donc été
+ * déplacé ici : `@fl/shared` est le paquet sans SDK, et `functions` en dépend
+ * déjà.
+ *
+ * Conséquence à ne pas défaire : ce fichier doit rester sans dépendance au
+ * SDK Firebase. S'il en gagnait une, le paquet deviendrait inutilisable côté
+ * serveur, et le retour du problème serait silencieux.
  */
-import { audienceKeyToTopic } from '@fl/shared';
 import type { NotificationCategory } from '@fl/types';
+
+import { audienceKeyToTopic } from '../audience.js';
 
 /** Un envoi de notification, décrit indépendamment du fournisseur. */
 export interface PushMessage {

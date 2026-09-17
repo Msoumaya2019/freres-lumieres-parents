@@ -2,7 +2,7 @@
   "name": "@fl/shared",
   "version": "0.1.0",
   "private": true,
-  "description": "Logique métier partagée : permissions, audiences, validation, thème, formatage",
+  "description": "Logique métier partagée : permissions, audiences, validation, thème, formatage, envoi push",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {

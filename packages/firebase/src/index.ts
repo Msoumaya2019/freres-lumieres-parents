@@ -28,5 +28,7 @@ export * from './repositories/admin-logs.js';
 
 export * from './functions/admin.js';
 
-export * from './push/dispatcher.js';
-export * from './push/expo.js';
+// Le module d'envoi push vivait ici. Il est parti dans `@fl/shared` : il
+// n'importe aucun SDK Firebase, et une Cloud Function — qui doit pouvoir s'en
+// servir — ne peut pas dépendre de ce paquet, qui embarque le SDK client.
+// Voir `packages/shared/src/push/dispatcher.ts`.

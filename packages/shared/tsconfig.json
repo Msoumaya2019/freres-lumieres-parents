@@ -3,8 +3,19 @@
   "compilerOptions": {
     "outDir": "./dist",
     "rootDir": "./src",
-    "types": []
+    // `node` fournit les types de `fetch`, `AbortController` et des minuteurs,
+    // disponibles aussi bien en Node 22 (Cloud Functions) qu'en React Native
+    // et dans le navigateur (applications).
+    //
+    // Ce paquet était compilé avec `"types": []`, ce qui **garantissait** par
+    // construction qu'il n'employait aucune API d'environnement. Le module
+    // d'envoi push, venu de `@fl/firebase`, a besoin de ces quatre globales :
+    // la garantie est donc passée du compilateur à `portability.test.ts`, qui
+    // refuse tout import `node:*` et toute API propre à Node. Sans lui, rien
+    // n'empêcherait d'écrire `process.env` ici — et React Native, qui consomme
+    // ce paquet, échouerait à l'exécution sans que la compilation proteste.
+    "types": ["node"]
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["src/**/*.test.ts"]
+  "exclude": ["src/**/*.test.ts", "src/test-helpers/**"]
 }
