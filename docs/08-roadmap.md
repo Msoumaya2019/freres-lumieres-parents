@@ -472,7 +472,10 @@ ordinateur ; un parent qui tente d'y accéder est refusé.
       masquait le défaut — il écrit l'enfant et le profil d'un seul geste, si
       bien qu'ajouter un enfant plus tard ne faisait rien : le parent ne voyait
       pas le fil de sa classe, et rien n'échouait.
-- [ ] Écran de préférences par catégorie
+- [ ] Écran de préférences par catégorie — les interrupteurs se construisent sur
+      `OPTIONAL_NOTIFICATION_CATEGORIES`, jamais sur `NOTIFICATION_CATEGORIES` :
+      proposer `urgent` afficherait un interrupteur sans effet, que le schéma
+      refuserait de toute façon à l'enregistrement.
 - [x] `ExpoPushDispatcher` derrière l'interface `PushDispatcher` — écrit dans
       `packages/firebase/src/push/expo.ts` et exporté par `@fl/firebase`. Il
       n'est encore **appelé par aucune Cloud Function** : c'est l'item suivant
@@ -487,10 +490,18 @@ ordinateur ; un parent qui tente d'y accéder est refusé.
 - [ ] Regroupement des messages (fenêtre de 5 minutes)
 - [ ] Liens profonds vers le contenu concerné
 - [ ] Écran admin : envoyer une notification ciblée, historique
-- [ ] Alertes urgentes non désactivables — l'exception `urgent` est appliquée
-      par `filterRecipients`, mais rien ne l'empêche d'entrer dans
-      `notificationPrefs.disabledCategories` : le schéma accepte encore la
-      valeur, et l'écran de préférences devra ne pas la proposer.
+- [x] Alertes urgentes non désactivables — l'exception `urgent` est appliquée
+      par `filterRecipients`, **refusée** par `notificationPrefsSchema`, et
+      `OPTIONAL_NOTIFICATION_CATEGORIES` donne à l'écran de préférences la seule
+      liste d'interrupteurs à proposer. Les trois lisent
+      `MANDATORY_NOTIFICATION_CATEGORIES`, donc elles ne peuvent pas diverger.
+      Le refus côté schéma n'est pas la garantie — les règles Firestore ne
+      valident pas `notificationPrefs` — c'est le filtre d'envoi qui l'est ;
+      le refus sert à ne pas promettre une préférence sans effet.
+      **Reste ouvert :** `settings.urgentAlwaysNotifies` n'est lu par aucun code.
+      S'il venait à l'être, l'exception cesserait d'être absolue et le refus du
+      schéma devrait devenir conditionnel — à trancher quand le réglage aura un
+      consommateur (phase 7).
 - [ ] Purge des jetons morts
 
 **Critère de sortie :** une publication notifiée atteint les bonnes personnes

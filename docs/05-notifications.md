@@ -344,6 +344,28 @@ moment de l'envoi, tout en permettant un filtrage par catégorie.
 > Pour la catégorie `urgent`, le filtre n'est jamais appliqué, et les
 > préférences ne peuvent pas la désactiver côté interface.
 
+### Où l'exception `urgent` est appliquée
+
+Trois endroits, et ils lisent tous la même liste —
+`MANDATORY_NOTIFICATION_CATEGORIES`, dans `packages/shared/src/constants.ts` :
+
+| Endroit                            | Ce qu'il fait                                                                 |
+| ---------------------------------- | ----------------------------------------------------------------------------- |
+| `notificationPrefsSchema`          | **refuse** `urgent` dans `disabledCategories`, avec un message explicite      |
+| `filterRecipients` (le dispatcher) | ne filtre **jamais** une catégorie obligatoire, quelle que soit la préférence |
+| `OPTIONAL_NOTIFICATION_CATEGORIES` | liste dérivée : la seule source des interrupteurs de l'écran de préférences   |
+
+**Le refus côté schéma n'est pas la garantie.** Les règles Firestore ne valident
+pas `notificationPrefs` : un document en base peut donc porter `urgent`, écrit
+par une version antérieure ou par un client qui contourne le schéma. La
+garantie, c'est le filtre d'envoi, qui l'ignore. Le refus du schéma sert à autre
+chose : ne pas **promettre** à l'utilisateur une préférence sans effet, et
+empêcher l'écran de préférences de la proposer par inadvertance.
+
+Les trois lectures étant dérivées de la même constante, rendre demain une autre
+catégorie obligatoire suffit : le schéma la refuse, le filtre l'ignore, et la
+liste des interrupteurs la retire. Aucun des trois n'a à être modifié.
+
 ### Cas particulier : les alertes urgentes
 
 Une publication de catégorie `urgent` :
