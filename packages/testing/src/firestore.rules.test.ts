@@ -234,7 +234,13 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
   });
 
   afterAll(async () => {
-    await testEnv.cleanup();
+    // `beforeAll` peut avoir échoué avant d'assigner `testEnv` — émulateur pas
+    // encore prêt, port occupé. Sans cette garde, `afterAll` lève
+    // « Cannot read properties of undefined (reading 'cleanup') » : une erreur
+    // **en cascade**, qui remplace le message utile (la cause réelle) par un
+    // message qui ne dit rien. Le défaut a été rencontré, et c'est ce qui a
+    // rendu un diagnostic difficile.
+    await testEnv?.cleanup();
   });
 
   beforeEach(async () => {
