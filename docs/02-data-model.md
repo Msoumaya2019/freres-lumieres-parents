@@ -181,7 +181,21 @@ une information ou une notification.
 | `lastUsedAt`           | timestamp                   | purge des jetons morts                                    |
 
 L'identifiant du document **est** le jeton : l'enregistrement est donc
-idempotent (un même appareil ne crée jamais deux entrées).
+idempotent (un même appareil ne crée jamais deux entrées). Un appareil partagé
+entre deux comptes met à jour `uid` au lieu de créer un doublon — mais les
+règles exigent alors que `audienceKeys` et `disabledCategories` soient **remis
+à vide**, sans quoi le nouveau porteur recevrait les notifications de l'ancien.
+Une Cloud Function les recalcule depuis le profil du nouveau porteur.
+
+Un jeton ne change pas d'organisation : `orgId` est figé à l'enregistrement, et
+les règles refusent toute mise à jour qui le réécrirait. Le cas d'un compte
+rattaché à un autre groupe scolaire est aujourd'hui théorique — aucun chemin de
+code n'écrit `orgId` sur un profil —, mais la suppression d'un jeton ne dépend
+volontairement pas de l'organisation, précisément pour que ce cas resterait
+résoluble par le client.
+
+Un profil supprimé emporte ses jetons : le chemin d'envoi ne consulte pas les
+Custom Claims, donc retirer les droits ne suffit pas à faire taire un appareil.
 
 Deux champs sont écrits par une Cloud Function, et les règles Firestore les
 refusent au client : vides à la création, puis figés. Le client ne peut plus

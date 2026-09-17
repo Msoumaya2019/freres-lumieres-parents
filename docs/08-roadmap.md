@@ -426,10 +426,47 @@ ordinateur ; un parent qui tente d'y accéder est refusé.
       rattachements, donc un parent promu au rôle `fcpe` n'obtenait jamais sa
       clé `fcpe:` et ne voyait aucun contenu de la FCPE. Le rôle et les
       organisations font maintenant partie de la comparaison.
+      **Le cycle de vie du jeton est fermé sur trois chemins, et pas sur un
+      quatrième.** Un appareil peut **changer de porteur** — partagé entre deux
+      parents, ou transmis : il reprend la même entrée, puisque l'identifiant du
+      document est le jeton. Les règles exigent alors la remise à zéro des deux
+      champs serveur, et `onDeviceTokenOwnerChanged` les recalcule depuis le
+      profil du nouveau. Sans cela, le nouveau porteur héritait des clés de
+      l'ancien et recevait **ses** notifications, indéfiniment : rien ne les
+      recalculait, puisque ce sont les clés du profil du nouveau porteur qui les
+      déterminent, et que ce profil-là n'a pas changé. Interdire le transfert
+      aurait été pire — un appareil partagé n'aurait pu servir qu'un seul
+      compte, sans que rien ne le signale.
+      Le transfert reste **interne à l'organisation** : les règles comparent
+      aussi l'organisation du document à celle de l'appelant. Sans cette clause,
+      un parent du groupe B reprenait un jeton du groupe A en réécrivant
+      `orgId`, et l'appareil du groupe A cessait de recevoir ses propres
+      notifications. Un compte dont l'organisation changerait ne pourrait donc
+      plus mettre à jour ses jetons : il les supprimerait et les recréerait. Le
+      cas est aujourd'hui théorique — aucun chemin de code n'écrit `orgId` sur
+      un profil —, et c'est écrit comme tel dans les documents.
+      **Les trois clauses ont été éprouvées séparément**, chacune retirée seule :
+      la branche de transfert entière fait tomber deux tests, la clause
+      d'organisation un seul, celle des préférences un seul. Retirer le bloc ne
+      prouvait pas ses sous-clauses — une clause voisine refusait l'écriture à
+      leur place, et l'écart annoncé (trois échecs attendus, deux obtenus) est
+      ce qui l'a montré.
+      Un **profil supprimé** emporte désormais ses jetons. Le chemin d'envoi ne
+      consulte pas les Custom Claims, donc retirer les droits ne fait pas taire
+      un appareil. Le cas se produit dès qu'un profil est supprimé autrement que
+      par `adminDeleteUser`, seul appelant de `cleanupDeletedUser` : le
+      déclencheur de profil appelle donc le même nettoyage, qui est idempotent.
+      **La déconnexion n'est pas couverte** : l'appareil continue de recevoir
+      les notifications du compte qui vient de partir. Le remède est client —
+      écrire `enabled: false` sur son propre jeton, la seule écriture que les
+      règles laissent — mais il exige de connaître le jeton, donc
+      l'enregistrement côté application.
       **Restent à faire :** l'enregistrement côté application (demande de
-      permission, obtention du jeton Expo, écriture du document), et le
-      déclencheur sur `users/{uid}/children` — ajouter un enfant ne recalcule
-      rien tant que le profil n'est pas réécrit.
+      permission, obtention du jeton Expo, écriture du document) — bloqué par
+      `extra.eas.projectId`, **vide** dans `app.json`, sans lequel
+      `getExpoPushTokenAsync` ne peut rien obtenir ; la désactivation du jeton à
+      la déconnexion ; et le déclencheur sur `users/{uid}/children` — ajouter un
+      enfant ne recalcule rien tant que le profil n'est pas réécrit.
 - [ ] Écran de préférences par catégorie
 - [x] `ExpoPushDispatcher` derrière l'interface `PushDispatcher` — écrit dans
       `packages/firebase/src/push/expo.ts` et exporté par `@fl/firebase`. Il

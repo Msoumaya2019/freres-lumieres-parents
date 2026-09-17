@@ -150,6 +150,64 @@ L'identifiant du document **est** le jeton : l'enregistrement est idempotent.
 Un même appareil partagé entre deux comptes met à jour `uid` plutôt que de
 créer un doublon.
 
+### Le cycle de vie d'un jeton
+
+Trois moments obligent à recalculer les champs dérivés, et un quatrième n'est
+pas encore couvert.
+
+**À la création** — `onDeviceTokenCreated` lit le profil et remplit les deux
+champs. Sans lui, le jeton resterait éternellement vide : les règles imposent au
+client d'écrire `[]`, et rien ne remonterait jamais.
+
+**Au changement de porteur** — un appareil partagé entre deux parents, ou
+transmis. L'identifiant du document **est** le jeton, donc le second porteur
+reprend la même entrée ; les règles exigent alors qu'il remette `audienceKeys`
+et `disabledCategories` à vide, et `onDeviceTokenOwnerChanged` les recalcule
+depuis **son** profil.
+
+Sans cette remise à zéro, le nouveau porteur héritait des clés de l'ancien et
+recevait ses notifications, indéfiniment : rien ne les recalculait, puisque ce
+sont les clés du profil du nouveau porteur qui les déterminent, et que ce
+profil-là n'a pas changé. L'appareil continuait de recevoir les informations
+d'une classe qui n'était plus la sienne.
+
+Interdire purement le transfert aurait été pire : un appareil partagé n'aurait
+pu servir qu'un seul compte, sans que rien ne le signale — le second parent
+aurait cru s'être enregistré, et n'aurait rien reçu.
+
+Le transfert reste **interne à l'organisation** : les règles comparent aussi
+l'organisation du document à celle de l'appelant. Sans cette clause, un parent
+du groupe B reprenait un jeton du groupe A en réécrivant `orgId` — le document
+franchissait la frontière, et l'appareil du groupe A cessait de recevoir ses
+propres notifications. `orgId` est le seul champ qui rattache un jeton à un
+groupe, et c'était le seul que le client pouvait réécrire.
+
+Conséquence, aujourd'hui théorique : un compte dont l'organisation changerait
+ne pourrait plus mettre à jour ses jetons — il les supprimerait et les
+recréerait, la suppression ne dépendant volontairement pas de l'organisation.
+Aucun chemin de code n'écrit aujourd'hui `orgId` sur un profil : les règles le
+figent pour le client, et `adminSetUserRole` ne fait que le lire.
+
+**À la suppression du profil** — les jetons sont effacés. Retirer les droits ne
+suffit pas : le chemin d'envoi ne consulte jamais les Custom Claims, il
+interroge `deviceTokens` par organisation et par clés d'audience. Un compte
+supprimé continuerait donc de recevoir les notifications de sa classe. Le cas
+se produit dès qu'un profil est supprimé autrement que par `adminDeleteUser`,
+puisque c'est le seul appelant de `cleanupDeletedUser` — le déclencheur de
+profil appelle donc le même nettoyage, qui est idempotent.
+
+**À la déconnexion — non couvert.** Après une déconnexion, l'appareil continue
+de recevoir les notifications du compte qui vient de partir. Le remède est
+simple et appartient au client — écrire `enabled: false` sur son propre jeton,
+la seule écriture que les règles lui laissent — mais il faut connaître le jeton,
+donc l'enregistrement côté application, qui reste à écrire.
+
+> Risque résiduel, assumé : un porteur qui connaîtrait le jeton d'un autre
+> appareil peut le revendiquer et priver celui-ci de ses notifications. Le
+> jeton est l'identifiant du document et n'est pas devinable ; l'effet est une
+> gêne, pas une fuite — et les clés de l'ancien porteur sont effacées au
+> passage.
+
 ### Ce que la recopie ne couvre pas encore
 
 L'interrupteur général (`notificationPrefs.enabled`) n'est **pas** recopié. Il
