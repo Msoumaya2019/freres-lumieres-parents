@@ -24,7 +24,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { selectRecipients } from './recipients.js';
+import { excludeOwners, selectRecipients } from './recipients.js';
 
 /** Document complet, point de départ des variations. */
 const jeton = {
@@ -206,5 +206,57 @@ describe('selectRecipients', () => {
 
   it('ne rend rien pour une liste vide', () => {
     expect(selectRecipients([])).toEqual({ recipients: [], rejected: [] });
+  });
+});
+
+describe('excludeOwners', () => {
+  /** Deux appareils, portés par deux personnes différentes. */
+  const appareils = [
+    { token: 'ExponentPushToken[a]', uid: 'u1' },
+    { token: 'ExponentPushToken[b]', uid: 'u2' },
+  ];
+
+  it('retire les appareils des porteurs exclus', () => {
+    expect(excludeOwners(appareils, ['u2'])).toEqual([appareils[0]]);
+  });
+
+  it('retire tous les appareils d’un même porteur', () => {
+    const deuxTelephones = [
+      { token: 'ExponentPushToken[a]', uid: 'u1' },
+      { token: 'ExponentPushToken[b]', uid: 'u1' },
+      { token: 'ExponentPushToken[c]', uid: 'u2' },
+    ];
+
+    expect(excludeOwners(deuxTelephones, ['u1'])).toEqual([deuxTelephones[2]]);
+  });
+
+  it('rend une copie quand personne n’est exclu', () => {
+    const rendu = excludeOwners(appareils, []);
+
+    expect(rendu).toEqual(appareils);
+    // Une copie, et non la liste reçue : le chemin d'envoi ne doit pas pouvoir
+    // modifier par effet de bord la liste qu'un appelant garde en main.
+    expect(rendu).not.toBe(appareils);
+  });
+
+  it('conserve un appareil dont le porteur est illisible', () => {
+    // Le repli est **ouvert**, comme pour `enabled` : `uid` est écrit par le
+    // serveur à l'enregistrement, et son absence signale un document abîmé, pas
+    // quelqu'un à qui l'on veut cacher quelque chose. Écarter l'appareil
+    // ferait payer à un parent l'irrégularité d'un document.
+    const abime = [
+      { token: 'ExponentPushToken[a]' },
+      { token: 'ExponentPushToken[b]', uid: 42 },
+      { token: 'ExponentPushToken[c]', uid: 'u2' },
+    ];
+
+    expect(excludeOwners(abime, ['u2'])).toEqual([abime[0], abime[1]]);
+  });
+
+  it('conserve un document illisible', () => {
+    // C'est `selectRecipients` qui l'écartera, en le nommant. Le retirer ici le
+    // ferait disparaître sans trace, indiscernable d'un appareil qui n'existe
+    // pas.
+    expect(excludeOwners([null, 'texte'], ['u1'])).toEqual([null, 'texte']);
   });
 });

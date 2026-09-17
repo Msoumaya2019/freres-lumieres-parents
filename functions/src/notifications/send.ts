@@ -20,10 +20,15 @@
  * ## Deux façons d'atteindre quelqu'un
  *
  * Une **audience** — un ensemble de clés, retrouvé par recoupement : c'est le
- * chemin d'une publication ou d'une annonce manuelle. Une **personne** — un
- * identifiant, dont on prend tous les appareils : c'est celui d'un commentaire.
- * Les deux se rejoignent dans `deliverToTokens`, qui porte tout ce qui ne
- * dépend pas de la réponse à cette question.
+ * chemin d'une publication, d'une annonce manuelle, du lot de messages d'un
+ * canal. Une **personne** — un identifiant, dont on prend tous les appareils :
+ * c'est celui d'un commentaire. Les deux se rejoignent dans `deliverToTokens`,
+ * qui porte tout ce qui ne dépend pas de la réponse à cette question.
+ *
+ * Un envoi à une audience peut en **retirer** des porteurs, sans changer de
+ * nature : c'est le cas d'un lot de messages, qui ne prévient pas ceux qui
+ * l'ont écrit. La soustraction se fait après la requête, Firestore ne sachant
+ * pas exprimer « sauf ceux-ci ».
  *
  * ## Le journal d'envoi ne fait pas échouer l'envoi
  *
@@ -72,7 +77,7 @@ import {
 
 import { adminDb } from '../lib/admin.js';
 import { COLLECTIONS, paths } from '../lib/paths.js';
-import { selectRecipients } from './recipients.js';
+import { excludeOwners, selectRecipients } from './recipients.js';
 import { purgeDeviceTokens } from '../lib/token-purge.js';
 
 /** Nombre maximal d'opérations dans un lot Firestore. */
@@ -107,6 +112,14 @@ export interface SendToAudienceParams {
    */
   message: PushMessage;
   journal: NotificationJournalEntry;
+  /**
+   * Porteurs à retirer de l'audience.
+   *
+   * Sert au seul envoi **groupé** : un lot de messages de canal part à toute
+   * l'audience, moins ceux qui les ont écrits. Un envoi à une personne n'en a
+   * pas besoin — la question « à qui » y est déjà tranchée par l'identifiant.
+   */
+  excludeUids?: readonly string[];
   /** Injectable : les tests fournissent un dispatcher qui ne sort pas du processus. */
   dispatcher?: PushDispatcher;
 }
@@ -482,18 +495,27 @@ async function deliverToTokens(params: DeliverParams): Promise<SendOutcome> {
  * Envoie un message à tous les appareils dont l'audience recoupe la sienne.
  *
  * C'est le chemin des envois **de masse** : une publication, une annonce
- * manuelle. Les destinataires sont retrouvés par recoupement de clés, ce qui
- * suppose que le message en porte — un message sans clé n'atteindrait personne,
- * et c'est pour cette raison que le plan d'une publication refuse d'envoyer
- * quand son audience est vide.
+ * manuelle, le lot de messages d'un canal. Les destinataires sont retrouvés par
+ * recoupement de clés, ce qui suppose que le message en porte — un message sans
+ * clé n'atteindrait personne, et c'est pour cette raison que le plan d'une
+ * publication refuse d'envoyer quand son audience est vide.
+ *
+ * `excludeUids` retire des porteurs de l'ensemble ainsi trouvé, après la
+ * requête : c'est ce qui permet à un envoi groupé de ne pas prévenir ses
+ * propres auteurs sans renoncer à prévenir les autres.
  */
 export async function sendToAudience(params: SendToAudienceParams): Promise<SendOutcome> {
   return deliverToTokens({
     message: params.message,
     journal: params.journal,
     dispatcher: params.dispatcher,
-    queryTokens: () =>
-      queryTokensByAudience(params.message.data.orgId, params.message.audienceKeys),
+    queryTokens: async () => {
+      const documents = await queryTokensByAudience(
+        params.message.data.orgId,
+        params.message.audienceKeys,
+      );
+      return excludeOwners(documents, params.excludeUids ?? []);
+    },
   });
 }
 

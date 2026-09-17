@@ -383,6 +383,41 @@ export interface ChannelMessage extends Auditable {
   reportCount: number;
 }
 
+/**
+ * Lot de messages d'un canal en attente d'être annoncé.
+ *
+ * ## Pourquoi ce document existe
+ *
+ * Un canal actif ne doit pas produire quarante notifications : les messages
+ * sont **regroupés** sur une fenêtre de cinq minutes, et une seule notification
+ * annonce le lot. Ce document est l'état de cette fenêtre.
+ *
+ * ## Pourquoi la liste, et pas un compteur
+ *
+ * Un compteur incrémenté à chaque message dérive dès qu'un événement est livré
+ * deux fois — les déclencheurs Firestore s'exécutent « au moins une fois ». La
+ * liste dédoublonnée ne peut pas compter deux fois le même message, et elle
+ * donne au passage de quoi vérifier que les messages sont encore lisibles : le
+ * compte annoncé est celui des messages **relus**, pas celui des messages
+ * arrivés.
+ *
+ * ## Ce que le document ne porte pas
+ *
+ * Ni le nom du canal, ni son audience, ni le texte des messages. Tout cela est
+ * relu au moment de l'annonce, pour qu'un canal renommé, une audience élargie
+ * ou un message masqué dans l'intervalle soient annoncés sous leur état réel.
+ *
+ * Ce document est **inaccessible au client** : c'est un état de service.
+ */
+export interface ChannelDigest {
+  channelId: string;
+  orgId: string;
+  /** Messages du lot, dans leur ordre d'arrivée, sans doublon. */
+  messageIds: readonly MessageId[];
+  /** Instant à partir duquel le lot peut être annoncé. */
+  flushAt: DateLike;
+}
+
 // ===========================================================================
 //  5. Sondages
 // ===========================================================================

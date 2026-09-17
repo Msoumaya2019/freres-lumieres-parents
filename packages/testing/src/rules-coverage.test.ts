@@ -87,6 +87,15 @@ const SANS_CLOISONNEMENT: Readonly<Record<string, string>> = {
     'client n’y accède dans aucun sens, et il n’y a rien à cloisonner puisque ' +
     'personne ne lit. C’est aussi la raison pour laquelle ces jetons ne sont ' +
     'pas rangés dans `notifications`, que la FCPE lit.',
+  channelDigests:
+    'Aucun lecteur client (`allow read: if false`), comme `pushTickets` : le ' +
+    'document porte l’état du regroupement des messages d’un canal — la liste ' +
+    'des messages en attente d’être annoncés, et l’instant où ils le seront. ' +
+    'Il n’y a donc pas de frontière de **lecture** à poser, personne ne lisant. ' +
+    'La contrainte est du côté écriture, et elle est totale : c’est le seul ' +
+    'endroit où « ce qui a déjà été annoncé » est écrit, et le rendre ' +
+    'modifiable permettrait d’annoncer un lot qui n’existe pas — ou de faire ' +
+    'taire celui qui existe en repoussant sa fenêtre.',
   counters:
     'Agrégats seuls, sans donnée personnelle, et l’identifiant du document ' +
     '**est** l’identifiant d’organisation : la contrainte s’écrirait ' +

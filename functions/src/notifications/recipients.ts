@@ -72,8 +72,16 @@ function categoriesConnues(value: unknown): NotificationCategory[] {
   );
 }
 
-/** Clés d'audience : des chaînes non vides, et rien d'autre. */
-function clesTexte(value: unknown): string[] {
+/**
+ * Clés d'audience : des chaînes non vides, et rien d'autre.
+ *
+ * Exportée parce que `channel-plan.ts` lit les mêmes clés, sur un document
+ * `channels` au lieu d'un `deviceTokens`. La règle — une clé vide ne recoupe
+ * rien, donc n'a pas à être conservée — doit rester écrite une seule fois :
+ * deux copies divergeraient sur le premier cas limite, et l'une des deux
+ * ferait recouper une audience que l'autre ignore.
+ */
+export function clesAudience(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter((item): item is string => typeof item === 'string' && item.length > 0);
 }
@@ -117,10 +125,50 @@ export function selectRecipients(documents: readonly unknown[]): RecipientSelect
       platform: platform as DevicePlatform,
       // Seul un `false` explicite éteint l'appareil : voir l'en-tête.
       enabled: champs.enabled !== false,
-      audienceKeys: clesTexte(champs.audienceKeys),
+      audienceKeys: clesAudience(champs.audienceKeys),
       disabledCategories: categoriesConnues(champs.disabledCategories),
     });
   }
 
   return { recipients, rejected };
+}
+
+/**
+ * Retire les appareils dont le porteur est dans `uids`.
+ *
+ * ## Pourquoi le repli est ouvert
+ *
+ * Un document dont l'identifiant de porteur est illisible est **conservé**.
+ * L'écarter serait prudent à l'excès : `uid` est un champ que le serveur écrit
+ * lui-même à l'enregistrement, et son absence signale un document malformé, pas
+ * quelqu'un à qui l'on veut cacher quelque chose. Retirer l'appareil ferait
+ * payer à un parent l'irrégularité d'un document — même sens de repli que
+ * `enabled`, qui n'est coupé que par un `false` explicite.
+ *
+ * ## Pourquoi l'exclusion est faite ici, et pas dans la requête
+ *
+ * Firestore ne sait pas exprimer « sauf ceux-ci » : la requête ramène
+ * l'audience, et l'exclusion se fait après. Le surcoût se limite aux documents
+ * à écarter, qui étaient lus de toute façon.
+ *
+ * ## Ce que cette fonction permet
+ *
+ * « On ne se notifie jamais soi-même » s'écrivait jusqu'ici comme un abandon
+ * d'envoi — voir `comment-plan.ts`. Un envoi **groupé** ne le peut pas : le lot
+ * peut n'avoir qu'un auteur, et renoncer éteindrait la notification pour tout
+ * le monde. La règle se déplace donc du « faut-il envoyer » vers « à qui ».
+ */
+export function excludeOwners(documents: readonly unknown[], uids: readonly string[]): unknown[] {
+  if (uids.length === 0) return [...documents];
+
+  const exclus = new Set(uids);
+
+  return documents.filter((document) => {
+    if (typeof document !== 'object' || document === null) return true;
+
+    const uid = (document as Record<string, unknown>).uid;
+    if (typeof uid !== 'string') return true;
+
+    return !exclus.has(uid);
+  });
 }

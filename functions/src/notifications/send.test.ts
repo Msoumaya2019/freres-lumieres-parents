@@ -2,7 +2,7 @@
  * Ce que la requête d'envoi ne doit pas contraindre, ce que le journal ne doit
  * pas affirmer, et ce qui doit interrompre un envoi.
  *
- * ## Les quatre décisions que ce test tient
+ * ## Les cinq décisions que ce test tient
  *
  * **La requête.** `queryTokensByAudience` lit les jetons d'une audience. Elle ne
  * contraint **pas** `enabled`, et c'est une décision, pas un oubli : une
@@ -28,6 +28,13 @@
  * alors **omis** du document plutôt qu'écrit à `undefined` — que l'Admin SDK
  * refuse. Un échec à cet endroit perdrait la trace d'un envoi qui a bien eu
  * lieu, c'est-à-dire la seule chose que l'historique existe pour dire.
+ *
+ * **L'exclusion des auteurs.** Un envoi groupé retire de son audience ceux qui
+ * ont écrit le lot, et la soustraction se fait **après** la requête : Firestore
+ * ne sait pas exprimer « sauf ceux-ci ». C'est ce qui permet à un lot de
+ * messages de ne pas prévenir ses propres auteurs sans renoncer à prévenir les
+ * autres — un message seul dans un canal calme doit atteindre tout le monde
+ * sauf son auteur, et renoncer à envoyer l'éteindrait pour tous.
  *
  * ## Pourquoi il lit la source au lieu d'appeler les fonctions
  *
@@ -161,5 +168,33 @@ describe('deliverToTokens, sur un jeton d’accès refusé', () => {
     const rattrapage = corps.slice(corps.indexOf('} catch'));
 
     expect(rattrapage).toContain('throw error;');
+  });
+});
+
+describe('sendToAudience, sur l’exclusion des auteurs', () => {
+  const corps = corpsDeLaFonction(SOURCE, 'sendToAudience', CHEMIN_SEND);
+
+  it('retire les porteurs exclus après la requête', () => {
+    // Firestore ne sait pas exprimer « sauf ceux-ci » : la soustraction porte
+    // donc sur les documents rendus. La déplacer dans la requête est
+    // impossible, et la déplacer dans `deliverToTokens` ferait porter au chemin
+    // commun — celui d'un commentaire aussi — une règle qui ne concerne que
+    // l'envoi groupé.
+    expect(corps).toContain('excludeOwners(documents, params.excludeUids ?? [])');
+  });
+
+  it('passe par la requête d’audience, pas par celle d’une personne', () => {
+    // La contrepartie : sans elle, le test précédent passerait sur un corps
+    // vidé de sa requête.
+    expect(corps).toContain('queryTokensByAudience(');
+    expect(corps).not.toContain('queryTokensByUid(');
+  });
+
+  it('exclut la liste vide plutôt que de la refuser', () => {
+    // `?? []` couvre l'appelant ordinaire — une publication, une annonce
+    // manuelle — qui n'exclut personne. Sans ce défaut, `excludeOwners`
+    // recevrait `undefined` et le chemin d'envoi le plus fréquent de
+    // l'application lèverait.
+    expect(corps).toContain('params.excludeUids ?? []');
   });
 });

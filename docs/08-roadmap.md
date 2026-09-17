@@ -558,9 +558,53 @@ ordinateur ; un parent qui tente d'y accéder est refusé.
       cinq fonctions de `triggers/` ne finit par `\n});`, donc aucun test ne
       pouvait lire leur corps. Les deux fins possibles sont désormais essayées,
       et c'est la plus proche qui l'emporte.
-- [ ] Les 7 déclencheurs — **3 sur 7** : publication, commentaire et réponse.
-      Restent le message de canal, le sondage, le signalement et le rappel.
-- [ ] Regroupement des messages (fenêtre de 5 minutes)
+- [x] Notification d'un canal : `notifyChannelAudience` — il couvre le quatrième
+      déclencheur, et c'est le seul qui exige un **regroupement** : les messages
+      sont accumulés sur une fenêtre de cinq minutes, puis annoncés en une fois.
+      **Un déclencheur accumule, une tâche planifiée annonce.** C'est cette
+      séparation qui rend le regroupement possible — un déclencheur ne peut pas
+      attendre, et une fonction qui dort coûte pendant qu'elle dort. Le lot vit
+      dans `channelDigests/{channelId}`, et `onChannelDigestsDue`
+      (`every 5 minutes`, la **seconde** fonction planifiée du projet) l'annonce.
+      **La fenêtre ne glisse pas.** `flushAt` est fixé à l'ouverture du lot et
+      n'est plus repoussé tant qu'elle court : le repousser à chaque message
+      ferait qu'un canal bavard ne serait **jamais** annoncé, la fenêtre glissant
+      indéfiniment. Le lot part donc au plus tard cinq minutes après son premier
+      message.
+      **Le lot ne stocke que des identifiants**, jamais le texte, et le compte
+      annoncé est celui des messages **relus** au moment de l'annonce : un message
+      masqué pendant la fenêtre ne compte plus, et si plus rien n'est visible le
+      lot disparaît sans un mot. Un compteur incrémenté à chaque message aurait
+      dérivé dès la première livraison dupliquée — les déclencheurs Firestore
+      s'exécutent « au moins une fois ».
+      **« On ne se notifie jamais soi-même » change de forme ici.** Les deux
+      déclencheurs précédents **renoncent à envoyer** quand la cible désignée est
+      l'auteur du contenu. Un lot ne le peut pas : il peut n'avoir qu'un auteur,
+      et renoncer éteindrait la notification **pour tout le monde** — le demandeur
+      n'obtiendrait aucune réponse parce qu'il a posé sa question. La règle devient
+      une exclusion de destinataires (`excludeOwners`, appliqué **après** la
+      requête : Firestore ne sait pas exprimer « sauf ceux-ci »). Contrepartie
+      assumée : un seul envoi porte un seul texte, donc un seul compte, et dans un
+      lot mixte l'auteur lit un total qui inclut ses propres messages.
+      **L'envoi précède la suppression du lot.** Un passage interrompu entre les
+      deux réannoncera le lot au suivant — un doublon, visible dans l'historique —
+      plutôt que de perdre la notification en silence : une notification perdue ne
+      se distingue pas d'un canal calme. Un envoi qui échoue laisse donc le lot en
+      place.
+      **Le déclencheur écrit dans une transaction** : deux messages simultanés dans
+      un canal actif liraient sinon le même lot, et l'un écraserait l'autre — trois
+      messages annoncés comme deux, sans aucune erreur.
+      **Aucun lien profond**, contrairement aux deux autres. `channel` est un type
+      de cible connu, mais `TYPES_SANS_ROUTE` l'excuse : l'écran des discussions
+      n'existe pas. Un lien de ce type serait reconnu par l'analyse puis refusé à
+      l'ouverture, et le tap laisserait l'application où elle est — une promesse
+      que rien n'honore, ce que la règle 6 interdit.
+      `channelDigests` est **inaccessible au client** (`allow read, write: if
+false`) : c'est le seul endroit où « ce qui a déjà été annoncé » est écrit,
+      et le rendre modifiable permettrait d'annoncer un lot qui n'existe pas, ou de
+      faire taire celui qui existe en repoussant sa fenêtre.
+- [ ] Les 7 déclencheurs — **4 sur 7** : publication, commentaire et réponse,
+      message de canal. Restent le sondage, le signalement et le rappel.
 - [x] Liens profonds vers le contenu concerné — **faits pour les publications et
       les commentaires**, les deux déclencheurs branchés : un commentaire
       s'ouvre dans le fil de sa publication, seul écran où il se lit. Les deux
@@ -576,6 +620,10 @@ ordinateur ; un parent qui tente d'y accéder est refusé.
       `report`) sont reconnus mais sans écran ; ils sont déclarés dans
       `TYPES_SANS_ROUTE` avec leur raison, et le test refuse un type qui ne
       serait ni ouvrable ni excusé.
+      **La notification de canal n'emporte donc aucun lien**, et non un lien
+      refusé : mettre dans la charge une promesse que rien n'honore serait pire
+      que de n'en mettre aucune. Le jour où l'écran des discussions existera, il
+      faudra retirer la ligne d'excuse **et** écrire le lien.
 - [x] Écran admin : envoyer une notification ciblée, historique — le formulaire,
       la fonction appelable et la lecture de l'historique sont faits.
       **Le type ne dit pas l'urgence.** Une annonce urgente reste

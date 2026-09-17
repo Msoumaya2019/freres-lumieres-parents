@@ -383,6 +383,24 @@ service cloud.firestore {
     }
 
     // =========================================================================
+    //  Lots de discussion en attente d'annonce
+    // =========================================================================
+
+    match /channelDigests/{channelId} {
+      // Aucun accès client, dans aucun sens.
+      //
+      // Ce document est l'état du regroupement des messages d'un canal : la
+      // liste des messages en attente d'être annoncés, et l'instant où ils le
+      // seront. Il ne contient rien que le client ne puisse déjà lire — les
+      // messages sont dans une sous-collection qu'il peut parcourir — mais
+      // c'est un **état de service**, et il est le seul endroit où « ce qui a
+      // déjà été annoncé » est écrit. Le laisser modifiable permettrait
+      // d'annoncer un lot qui n'existe pas, ou de faire taire celui qui existe
+      // en repoussant sa fenêtre.
+      allow read, write: if false;
+    }
+
+    // =========================================================================
     //  Publications et commentaires
     // =========================================================================
 

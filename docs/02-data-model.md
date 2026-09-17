@@ -44,6 +44,8 @@ posts/{postId}
 channels/{channelId}
   └── messages/{messageId}
 
+channelDigests/{channelId}        (lot de messages en attente d'annonce — jamais lisible)
+
 polls/{pollId}
   └── votes/{voterKey}          (id = uid, ou empreinte si sondage anonyme)
 
@@ -81,6 +83,7 @@ highlights/{orgId}
 | `users/{uid}/children`  | les enfants n'ont pas à être une collection racine : ils ne sont jamais interrogés globalement                                                                  |
 | `users/{uid}/tokens`    | les jetons push sont sensibles ; les isoler permet de les interdire en lecture                                                                                  |
 | `channels` + `messages` | structure forum, sans messagerie privée                                                                                                                         |
+| `channelDigests`        | état du regroupement : un lot de messages en attente d'annonce, et l'instant où il part — état de service, jamais lisible par le client                         |
 | `collectiveIssues`      | sujets suivis publiquement, distincts des signalements privés                                                                                                   |
 | `fcpeTasks`             | espace de travail interne de la FCPE                                                                                                                            |
 
@@ -414,6 +417,31 @@ effet.
 Il ne vit pas dans `notifications` parce qu'il contient des jetons d'appareil,
 et que `notifications` est lisible par la FCPE : la porte de service aurait
 remplacé la porte d'entrée.
+
+### `channelDigests/{channelId}`
+
+`orgId`, `channelId`, `messageIds`, `flushAt`. **Invisible au client**, dans les
+deux sens.
+
+Un canal actif ne doit pas produire une notification par message : les messages
+sont regroupés sur une fenêtre de cinq minutes, et une seule notification annonce
+le lot. Ce document est l'état de cette fenêtre — et l'identifiant est celui du
+canal, donc un canal a **au plus un lot ouvert**.
+
+`messageIds` est une **liste dédoublonnée**, et non un compteur. Un compteur
+incrémenté à chaque message dérive dès qu'un événement est livré deux fois — les
+déclencheurs Firestore s'exécutent « au moins une fois » —, tandis que la liste ne
+peut pas compter deux fois le même message. Elle donne en plus au passage
+d'annonce de quoi relire les messages : le compte annoncé est celui des messages
+**encore visibles**, pas celui des messages arrivés.
+
+`flushAt` est fixé à l'ouverture du lot et **n'est plus repoussé** tant que la
+fenêtre court. Le repousser à chaque message ferait qu'un canal bavard ne serait
+jamais annoncé : la fenêtre glisserait indéfiniment.
+
+Le document ne porte ni le nom du canal, ni son audience, ni le texte des
+messages : tout cela est relu au moment de l'annonce, pour qu'un canal renommé ou
+un message masqué dans l'intervalle soient annoncés sous leur état réel.
 
 ### `moderationReports/{moderationReportId}`
 

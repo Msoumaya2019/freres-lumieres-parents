@@ -1419,6 +1419,21 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
       );
     });
 
+    it('un lot de discussion n’est ni lisible ni écrivable depuis un client', async () => {
+      // Le document porte l'état du regroupement des messages d'un canal : la
+      // liste des messages en attente d'être annoncés, et l'instant où ils le
+      // seront. Le client n'a rien à y faire — il ne regroupe pas.
+      //
+      // La lecture compte autant que l'écriture : un client qui lirait le lot
+      // saurait ce qui n'a pas encore été annoncé. Et l'écriture est la plus
+      // sensible des deux, puisque repousser la fenêtre ferait taire une
+      // discussion sans qu'aucune erreur n'apparaisse nulle part.
+      const ref = doc(parent.firestore(), 'channelDigests', 'ce1');
+
+      await assertFails(getDoc(ref));
+      await assertFails(setDoc(ref, { orgId: TEST_ORG, channelId: 'ce1', messageIds: ['m-1'] }));
+    });
+
     it('un parent enregistre son appareil pour sa propre organisation', async () => {
       await assertSucceeds(
         setDoc(

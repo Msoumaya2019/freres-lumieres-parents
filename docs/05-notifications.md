@@ -434,7 +434,7 @@ Une publication de catégorie `urgent` :
 | 1   | Publication publiée           | `publications` ou `urgent` | audience de la publication                        |
 | 2   | Nouveau commentaire           | `discussions`              | auteur de la publication                          |
 | 3   | Réponse à un commentaire      | `discussions`              | auteur du commentaire parent                      |
-| 4   | Nouveau message dans un canal | `discussions`              | audience du canal (résumé groupé)                 |
+| 4   | Nouveau message dans un canal | `discussions`              | audience du canal, **auteurs du lot exclus**      |
 | 5   | Nouveau sondage               | `sondages`                 | audience du sondage                               |
 | 6   | Mise à jour d'un signalement  | `signalements`             | **auteur du signalement uniquement**              |
 | 7   | Rappel d'événement            | `agenda`                   | participants inscrits, ou audience de l'événement |
@@ -444,14 +444,21 @@ Deux règles de bon sens appliquées partout :
 - **On ne se notifie jamais soi-même.** L'auteur d'un commentaire ne reçoit
   pas de notification pour son propre commentaire.
 - **On regroupe.** Un canal actif ne génère pas 40 notifications : une fenêtre
-  de 5 minutes regroupe les messages (« 3 nouveaux messages dans CE1 »).
+  de 5 minutes regroupe les messages (« 3 nouveaux messages dans CE1 »). C'est le
+  seul déclencheur qui l'exige, et le seul qui l'applique.
 
-**État : les déclencheurs 1 à 3 sont branchés** — `onPostPublished`, puis
+**État : les déclencheurs 1 à 4 sont branchés** — `onPostPublished`, puis
 `notifyCommentAuthor`, qui couvre à lui seul le nouveau commentaire **et** la
-réponse. Les quatre autres ne le sont pas. La règle « on ne se notifie jamais
-soi-même » est tenue par les deux qui existent ; le **regroupement**, lui, n'a
-toujours aucune implémentation, et c'est le déclencheur des canaux (4) qui
-l'exigera.
+réponse, puis `notifyChannelAudience`, qui regroupe les messages d'un canal. Les
+trois autres ne le sont pas.
+
+La règle « on ne se notifie jamais soi-même » est tenue par les trois, mais
+**pas de la même façon**, et la différence est instructive : les deux premiers
+**renoncent à envoyer** quand le destinataire désigné est l'auteur du contenu —
+un commentaire de soi à soi n'intéresse personne. Le troisième ne le peut pas :
+un lot de messages peut n'avoir qu'un auteur, et renoncer éteindrait la
+notification **pour tout le monde**. La règle y devient une exclusion de
+destinataires, et non un abandon d'envoi.
 
 ---
 
@@ -493,26 +500,36 @@ refuse un type qui ne serait ni ouvrable ni excusé. Un lien dont le type n'a pa
 d'écran n'ouvre rien : l'application reste où elle est, plutôt que d'aller sur un
 écran « introuvable ».
 
+**Et pour un message de canal, la notification n'emporte aucun lien du tout.**
+`channel` est un type de cible connu, mais son écran n'existe pas — la ligne
+d'excuse le dit, et c'est le seul type dans ce cas que les déclencheurs branchés
+viseraient. Écrire le lien quand même mettrait dans la charge une promesse que
+rien n'honore : l'analyse le reconnaîtrait, l'ouverture le refuserait, et le tap
+laisserait l'application où elle est sans rien dire. Le jour où l'écran des
+discussions existera, il faudra retirer la ligne d'excuse **et** écrire le lien —
+un test l'exige.
+
 ---
 
 ## 7. Envoi : où et comment
 
-| Envoi               | Déclencheur                                                | Fonction                                    | État    |
-| ------------------- | ---------------------------------------------------------- | ------------------------------------------- | ------- |
-| À la publication    | `onDocumentWritten('posts/{postId}')`                      | `onPostPublished`                           | fait    |
-| Nouveau commentaire | `onDocumentCreated('posts/{postId}/comments/{commentId}')` | `notifyCommentAuthor`                       | fait    |
-| Réponse             | idem, avec `parentId`                                      | `notifyCommentAuthor`                       | fait    |
-| Nouveau message     | `onDocumentCreated('messages/{id}')`                       | `notifyChannelAudience` (avec regroupement) | à faire |
-| Nouveau sondage     | `onDocumentCreated('polls/{id}')`                          | `notifyPollAudience`                        | à faire |
-| Signalement         | `onDocumentUpdated('reports/{id}')`                        | `notifyReportAuthor`                        | à faire |
-| Rappel d'événement  | tâche planifiée horaire                                    | `sendEventReminders`                        | à faire |
-| Relecture des reçus | tâche planifiée horaire                                    | `onReceiptsDue`                             | fait    |
-| Manuel              | depuis l'admin                                             | `sendManualNotification` (callable)         | fait    |
+| Envoi               | Déclencheur                                                      | Fonction                                        | État    |
+| ------------------- | ---------------------------------------------------------------- | ----------------------------------------------- | ------- |
+| À la publication    | `onDocumentWritten('posts/{postId}')`                            | `onPostPublished`                               | fait    |
+| Nouveau commentaire | `onDocumentCreated('posts/{postId}/comments/{commentId}')`       | `notifyCommentAuthor`                           | fait    |
+| Réponse             | idem, avec `parentId`                                            | `notifyCommentAuthor`                           | fait    |
+| Nouveau message     | `onDocumentCreated('channels/{channelId}/messages/{messageId}')` | `notifyChannelAudience` + `onChannelDigestsDue` | fait    |
+| Nouveau sondage     | `onDocumentCreated('polls/{id}')`                                | `notifyPollAudience`                            | à faire |
+| Signalement         | `onDocumentUpdated('reports/{id}')`                              | `notifyReportAuthor`                            | à faire |
+| Rappel d'événement  | tâche planifiée horaire                                          | `sendEventReminders`                            | à faire |
+| Relecture des reçus | tâche planifiée horaire                                          | `onReceiptsDue`                                 | fait    |
+| Manuel              | depuis l'admin                                                   | `sendManualNotification` (callable)             | fait    |
 
-> **Prérequis de déploiement.** `onReceiptsDue` est la première fonction planifiée
-> du projet : son déploiement demande l'**API Cloud Scheduler**, que Firebase
-> active normalement au premier déploiement d'un `onSchedule`. Si la commande
-> échoue sur ce point, c'est une API à activer, pas un défaut de code.
+> **Prérequis de déploiement.** Le projet a désormais **deux** fonctions
+> planifiées — `onReceiptsDue` (toutes les heures) et `onChannelDigestsDue`
+> (toutes les cinq minutes). Leur déploiement demande l'**API Cloud Scheduler**,
+> que Firebase active normalement au premier déploiement d'un `onSchedule`. Si la
+> commande échoue sur ce point, c'est une API à activer, pas un défaut de code.
 
 Chaque envoi écrit un document dans `notifications/{id}`. Le compte rendu s'y
 écrit en **deux temps** : à l'envoi, `acceptedCount` et `deliveredCount: null` ;
@@ -687,6 +704,81 @@ vise l'auteur de la publication, `comment_reply` celui du commentaire parent ;
 les deux portent `category: 'discussions'`, qui est désactivable. Une réponse à
 un commentaire disparu reste `comment_reply` — c'est bien une réponse qui a été
 écrite — mais change de cible.
+
+### Le chemin d'une notification de canal
+
+C'est le seul envoi qui n'a pas lieu au moment où le contenu est écrit. Un
+déclencheur **accumule**, une tâche planifiée **annonce** — et c'est cette
+séparation qui permet de relire les messages avant d'en parler.
+
+```
+channels/{channelId}/messages/{messageId} créé
+   │
+   ├─ lecture de channels/{channelId}            (…/triggers/channel-notifications.ts)
+   │     organisation, nom, audience, statut — le message, en sous-collection,
+   │     ne les porte pas
+   │
+   ├─ channelDigestPlan(channelId, messageId, message, canal, lotExistant, maintenant)
+   │     aucune écriture si : message masqué · canal disparu ou masqué ·
+   │     organisation absente · **message déjà compté** (livraison dupliquée)
+   │     sinon : le message s'ajoute au lot, et la fenêtre **ne bouge pas**
+   │
+   └─ transaction sur channelDigests/{channelId}      → { messageIds, flushAt }
+         une transaction, et non un `set` : deux messages simultanés liraient le
+         même lot, et l'un écraserait l'autre
+
+        … cinq minutes plus tard …
+
+onChannelDigestsDue (`every 5 minutes`)            (…/triggers/digest-schedule.ts)
+   │
+   └─ flushChannelDigests()                          (…/notifications/digest-flush.ts)
+         requête : flushAt <= maintenant, bornée à 20 lots
+         │
+         ├─ relecture des messages par identifiant
+         │     un message masqué pendant la fenêtre ne compte plus
+         │
+         ├─ relecture du canal
+         │     un canal renommé ou retiré est annoncé sous son état réel
+         │
+         ├─ digestNotification(canal, messages)       → plan | null
+         │     aucun envoi si : plus rien de visible · canal masqué ou disparu ·
+         │     nom ou organisation manquant · aucun auteur lisible
+         │
+         ├─ sendToAudience({ message, journal, excludeUids: plan.excludeUids })
+         │     l'audience du canal, **moins ceux qui ont écrit le lot**
+         │
+         └─ suppression du lot
+               après l'envoi, jamais avant
+```
+
+Quatre points ne se lisent pas dans ce schéma.
+
+**La fenêtre ne glisse pas.** `flushAt` est fixé à l'ouverture du lot et n'est
+plus repoussé tant que la fenêtre court. Le repousser à chaque message ferait
+qu'un canal bavard ne serait **jamais** annoncé : la fenêtre glisserait
+indéfiniment, et le lot grossirait sans fin. Une fenêtre fixe garantit qu'un lot
+part au plus tard cinq minutes après son premier message.
+
+**Le compte est celui des messages relus.** Le lot ne stocke que des
+identifiants, jamais le texte. Un message retiré par son auteur, ou masqué par la
+modération, pendant la fenêtre ne compte donc plus — annoncer « 3 nouveaux
+messages » sous un canal qui n'en montre que deux enverrait les parents chercher
+ce qui n'est pas là. Et si plus rien n'est visible, le lot disparaît sans un mot.
+
+**L'auteur du lot ne reçoit pas l'annonce de ses propres messages.** C'est la
+même règle que pour un commentaire, mais appliquée autrement : ici l'envoi n'est
+pas abandonné, les auteurs sont retirés des destinataires **après** la requête —
+Firestore ne sait pas exprimer « sauf ceux-ci ». Un message seul dans un canal
+calme prévient donc tout le monde **sauf** son auteur, au lieu de ne prévenir
+personne. La contrepartie est assumée : un seul envoi porte un seul texte, donc
+un seul compte, et dans un lot mixte l'auteur lit un total qui inclut ses propres
+messages.
+
+**L'envoi précède la suppression du lot.** Un passage interrompu entre les deux
+réannoncera le lot au suivant : un doublon, visible dans l'historique. Dans
+l'ordre inverse, la notification serait **perdue** — et une notification perdue
+ne se distingue pas d'un canal calme. Un envoi qui échoue laisse donc le lot en
+place, et le passage suivant le reprendra.
 
 ### Gestion des erreurs
 

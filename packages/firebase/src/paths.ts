@@ -39,6 +39,13 @@ export const COLLECTIONS = {
   pushTickets: 'pushTickets',
   posts: 'posts',
   channels: 'channels',
+  // Aucun usage côté client, et c'est délibéré : cette collection porte l'état
+  // du regroupement des messages d'un canal — la liste des messages en attente
+  // d'être annoncés, et l'instant où ils le seront. C'est un état de service,
+  // que le client n'a ni à lire ni à écrire. Le nom figure ici pour la même
+  // raison que `pushTickets` : la table est comparée à celle du serveur par
+  // `paths.test.ts`.
+  channelDigests: 'channelDigests',
   polls: 'polls',
   reports: 'reports',
   collectiveIssues: 'collectiveIssues',

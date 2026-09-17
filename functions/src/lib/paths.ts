@@ -22,6 +22,7 @@ export const COLLECTIONS = {
   pushTickets: 'pushTickets',
   posts: 'posts',
   channels: 'channels',
+  channelDigests: 'channelDigests',
   polls: 'polls',
   reports: 'reports',
   collectiveIssues: 'collectiveIssues',
@@ -69,6 +70,13 @@ export const paths = {
     `${COLLECTIONS.posts}/${postId}/${SUBCOLLECTIONS.comments}/${commentId}`,
   commentReactions: (postId: string, commentId: string) =>
     `${COLLECTIONS.posts}/${postId}/${SUBCOLLECTIONS.comments}/${commentId}/${SUBCOLLECTIONS.reactions}`,
+
+  channel: (channelId: string) => `${COLLECTIONS.channels}/${channelId}`,
+  channelMessages: (channelId: string) =>
+    `${COLLECTIONS.channels}/${channelId}/${SUBCOLLECTIONS.messages}`,
+  channelMessage: (channelId: string, messageId: string) =>
+    `${COLLECTIONS.channels}/${channelId}/${SUBCOLLECTIONS.messages}/${messageId}`,
+  channelDigest: (channelId: string) => `${COLLECTIONS.channelDigests}/${channelId}`,
 } as const;
 
 /** Noms d'action journalisés dans `adminLogs`. */

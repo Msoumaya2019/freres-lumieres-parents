@@ -10,7 +10,7 @@
 | Firestore — écritures    | 20 000 / jour                     | ~150 / jour                    |
 | Firestore — suppressions | 20 000 / jour                     | négligeable                    |
 | Storage                  | 5 Go stockés, 1 Go/jour transféré | < 200 Mo                       |
-| Functions                | 2 M d'invocations / mois          | ~10 000 / mois                 |
+| Functions                | 2 M d'invocations / mois          | ~55 000 / mois                 |
 | Auth                     | illimité (e-mail/mot de passe)    | —                              |
 | Hébergement (admin)      | 10 Go/mois                        | négligeable                    |
 
@@ -25,6 +25,20 @@ La tâche planifiée qui relit les reçus Expo tourne **une fois par heure**, so
 envois dont les reçus sont mûrs. Un passage toutes les cinq minutes aurait
 coûté douze fois plus pour le même résultat — les reçus restent lisibles
 vingt-quatre heures.
+
+La tâche qui annonce les lots de discussion tourne **toutes les cinq minutes**,
+soit 43 200 invocations par mois, et c'est l'arbitrage **inverse** — délibérément.
+Ici la cadence n'est pas un confort : la fenêtre de regroupement est de cinq
+minutes, donc un lot ne peut pas être annoncé avant, et un passage plus espacé
+retarderait la notification d'autant. Elle aussi tourne presque toujours à vide,
+la requête ne ramenant que les lots échus — un groupe scolaire dont les canaux
+sont calmes n'en produit aucun.
+
+**La leçon n'est donc pas « cinq minutes coûtent cher », mais « cinq minutes
+doivent acheter quelque chose ».** Pour les reçus, elles n'achetaient rien : le
+résultat est identique à quelques minutes près, sur une information qui reste
+lisible vingt-quatre heures. Pour un lot, elles achètent le délai lui-même, et
+c'est la seule cadence qui corresponde à la promesse faite au parent.
 
 ---
 
