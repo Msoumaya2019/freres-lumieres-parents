@@ -4,10 +4,11 @@
  * ## Organisation
  *
  * ```
- *  auth/       cycle de vie des comptes, Custom Claims, clés d'audience
- *  callable/   actions privilégiées appelées depuis l'interface d'administration
- *  triggers/   réactions aux écritures Firestore (compteurs, notifications)
- *  lib/        Admin SDK, chemins, journal d'audit
+ *  auth/           cycle de vie des comptes, Custom Claims, clés d'audience
+ *  callable/       actions privilégiées appelées depuis l'interface d'administration
+ *  notifications/  décision d'envoi, sélection des destinataires, chemin d'envoi
+ *  triggers/       réactions aux écritures Firestore (compteurs, notifications)
+ *  lib/            Admin SDK, chemins, journal d'audit
  * ```
  *
  * ## Options globales
@@ -56,3 +57,4 @@ export {
 
 // --- Notifications -----------------------------------------------------------
 export { onDeviceTokenCreated, onDeviceTokenOwnerChanged } from './triggers/device-tokens.js';
+export { onPostPublished } from './triggers/post-notifications.js';
