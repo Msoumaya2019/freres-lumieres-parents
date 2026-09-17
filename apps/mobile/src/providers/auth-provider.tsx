@@ -273,8 +273,19 @@ export function AuthProvider({ children }: { children: ReactNode }): React.JSX.E
     if (!firebase) return;
     setError(null);
     try {
-      // Les jetons de notification de cet appareil seront désactivés par une
-      // Cloud Function déclenchée sur la déconnexion.
+      // **Le jeton de notification de cet appareil n'est pas désactivé ici.**
+      //
+      // C'est un manque connu, et il se voit : après une déconnexion,
+      // l'appareil continue de recevoir les notifications du compte qui vient
+      // de partir. Le commentaire précédent annonçait une Cloud Function
+      // déclenchée sur la déconnexion — elle n'existe pas, et Firebase
+      // Functions v2 n'a aucun déclencheur de ce genre.
+      //
+      // Le remède appartient à ce fichier : le client peut écrire `enabled`
+      // sur son propre jeton, les règles l'y autorisent, et c'est la seule
+      // écriture qui lui reste. Il faut pour cela connaître le jeton, donc
+      // l'enregistrement côté application, qui n'est pas encore écrit. Voir
+      // `docs/05-notifications.md` § 2.
       await firebaseSignOut(firebase.auth);
     } catch (signOutError) {
       setError(toAppError(signOutError));
