@@ -429,6 +429,20 @@ Le `deeplink` ouvre **directement le contenu concerné**, jamais l'écran
 d'accueil. C'est la différence entre une notification utile et une
 notification qu'on ignore.
 
+Cette phrase a longtemps été fausse. Le serveur écrivait bien le lien, mais
+l'application ne le lisait nulle part : un tap ouvrait l'écran d'accueil, et
+rien ne le signalait — pas d'erreur, pas d'écran vide, juste le mauvais écran.
+Les deux moitiés existent maintenant : `buildDeeplink` côté serveur,
+`parseDeeplink` et `routeForDeeplink` côté application, et le layout racine
+ouvre la route une fois le compte actif.
+
+**Vrai pour les publications**, qui sont le seul déclencheur branché à ce jour.
+Les quatre autres types de cible sont reconnus par l'analyse mais n'ont pas
+encore d'écran ; ils sont déclarés comme tels, avec leur raison, dans
+`TYPES_SANS_ROUTE` — et un test refuse un type qui ne serait ni ouvrable ni
+excusé. Un lien dont le type n'a pas d'écran n'ouvre rien : l'application reste
+où elle est, plutôt que d'aller sur un écran « introuvable ».
+
 ---
 
 ## 7. Envoi : où et comment
@@ -488,19 +502,39 @@ Trois points de ce chemin sont des décisions, pas des détails :
 
 ### Gestion des erreurs
 
-| Erreur Expo/FCM       | Action prévue                                                                                | État                                                                       |
-| --------------------- | -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| `DeviceNotRegistered` | suppression du jeton                                                                         | fait                                                                       |
-| `MessageRateExceeded` | attente exponentielle, nouvel essai                                                          | fait — au niveau HTTP : trois tentatives sur `429`, puis abandon           |
-| Réponse incomplète    | les jetons sans ticket comptent en **échec**, jamais en livraison, et l'écart est journalisé | fait                                                                       |
-| `MessageTooBig`       | troncature et nouvel essai                                                                   | **à faire** — un corps trop long est aujourd'hui compté en échec           |
-| `InvalidCredentials`  | **alerte immédiate** dans `adminLogs` : le jeton d'accès Expo est probablement expiré        | **à faire** — un `401` est aujourd'hui journalisé comme un échec ordinaire |
+Le service Expo Push rend **deux** réponses distinctes, et les confondre fait
+écrire des règles fausses :
 
-Les deux dernières lignes sont écrites ici comme des **manques**, pas comme des
-intentions : tant qu'elles ne sont pas implémentées, la table ne doit pas les
-présenter au passé. Le cas `InvalidCredentials` est le plus gênant des deux —
-un jeton d'accès Expo expiré fait échouer **tous** les envois en silence, et
-rien ne le distingue d'un incident réseau passager dans le journal.
+- le **ticket**, renvoyé par `/push/send` : « j'ai accepté ton message ». C'est
+  la seule réponse que ce code lit aujourd'hui ;
+- le **reçu**, obtenu plus tard par `/push/getReceipts` : « je l'ai remis à FCM
+  ou APNs, et voici ce qui s'est passé ». **Ce code ne le lit pas.**
+
+| Erreur                | Réponse où elle apparaît | Action prévue                                                                                | État                                                             |
+| --------------------- | ------------------------ | -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| `DeviceNotRegistered` | ticket **et** reçu       | suppression du jeton                                                                         | fait, sur le ticket                                              |
+| `MessageRateExceeded` | ticket                   | attente exponentielle, nouvel essai                                                          | fait — au niveau HTTP : trois tentatives sur `429`, puis abandon |
+| Réponse incomplète    | ticket                   | les jetons sans ticket comptent en **échec**, jamais en livraison, et l'écart est journalisé | fait                                                             |
+| `MessageTooBig`       | **reçu** seulement       | troncature et nouvel essai                                                                   | **sans objet** — voir ci-dessous                                 |
+| `InvalidCredentials`  | HTTP `401`               | alerte immédiate : le jeton d'accès Expo est expiré                                          | **à faire** — un `401` est journalisé comme un échec ordinaire   |
+
+**`MessageTooBig` est sans objet, et c'est mesuré.** La limite du service est de
+**4096 octets** pour la charge utile totale d'un message. Au pire cas autorisé,
+la charge utile réelle pèse **590 octets** : titre borné à 140 caractères par
+les règles Firestore (`isNonEmptyString(d.title, 140)`), corps tronqué à 180 par
+`extraitNotification`, `data` réduit à quatre champs bornés. La marge est donc
+de l'ordre de sept fois, et elle est tenue par deux choses vérifiées séparément
+— une règle et un test — plutôt que par une intention.
+
+Le manque à retenir n'est donc pas la troncature, c'est le **reçu** : sans lui,
+`deliveredCount` compte des messages **acceptés**, jamais des messages reçus. Un
+appareil éteint depuis trois semaines compte comme livré. C'est écrit là où le
+champ est défini (`PushResult`, dans `packages/shared/src/push/dispatcher.ts`),
+et suivi dans la phase 5 du roadmap.
+
+`InvalidCredentials` reste le manque le plus coûteux : un jeton d'accès Expo
+expiré fait échouer **tous** les envois en silence, et rien ne le distingue d'un
+incident réseau passager dans le journal.
 
 L'abandon après trois tentatives est délibéré : une boucle de retrait infinie
 est la façon la plus rapide d'épuiser le quota d'invocations, et le budget de

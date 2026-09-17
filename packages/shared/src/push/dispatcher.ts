@@ -62,7 +62,23 @@ export interface PushRecipient {
   audienceKeys: readonly string[];
 }
 
-/** Résultat d'un envoi. */
+/**
+ * Résultat d'un envoi.
+ *
+ * ## Ce que `delivered` compte exactement
+ *
+ * **Des messages acceptés par le service, pas des messages reçus.** Un ticket
+ * `ok` signifie qu'Expo Push a pris le message en charge et le remettra à FCM
+ * ou APNs ; il ne dit rien de ce qui se passe ensuite — appareil éteint,
+ * application désinstallée entre-temps, jeton révoqué. Le seul moyen de le
+ * savoir est de relire les **reçus** (`/push/getReceipts`), et ce code ne le
+ * fait pas encore.
+ *
+ * Conséquence à ne pas oublier : le compteur affiché à l'administration est un
+ * **compteur d'acceptation**. Il est honnête tant qu'on l'appelle ainsi ; il
+ * devient faux le jour où un écran l'intitule « reçues ». Le lire
+ * `/docs/05-notifications.md` avant de s'en servir dans une interface.
+ */
 export interface PushResult {
   delivered: number;
   failed: number;

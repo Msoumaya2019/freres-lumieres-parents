@@ -525,11 +525,19 @@ ordinateur ; un parent qui tente d'y accéder est refusé.
 - [ ] Les 7 déclencheurs — **1 sur 7** : publication faite. Restent commentaire,
       réponse, message, sondage, signalement et rappel.
 - [ ] Regroupement des messages (fenêtre de 5 minutes)
-- [ ] Liens profonds vers le contenu concerné — la **construction** du lien est
-      faite (`buildDeeplink` dans `@fl/shared`, schéma vérifié contre
-      `app.json` par un test, qui refuse la copie d'un schéma désynchronisé) ;
-      il reste la **réception** côté application, c'est-à-dire router
-      `frereslumieres://post/{id}` vers le bon écran.
+- [x] Liens profonds vers le contenu concerné — **faits pour les
+      publications**, qui sont le seul déclencheur branché. Les deux moitiés
+      existent maintenant : `buildDeeplink` côté serveur, `parseDeeplink` et
+      `routeForDeeplink` côté application, avec la table des routes vérifiée
+      contre `apps/mobile/app/` par un test — renommer `app/post/[id].tsx`
+      sans toucher à la table fait échouer la suite, au lieu de produire un tap
+      qui n'ouvre rien. C'était faux jusqu'ici : la notification portait un lien
+      que **personne ne lisait**, donc un tap ouvrait l'écran d'accueil, et rien
+      ne le signalait.
+      **Reste :** les quatre autres types de cible (`channel`, `poll`, `event`,
+      `report`) sont reconnus mais sans écran ; ils sont déclarés dans
+      `TYPES_SANS_ROUTE` avec leur raison, et le test refuse un type qui ne
+      serait ni ouvrable ni excusé.
 - [ ] Écran admin : envoyer une notification ciblée, historique
 - [x] Alertes urgentes non désactivables — l'exception `urgent` est appliquée
       par `filterRecipients`, **refusée** par `notificationPrefsSchema`, et
@@ -544,13 +552,27 @@ ordinateur ; un parent qui tente d'y accéder est refusé.
       schéma devrait devenir conditionnel — à trancher quand le réglage aura un
       consommateur (phase 7).
 - [ ] Purge des jetons morts
+- [ ] **Lire les reçus Expo** (`/push/getReceipts`) — c'est le manque le plus
+      important qui reste, et il n'était pas visible : le code n'appelle que
+      `/push/send`, donc `deliveredCount` compte des messages **acceptés** par
+      le service, jamais des messages **reçus**. Un appareil éteint depuis trois
+      semaines compte comme livré, et un écran qui intitulerait ce nombre
+      « reçues » mentirait sans qu'aucun test ne tombe. Le reçu est aussi la
+      seule réponse où apparaissent `MessageTooBig` et, de nouveau,
+      `DeviceNotRegistered`. Le champ est documenté à sa définition
+      (`PushResult`), pas seulement ici.
 - [ ] Rendre `InvalidCredentials` visible — un jeton d'accès Expo expiré fait
       échouer **tous** les envois, et rien ne le distingue aujourd'hui d'un
       incident réseau passager : un `401` est journalisé comme un échec
       ordinaire. C'est le manque le plus coûteux de la phase, parce qu'il est
       silencieux et global.
-- [ ] `MessageTooBig` : tronquer et réessayer, au lieu de compter en échec. Un
-      corps trop long est aujourd'hui perdu pour le destinataire concerné.
+- [x] `MessageTooBig` — **sans objet, et mesuré.** La limite du service est de
+      4096 octets par message ; au pire cas autorisé, la charge utile pèse
+      **590 octets**. Le titre est borné à 140 caractères par les règles
+      Firestore, le corps tronqué à 180 par `extraitNotification`, et `data`
+      réduit à quatre champs bornés. Rien à implémenter : il fallait le vérifier
+      au lieu de le supposer, parce qu'une troncature qui ne se déclenche jamais
+      est du code mort — et ce projet en a déjà trouvé plusieurs.
 
 **Critère de sortie :** une publication notifiée atteint les bonnes personnes
 et uniquement celles-là ; les préférences sont respectées, sauf pour `urgent`.
