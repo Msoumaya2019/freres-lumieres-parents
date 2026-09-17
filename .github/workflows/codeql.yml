@@ -9,6 +9,8 @@
 #
 #  Une fois par semaine, en plus des déclenchements sur `main` : une nouvelle
 #  règle d'analyse peut détecter un problème dans du code ancien.
+#
+#  Actions épinglées à un SHA de commit — voir l'en-tête de `ci.yml`.
 # =============================================================================
 
 name: CodeQL
@@ -48,10 +50,10 @@ jobs:
 
     steps:
       - name: Récupérer le dépôt
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Initialiser CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
         with:
           languages: ${{ matrix.language }}
           # La suite `security-extended` couvre davantage de motifs que la
@@ -60,6 +62,6 @@ jobs:
           queries: security-extended
 
       - name: Analyser
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
         with:
           category: "/language:${{ matrix.language }}"
