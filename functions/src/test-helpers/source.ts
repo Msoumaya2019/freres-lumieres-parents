@@ -60,18 +60,27 @@ export function lireSource(cheminRelatif: readonly string[]): string {
 }
 
 /**
- * Corps d'une fonction ou d'une fonction appelable, ou **lève** si introuvable.
+ * Corps d'une fonction, d'une fonction appelable ou d'un déclencheur, ou
+ * **lève** si introuvable.
  *
- * ## Deux formes, et deux fins de corps
+ * ## Trois formes, et leurs fins de corps
  *
  *  - `function <nom>(` — sans exiger `export` : la plupart des fonctions qui
  *    portent une décision dans ce projet sont privées, c'est même un signe
  *    qu'elles sont au bon endroit, et exiger `export` obligerait à ouvrir une
  *    fonction uniquement pour la tester. Le corps s'arrête à la première
  *    accolade fermante en début de ligne ;
- *  - `const <nom> = ` — la forme d'une fonction **appelable**, `onCall` rendant
- *    une valeur au lieu de se déclarer. Sa fin n'est pas `\n}` mais `\n});`,
- *    et chercher l'accolade en colonne zéro ne trouverait rien.
+ *  - `const <nom> = ` — la forme d'une fonction **appelable** (`onCall`) ou
+ *    d'un **déclencheur** (`onDocumentCreated`, `onDocumentWritten`,
+ *    `onSchedule`). Elle s'achève par `});` pour la première et par `);` pour
+ *    les seconds, et chercher l'accolade en colonne zéro ne trouverait rien
+ *    pour aucune des deux.
+ *
+ * Les deux fins sont donc essayées pour la seconde forme, et c'est la plus
+ * proche qui l'emporte : une fonction appelable contient les deux, un
+ * déclencheur n'a que la seconde. Prendre systématiquement la seconde rendrait
+ * le corps d'une fonction appelable plus long qu'elle — l'inverse, systématiser
+ * la première, ferait **lever** sur tout déclencheur.
  *
  * Un comptage d'accolades serait plus général, et il a été écarté : il faudrait
  * ignorer celles qui vivent dans une chaîne ou un littéral de gabarit, et ce
@@ -89,19 +98,21 @@ export function corpsDeLaFonction(
   nom: string,
   cheminRelatif: readonly string[] = REPERE,
 ): string {
-  const formes = [
-    { debut: `function ${nom}(`, fin: '\n}' },
-    { debut: `const ${nom} = `, fin: '\n});' },
+  const formes: readonly { debut: string; fins: readonly string[] }[] = [
+    { debut: `function ${nom}(`, fins: ['\n}'] },
+    { debut: `const ${nom} = `, fins: ['\n});', '\n);'] },
   ];
 
   for (const forme of formes) {
     const debut = source.indexOf(forme.debut);
     if (debut === -1) continue;
 
-    const fin = source.indexOf(forme.fin, debut);
-    if (fin === -1) break;
+    const positions = forme.fins
+      .map((fin) => source.indexOf(fin, debut))
+      .filter((position) => position !== -1);
+    if (positions.length === 0) break;
 
-    return source.slice(debut, fin);
+    return source.slice(debut, Math.min(...positions));
   }
 
   throw new Error(

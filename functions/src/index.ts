@@ -61,4 +61,5 @@ export {
 // --- Notifications -----------------------------------------------------------
 export { onDeviceTokenCreated, onDeviceTokenOwnerChanged } from './triggers/device-tokens.js';
 export { onPostPublished } from './triggers/post-notifications.js';
+export { notifyCommentAuthor } from './triggers/comment-notifications.js';
 export { onReceiptsDue } from './triggers/receipts-schedule.js';

@@ -680,7 +680,21 @@ export interface NotificationLog {
   category: NotificationCategory;
   title: string;
   body: string;
-  audience: Audience;
+  /**
+   * Audience adressée, quand l'envoi en vise une.
+   *
+   * Absente pour un envoi **ciblé** : un commentaire s'adresse à une personne —
+   * l'auteur de la publication, ou celui du commentaire auquel on répond —, et
+   * aucune audience ne décrit cet ensemble. Recopier celle de la publication
+   * décrirait un envoi de masse qui n'a pas eu lieu, dans la collection même où
+   * l'administration lit ce qui est réellement parti.
+   *
+   * C'est le `type` qui dit alors quelle règle a désigné le destinataire :
+   * `new_comment` vise l'auteur de la publication, `comment_reply` celui du
+   * commentaire parent.
+   */
+  audience?: Audience;
+  /** Clés d'audience adressées. Vide pour un envoi ciblé. */
   audienceKeys: readonly string[];
   /** Contenu à l'origine de l'envoi, s'il existe. */
   sourceType?: 'post' | 'poll' | 'event' | 'report' | 'message' | 'manual';

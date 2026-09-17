@@ -178,6 +178,30 @@ function remis(valeur: number | null): string {
   return valeur === null ? 'pas encore connu' : String(valeur);
 }
 
+/**
+ * À qui l'envoi a été adressé.
+ *
+ * Une annonce ciblée n'a pas d'audience : elle vise une personne, désignée par
+ * la règle du déclencheur — l'auteur de la publication, ou celui du commentaire
+ * auquel on répond. `entry.audience` est alors absent, et c'est le **type** qui
+ * dit laquelle des deux règles a parlé.
+ *
+ * Sans ce repli, l'écran lirait `entry.audience.type` sur `undefined` et
+ * lèverait — sur le premier commentaire reçu, au lieu d'afficher une ligne de
+ * plus. Le cas est récent : tant que le seul envoi existant était la
+ * publication, le champ était toujours là.
+ */
+function destinataire(entry: NotificationLog): string {
+  if (entry.audience) return AUDIENCE_TYPE_LABELS[entry.audience.type];
+
+  if (entry.type === 'new_comment') return 'l’auteur de la publication';
+  if (entry.type === 'comment_reply') return 'l’auteur du commentaire';
+
+  // Un envoi ciblé dont le type ne dit pas la règle : le nommer vaut mieux que
+  // d'afficher « undefined », et le cas se verra dans l'historique.
+  return 'un destinataire nommé';
+}
+
 export function NotificationsView(): React.JSX.Element {
   const { profile } = useAdminAuth();
   const orgId = profile?.orgId ?? null;
@@ -584,8 +608,8 @@ function NotificationRow({ entry }: { entry: NotificationLog }): React.JSX.Eleme
       <p className="text-sm text-secondary">{entry.body}</p>
 
       <p className="text-xs text-muted">
-        {NOTIFICATION_CATEGORY_LABELS[entry.category]} · {AUDIENCE_TYPE_LABELS[entry.audience.type]}{' '}
-        · par {entry.sentByName}
+        {NOTIFICATION_CATEGORY_LABELS[entry.category]} · {destinataire(entry)} · par{' '}
+        {entry.sentByName}
       </p>
 
       <dl className="flex flex-wrap gap-x-4 gap-y-1 rounded-md bg-surface-muted p-3 text-xs">

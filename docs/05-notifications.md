@@ -446,10 +446,12 @@ Deux règles de bon sens appliquées partout :
 - **On regroupe.** Un canal actif ne génère pas 40 notifications : une fenêtre
   de 5 minutes regroupe les messages (« 3 nouveaux messages dans CE1 »).
 
-**État : le déclencheur 1 est branché** (`onPostPublished`), les six autres ne
-le sont pas. Les règles ci-dessus sont donc, à ce jour, tenues par le seul
-déclencheur qui existe ; les déclencheurs 2 à 7 devront les appliquer à leur
-tour — le regroupement en particulier n'a encore aucune implémentation.
+**État : les déclencheurs 1 à 3 sont branchés** — `onPostPublished`, puis
+`notifyCommentAuthor`, qui couvre à lui seul le nouveau commentaire **et** la
+réponse. Les quatre autres ne le sont pas. La règle « on ne se notifie jamais
+soi-même » est tenue par les deux qui existent ; le **regroupement**, lui, n'a
+toujours aucune implémentation, et c'est le déclencheur des canaux (4) qui
+l'exigera.
 
 ---
 
@@ -482,28 +484,30 @@ Les deux moitiés existent maintenant : `buildDeeplink` côté serveur,
 `parseDeeplink` et `routeForDeeplink` côté application, et le layout racine
 ouvre la route une fois le compte actif.
 
-**Vrai pour les publications**, qui sont le seul déclencheur branché à ce jour.
-Les quatre autres types de cible sont reconnus par l'analyse mais n'ont pas
-encore d'écran ; ils sont déclarés comme tels, avec leur raison, dans
-`TYPES_SANS_ROUTE` — et un test refuse un type qui ne serait ni ouvrable ni
-excusé. Un lien dont le type n'a pas d'écran n'ouvre rien : l'application reste
-où elle est, plutôt que d'aller sur un écran « introuvable ».
+**Vrai pour les publications et pour les commentaires** : les deux déclencheurs
+branchés visent le même type de cible, `post` — un commentaire s'ouvre dans le
+fil de sa publication, qui est le seul écran où il se lit. Les quatre autres
+types de cible sont reconnus par l'analyse mais n'ont pas encore d'écran ; ils
+sont déclarés comme tels, avec leur raison, dans `TYPES_SANS_ROUTE` — et un test
+refuse un type qui ne serait ni ouvrable ni excusé. Un lien dont le type n'a pas
+d'écran n'ouvre rien : l'application reste où elle est, plutôt que d'aller sur un
+écran « introuvable ».
 
 ---
 
 ## 7. Envoi : où et comment
 
-| Envoi               | Déclencheur                           | Fonction                                    | État    |
-| ------------------- | ------------------------------------- | ------------------------------------------- | ------- |
-| À la publication    | `onDocumentWritten('posts/{postId}')` | `onPostPublished`                           | fait    |
-| Nouveau commentaire | `onDocumentCreated('comments/{id}')`  | `notifyCommentAuthor`                       | à faire |
-| Réponse             | idem, avec `parentId`                 | `notifyCommentAuthor`                       | à faire |
-| Nouveau message     | `onDocumentCreated('messages/{id}')`  | `notifyChannelAudience` (avec regroupement) | à faire |
-| Nouveau sondage     | `onDocumentCreated('polls/{id}')`     | `notifyPollAudience`                        | à faire |
-| Signalement         | `onDocumentUpdated('reports/{id}')`   | `notifyReportAuthor`                        | à faire |
-| Rappel d'événement  | tâche planifiée horaire               | `sendEventReminders`                        | à faire |
-| Relecture des reçus | tâche planifiée horaire               | `onReceiptsDue`                             | fait    |
-| Manuel              | depuis l'admin                        | `sendManualNotification` (callable)         | fait    |
+| Envoi               | Déclencheur                                                | Fonction                                    | État    |
+| ------------------- | ---------------------------------------------------------- | ------------------------------------------- | ------- |
+| À la publication    | `onDocumentWritten('posts/{postId}')`                      | `onPostPublished`                           | fait    |
+| Nouveau commentaire | `onDocumentCreated('posts/{postId}/comments/{commentId}')` | `notifyCommentAuthor`                       | fait    |
+| Réponse             | idem, avec `parentId`                                      | `notifyCommentAuthor`                       | fait    |
+| Nouveau message     | `onDocumentCreated('messages/{id}')`                       | `notifyChannelAudience` (avec regroupement) | à faire |
+| Nouveau sondage     | `onDocumentCreated('polls/{id}')`                          | `notifyPollAudience`                        | à faire |
+| Signalement         | `onDocumentUpdated('reports/{id}')`                        | `notifyReportAuthor`                        | à faire |
+| Rappel d'événement  | tâche planifiée horaire                                    | `sendEventReminders`                        | à faire |
+| Relecture des reçus | tâche planifiée horaire                                    | `onReceiptsDue`                             | fait    |
+| Manuel              | depuis l'admin                                             | `sendManualNotification` (callable)         | fait    |
 
 > **Prérequis de déploiement.** `onReceiptsDue` est la première fonction planifiée
 > du projet : son déploiement demande l'**API Cloud Scheduler**, que Firebase
@@ -626,6 +630,63 @@ journal d'audit existe pour rendre visible. C'est la contrepartie assumée de
 laisser tout détenteur de `notification.send` — `fcpe`, `moderator`, `admin`,
 exactement l'ensemble qui peut déjà publier une information urgente — envoyer
 une alerte : l'envoi de masse est attribuable, pas anonyme.
+
+### Le chemin d'une notification de commentaire
+
+Même découpage — le déclencheur lit, le plan décide, la plomberie envoie —, mais
+la cible n'est plus une audience : c'est **une personne**. C'est la seule
+différence de fond avec les deux chemins précédents, et elle a une conséquence
+sur l'historique.
+
+```
+posts/{postId}/comments/{commentId} créé
+   │
+   ├─ parentIdOf(comment)                      (…/notifications/comment-plan.ts)
+   │     lu par le déclencheur pour savoir **ce qu'il lit**, et par le plan pour
+   │     savoir **ce qu'il écrit** : deux usages, une seule lecture du champ
+   │
+   ├─ lecture de posts/{postId}                              (toujours)
+   │     organisation, titre, auteur — le commentaire, en sous-collection, ne
+   │     les porte pas
+   │
+   ├─ lecture du commentaire parent                          (seulement si parentId)
+   │     absent, masqué ou supprimé → le plan retombe sur l'auteur de la
+   │     publication : un silence ne se distingue pas d'une panne
+   │
+   ├─ commentNotificationPlan(postId, commentId, comment, contexte) → plan | null
+   │     aucune écriture si : statut ≠ visible · auteur, nom, corps, organisation
+   │     ou titre manquant · cible introuvable · **cible = auteur du commentaire**
+   │
+   └─ sendToUser({ uid: plan.targetUid, message, journal })  → SendOutcome
+         requête par `uid`, sans recoupement de clés, puis la plomberie commune :
+         purge des jetons morts, historique, tickets
+```
+
+Trois points ne se lisent pas dans ce schéma.
+
+**Le journal ne porte aucune audience.** `NotificationJournalEntry.audience` est
+facultative, et c'est pour ce cas qu'elle l'est devenue. Recopier l'audience de
+la publication ferait afficher à l'administration « envoyé à toute l'école » pour
+un envoi à un seul parent — dans la collection même où elle lit ce qui est
+réellement parti. C'est le `type` qui dit quelle règle a désigné le destinataire,
+et l'écran d'administration s'en sert pour nommer la cible.
+
+**Rien n'est marqué sur le commentaire.** Le déclencheur de publication écrit
+`notifiedAt` dans le document qu'il écoute, et c'est cette écriture qu'une
+seconde garde arrête. Ici, rien n'est écrit dans le commentaire : la fonction ne
+se réveille pas elle-même, et il n'y a aucune boucle à interrompre. Reste le
+rejeu d'un même événement : les reprises ne sont pas activées — `retry` vaut
+`false` par défaut, et aucune fonction ne l'active —, donc une invocation qui
+échoue n'est pas rejouée ; et une garde lue dans la charge de l'événement ne
+verrait pas un marquage, puisqu'un rejeu rejoue la charge d'origine. Seule une
+relecture en base fonctionnerait, au prix d'une lecture sur le déclencheur le
+plus fréquent du projet — refusée sciemment.
+
+**Le type dit la règle, la catégorie dit le droit de la couper.** `new_comment`
+vise l'auteur de la publication, `comment_reply` celui du commentaire parent ;
+les deux portent `category: 'discussions'`, qui est désactivable. Une réponse à
+un commentaire disparu reste `comment_reply` — c'est bien une réponse qui a été
+écrite — mais change de cible.
 
 ### Gestion des erreurs
 

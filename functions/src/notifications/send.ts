@@ -11,10 +11,19 @@
  *
  * ## Ce qui reste dehors, volontairement
  *
- * Toute la décision est ailleurs — `post-plan.ts` dit **s'il faut** envoyer et
- * avec quoi, `recipients.ts` dit **à qui**. Ici, il ne reste que la plomberie
- * Firestore et réseau, qu'aucun test unitaire ne peut couvrir sans émulateur.
- * La garder mince est ce qui rend le reste éprouvable.
+ * Toute la décision est ailleurs — `post-plan.ts` et `comment-plan.ts` disent
+ * **s'il faut** envoyer, à qui et avec quoi ; `recipients.ts` écarte les
+ * documents inutilisables. Ici, il ne reste que la plomberie Firestore et
+ * réseau, qu'aucun test unitaire ne peut couvrir sans émulateur. La garder
+ * mince est ce qui rend le reste éprouvable.
+ *
+ * ## Deux façons d'atteindre quelqu'un
+ *
+ * Une **audience** — un ensemble de clés, retrouvé par recoupement : c'est le
+ * chemin d'une publication ou d'une annonce manuelle. Une **personne** — un
+ * identifiant, dont on prend tous les appareils : c'est celui d'un commentaire.
+ * Les deux se rejoignent dans `deliverToTokens`, qui porte tout ce qui ne
+ * dépend pas de la réponse à cette question.
  *
  * ## Le journal d'envoi ne fait pas échouer l'envoi
  *
@@ -72,7 +81,16 @@ const TAILLE_LOT = 500;
 /** Métadonnées d'historique, propres à l'appelant. */
 export interface NotificationJournalEntry {
   type: NotificationType;
-  audience: Audience;
+  /**
+   * Audience adressée, quand l'envoi en vise une.
+   *
+   * Absente pour un envoi **ciblé** : un commentaire s'adresse à une personne
+   * désignée par son identifiant, et aucune audience ne décrit cet ensemble.
+   * Recopier celle de la publication décrirait un envoi de masse qui n'a pas eu
+   * lieu — dans la collection même que l'administration lit pour savoir ce qui
+   * est réellement parti.
+   */
+  audience?: Audience;
   sourceType?: 'post' | 'poll' | 'event' | 'report' | 'message' | 'manual';
   sourceId?: string;
   deeplink?: string;
@@ -87,6 +105,21 @@ export interface SendToAudienceParams {
    * `data.orgId` l'organisation — les deux y sont déjà, et les redemander
    * permettrait de les faire diverger.
    */
+  message: PushMessage;
+  journal: NotificationJournalEntry;
+  /** Injectable : les tests fournissent un dispatcher qui ne sort pas du processus. */
+  dispatcher?: PushDispatcher;
+}
+
+export interface SendToUserParams {
+  /**
+   * Porteur des appareils visés.
+   *
+   * C'est une **personne**, et non une audience : ses appareils sont retrouvés
+   * par `queryTokensByUid`, sans recoupement de clés. L'identifiant est donc la
+   * seule chose que ce chemin demande en plus du message.
+   */
+  uid: string;
   message: PushMessage;
   journal: NotificationJournalEntry;
   /** Injectable : les tests fournissent un dispatcher qui ne sort pas du processus. */
@@ -184,6 +217,39 @@ export async function queryTokensByAudience(
 }
 
 /**
+ * Jetons d'une personne, quel que soit l'appareil qu'elle a enregistré.
+ *
+ * ## Pourquoi la requête ne contraint pas l'organisation
+ *
+ * Elle vise une **personne**, pas un contenu : tous ses appareils doivent être
+ * atteints, y compris celui qu'elle aurait enregistré dans une autre
+ * organisation — un parent peut être rattaché à plusieurs. Ajouter `orgId`
+ * demanderait en plus un index composite `(uid, orgId)` qui n'est pas déclaré,
+ * et une requête non couverte est refusée à l'exécution avec un message qui ne
+ * dit pas lequel manque. L'égalité sur `uid` seule suffit : l'index simple d'un
+ * champ est créé automatiquement par Firestore.
+ *
+ * ## Pourquoi `enabled` n'est pas davantage dans la requête
+ *
+ * Même raison que `queryTokensByAudience` : une contrainte ici écarterait un
+ * appareil **avant** `filterRecipients`, qui ne pourrait plus faire passer les
+ * alertes obligatoires outre. Le filtre reste le seul endroit qui décide.
+ *
+ * ## Pourquoi aucun dédoublonnage
+ *
+ * Une seule requête, une seule égalité : un document ne peut pas être rendu
+ * deux fois, contrairement au découpage par lots d'`array-contains-any`.
+ */
+export async function queryTokensByUid(uid: string): Promise<unknown[]> {
+  const resultat = await adminDb()
+    .collection(COLLECTIONS.deviceTokens)
+    .where('uid', '==', uid)
+    .get();
+
+  return resultat.docs.map((document) => document.data());
+}
+
+/**
  * Écrit l'historique de l'envoi, sans jamais faire échouer l'envoi.
  *
  * Rend `true` quand le document est écrit, `false` quand l'écriture a échoué.
@@ -229,7 +295,10 @@ async function writeNotificationLog(
         category: message.category,
         title: message.title,
         body: message.body,
-        audience: entry.audience,
+        // Le champ est **omis** quand il n'y a pas d'audience, plutôt qu'écrit
+        // à `undefined` : l'Admin SDK refuse une valeur indéfinie, et l'échec
+        // ferait perdre la trace d'un envoi qui, lui, a bien eu lieu.
+        ...(entry.audience ? { audience: entry.audience } : {}),
         audienceKeys: [...message.audienceKeys],
         ...(entry.sourceType ? { sourceType: entry.sourceType } : {}),
         ...(entry.sourceId ? { sourceId: entry.sourceId } : {}),
@@ -303,12 +372,38 @@ async function writePushTickets(
   return ecrits;
 }
 
-/** Envoie un message à tous les appareils dont l'audience recoupe la sienne. */
-export async function sendToAudience(params: SendToAudienceParams): Promise<SendOutcome> {
+/** Ce qu'il faut pour livrer, une fois les jetons candidats connus. */
+interface DeliverParams {
+  message: PushMessage;
+  journal: NotificationJournalEntry;
+  /** Rend les documents `deviceTokens` candidats. La seule chose qui varie. */
+  queryTokens: () => Promise<unknown[]>;
+  /** Injectable : les tests fournissent un dispatcher qui ne sort pas du processus. */
+  dispatcher?: PushDispatcher;
+}
+
+/**
+ * Chemin commun à tous les envois : de la liste de jetons au compte rendu.
+ *
+ * ## Pourquoi il n'est pas écrit deux fois
+ *
+ * Un envoi à une audience et un envoi à une personne ne diffèrent que par
+ * **une** chose : d'où viennent les jetons. Tout le reste — écarter les
+ * documents illisibles, purger les appareils disparus, interrompre sur un jeton
+ * d'accès refusé, écrire l'historique, associer les tickets aux jetons — est
+ * identique, et l'écrire deux fois produirait deux comportements qui divergent
+ * à la première modification. L'un des deux oublierait de purger, ou compterait
+ * autrement les documents écartés, et rien ne le signalerait : c'est
+ * exactement le défaut que `token-purge.ts` raconte avoir rencontré.
+ *
+ * La source des jetons est donc **injectée**, et c'est tout ce que les deux
+ * chemins publics apportent.
+ */
+async function deliverToTokens(params: DeliverParams): Promise<SendOutcome> {
   const { message, journal } = params;
   const dispatcher = params.dispatcher ?? createPushDispatcher();
 
-  const documents = await queryTokensByAudience(message.data.orgId, message.audienceKeys);
+  const documents = await params.queryTokens();
   const { recipients, rejected } = selectRecipients(documents);
 
   if (rejected.length > 0) {
@@ -381,4 +476,45 @@ export async function sendToAudience(params: SendToAudienceParams): Promise<Send
     purgedTokens,
     notificationId: historiqueEcrit ? notificationId : null,
   };
+}
+
+/**
+ * Envoie un message à tous les appareils dont l'audience recoupe la sienne.
+ *
+ * C'est le chemin des envois **de masse** : une publication, une annonce
+ * manuelle. Les destinataires sont retrouvés par recoupement de clés, ce qui
+ * suppose que le message en porte — un message sans clé n'atteindrait personne,
+ * et c'est pour cette raison que le plan d'une publication refuse d'envoyer
+ * quand son audience est vide.
+ */
+export async function sendToAudience(params: SendToAudienceParams): Promise<SendOutcome> {
+  return deliverToTokens({
+    message: params.message,
+    journal: params.journal,
+    dispatcher: params.dispatcher,
+    queryTokens: () =>
+      queryTokensByAudience(params.message.data.orgId, params.message.audienceKeys),
+  });
+}
+
+/**
+ * Envoie un message aux appareils d'**une** personne.
+ *
+ * C'est le chemin des envois **ciblés** : un commentaire, une réponse à un
+ * commentaire, la mise à jour d'un signalement. Il n'y a pas d'audience à
+ * recouper — le destinataire est désigné par son identifiant, et tous ses
+ * appareils sont visés.
+ *
+ * Le message ne porte donc aucune clé d'audience, et c'est le seul point qui
+ * l'écarte de `sendToAudience`. `filterRecipients` s'applique quand même : un
+ * parent ayant coupé la catégorie `discussions` ne reçoit pas la notification,
+ * ce qui est précisément le but d'une préférence.
+ */
+export async function sendToUser(params: SendToUserParams): Promise<SendOutcome> {
+  return deliverToTokens({
+    message: params.message,
+    journal: params.journal,
+    dispatcher: params.dispatcher,
+    queryTokens: () => queryTokensByUid(params.uid),
+  });
 }

@@ -523,11 +523,48 @@ ordinateur ; un parent qui tente d'y accéder est refusé.
       était masquée par celle du dessus, et le cas qu'elle protège vraiment — un
       brouillon retiré avant publication — n'avait pas de test. Le test manquant
       a été écrit.
-- [ ] Les 7 déclencheurs — **1 sur 7** : publication faite. Restent commentaire,
-      réponse, message, sondage, signalement et rappel.
+- [x] Notification d'un commentaire : `notifyCommentAuthor` — il couvre **deux**
+      des sept déclencheurs, le nouveau commentaire et la réponse, parce que la
+      seule chose qui les sépare est la règle qui désigne la cible : l'auteur de
+      la publication, ou celui du commentaire auquel on répond.
+      **Une personne, pas une audience.** C'est la différence de fond avec
+      l'envoi d'une publication : `queryTokensByAudience` recoupe des clés,
+      `queryTokensByUid` joint les appareils d'un porteur. Les deux se rejoignent
+      dans `deliverToTokens` — écrire la plomberie deux fois aurait produit deux
+      comportements qui divergent à la première modification, l'un oubliant de
+      purger les jetons morts.
+      **`audience` devient facultative** dans `NotificationJournalEntry` comme
+      dans `NotificationLog`, et le champ est **omis** plutôt qu'écrit à
+      `undefined`, que l'Admin SDK refuse. Recopier l'audience de la publication
+      ferait afficher à l'administration « envoyé à toute l'école » pour un envoi
+      à un seul parent. L'écran de l'historique lisait `entry.audience.type` : il
+      aurait **levé** sur le premier commentaire reçu.
+      **`onDocumentCreated`, pas `onDocumentWritten`** : un commentaire naît
+      `visible`, les règles l'imposent, donc il n'y a pas deux chemins à ramener
+      à une seule règle ; et une réaction écrit dans le commentaire, donc un
+      déclencheur d'écriture serait réveillé à chaque réaction posée.
+      **Rien n'est marqué sur le commentaire.** Le déclencheur de publication
+      écrit `notifiedAt` dans le document qu'il écoute, et c'est cette écriture
+      qu'une seconde garde arrête. Ici, rien n'est écrit : pas de boucle. Les
+      reprises ne sont pas activées par défaut et aucune fonction ne les active,
+      donc pas de rejeu ; une garde lue dans la charge de l'événement ne verrait
+      de toute façon pas un marquage, et seule une relecture en base
+      fonctionnerait — une lecture sur le déclencheur le plus fréquent du projet,
+      refusée sciemment.
+      **Un commentaire parent disparu ne fait pas taire la réponse** : la cible
+      retombe sur l'auteur de la publication, l'autre partie légitime du fil. Un
+      silence ne se distingue pas d'une panne.
+      `corpsDeLaFonction` a dû apprendre la forme d'un déclencheur : aucune des
+      cinq fonctions de `triggers/` ne finit par `\n});`, donc aucun test ne
+      pouvait lire leur corps. Les deux fins possibles sont désormais essayées,
+      et c'est la plus proche qui l'emporte.
+- [ ] Les 7 déclencheurs — **3 sur 7** : publication, commentaire et réponse.
+      Restent le message de canal, le sondage, le signalement et le rappel.
 - [ ] Regroupement des messages (fenêtre de 5 minutes)
-- [x] Liens profonds vers le contenu concerné — **faits pour les
-      publications**, qui sont le seul déclencheur branché. Les deux moitiés
+- [x] Liens profonds vers le contenu concerné — **faits pour les publications et
+      les commentaires**, les deux déclencheurs branchés : un commentaire
+      s'ouvre dans le fil de sa publication, seul écran où il se lit. Les deux
+      moitiés
       existent maintenant : `buildDeeplink` côté serveur, `parseDeeplink` et
       `routeForDeeplink` côté application, avec la table des routes vérifiée
       contre `apps/mobile/app/` par un test — renommer `app/post/[id].tsx`

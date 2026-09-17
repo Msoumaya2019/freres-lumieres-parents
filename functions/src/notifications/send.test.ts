@@ -2,7 +2,7 @@
  * Ce que la requête d'envoi ne doit pas contraindre, ce que le journal ne doit
  * pas affirmer, et ce qui doit interrompre un envoi.
  *
- * ## Les trois décisions que ce test tient
+ * ## Les quatre décisions que ce test tient
  *
  * **La requête.** `queryTokensByAudience` lit les jetons d'une audience. Elle ne
  * contraint **pas** `enabled`, et c'est une décision, pas un oubli : une
@@ -23,6 +23,11 @@
  * appareils injoignables » là où il n'y a qu'un secret expiré — le compte rendu
  * serait faux dans le sens qui rassure, puisqu'il désignerait les parents au lieu
  * de la configuration.
+ *
+ * **L'audience facultative.** Un envoi ciblé n'a pas d'audience, et le champ est
+ * alors **omis** du document plutôt qu'écrit à `undefined` — que l'Admin SDK
+ * refuse. Un échec à cet endroit perdrait la trace d'un envoi qui a bien eu
+ * lieu, c'est-à-dire la seule chose que l'historique existe pour dire.
  *
  * ## Pourquoi il lit la source au lieu d'appeler les fonctions
  *
@@ -83,21 +88,64 @@ describe('writeNotificationLog', () => {
   it('n’écrit pas la table des tickets si l’historique a échoué', () => {
     // Des tickets sans document d'historique ne seraient jamais relus — le
     // passage des reçus part de l'historique — et resteraient en base
-    // indéfiniment. La garde est dans `sendToAudience`, pas dans le journal.
-    const corps = corpsDeLaFonction(SOURCE, 'sendToAudience', CHEMIN_SEND);
+    // indéfiniment. La garde est dans la plomberie commune, pas dans le journal.
+    const corps = corpsDeLaFonction(SOURCE, 'deliverToTokens', CHEMIN_SEND);
 
     expect(corps).toContain('if (historiqueEcrit)');
     expect(corps).toContain('writePushTickets(');
   });
+
+  it('omet l’audience d’un envoi ciblé au lieu d’écrire une valeur indéfinie', () => {
+    // `audience: entry.audience` ferait lever l'Admin SDK dès qu'un envoi sans
+    // audience est journalisé — et la trace de cet envoi serait perdue. Le
+    // champ est donc absent, pas indéfini.
+    const corps = corpsDeLaFonction(SOURCE, 'writeNotificationLog', CHEMIN_SEND);
+
+    expect(corps).toContain('...(entry.audience ? { audience: entry.audience } : {})');
+    expect(corps).not.toContain('audience: entry.audience,');
+  });
 });
 
-describe('sendToAudience, sur un jeton d’accès refusé', () => {
+describe('queryTokensByUid', () => {
+  it('joint une personne sur tous ses appareils, et rien d’autre', () => {
+    // Ni l'organisation ni l'interrupteur. L'organisation parce qu'un parent
+    // peut être rattaché à plusieurs, et que l'index composite `(uid, orgId)`
+    // n'est pas déclaré — une requête non couverte est refusée à l'exécution.
+    // L'interrupteur parce que `filterRecipients` est le seul endroit qui
+    // décide, comme pour l'envoi à une audience.
+    const corps = corpsDeLaFonction(SOURCE, 'queryTokensByUid', CHEMIN_SEND);
+
+    expect(corps).toContain("where('uid', '==', uid)");
+    expect(corps).not.toContain("where('orgId'");
+    expect(corps).not.toContain("where('enabled'");
+  });
+});
+
+describe('les deux chemins d’envoi', () => {
+  it('passent par la même plomberie', () => {
+    // La duplication est le défaut que ce découpage évite : deux envois écrits
+    // séparément divergeraient à la première modification — l'un purgerait les
+    // appareils disparus, l'autre non — et rien ne le signalerait.
+    for (const nom of ['sendToAudience', 'sendToUser']) {
+      expect(corpsDeLaFonction(SOURCE, nom, CHEMIN_SEND), nom).toContain('deliverToTokens(');
+    }
+  });
+
+  it('ne diffèrent que par la source des jetons', () => {
+    expect(corpsDeLaFonction(SOURCE, 'sendToAudience', CHEMIN_SEND)).toContain(
+      'queryTokensByAudience(',
+    );
+    expect(corpsDeLaFonction(SOURCE, 'sendToUser', CHEMIN_SEND)).toContain('queryTokensByUid(');
+  });
+});
+
+describe('deliverToTokens, sur un jeton d’accès refusé', () => {
   it('nomme la panne au lieu de la compter', () => {
     // Le défaut que tout cet incrément corrige : un `401` se comptait comme une
     // audience injoignable — « 412 appareils » au lieu de « jeton expiré ». Le
     // message doit dire lequel des deux, sans quoi aucune alerte de journal ne
     // peut s'y accrocher, et la panne reste invisible.
-    const corps = corpsDeLaFonction(SOURCE, 'sendToAudience', CHEMIN_SEND);
+    const corps = corpsDeLaFonction(SOURCE, 'deliverToTokens', CHEMIN_SEND);
 
     expect(corps).toContain('instanceof PushCredentialsError');
     expect(corps).toContain('logger.error');
@@ -109,7 +157,7 @@ describe('sendToAudience, sur un jeton d’accès refusé', () => {
     // document d'historique **et** du `notifiedAt`. Sans la relance, le journal
     // annoncerait un envoi complet et la publication serait marquée notifiée —
     // donc jamais reprise, même après remplacement du secret.
-    const corps = corpsDeLaFonction(SOURCE, 'sendToAudience', CHEMIN_SEND);
+    const corps = corpsDeLaFonction(SOURCE, 'deliverToTokens', CHEMIN_SEND);
     const rattrapage = corps.slice(corps.indexOf('} catch'));
 
     expect(rattrapage).toContain('throw error;');
