@@ -368,7 +368,12 @@ Le point délicat est le **vote unique par compte**.
   aucune. Deux conséquences à connaître : `closedAt` **peut être absent** sur un
   sondage que les règles tiennent déjà pour clos, et `status` peut valoir `'open'`
   alors que le vote est fermé. Aucun écran ne doit donc décider « ce sondage est
-  clos » en lisant `status` seul.
+  clos » en lisant `status` seul : c'est `pollEffectiveStatus()` de `@fl/shared`
+  qui répond, et elle est la **seule** à le faire — le badge de l'écran mobile et
+  celui de l'administration la lisent tous les deux. Son accord avec
+  `isPollOpen()` est vérifié par un test, sur le produit des statuts et des trois
+  régimes d'échéance. Enregistrer la clôture reste une **autre** question, et elle
+  se lit sur `status` : on n'inscrit une clôture que là où il vaut encore `'open'`.
 
 ### Visibilité des résultats — `resultsVisibility`
 
@@ -662,6 +667,7 @@ pour le ciblage du contenu **et** des notifications.
 | `messages`          | `status` ↑, `createdAt` ↓                                      | fil de discussion (sous-collection) |
 | `polls`             | `orgId` ↑, `status` ↑, `endsAt` ↓                              | sondages ouverts                    |
 | `polls`             | `orgId` ↑, `audienceKeys` (array), `startsAt` ↓                | sondages visibles                   |
+| `polls`             | `orgId` ↑, `startsAt` ↓                                        | suivi et clôture (administration)   |
 | `polls`             | `status` ↑, `endsAt` ↑                                         | clôture automatique des échus       |
 | `reports`           | `orgId` ↑, `status` ↑, `createdAt` ↓                           | file de traitement FCPE             |
 | `reports`           | `authorId` ↑, `createdAt` ↓                                    | « mes signalements »                |
@@ -700,6 +706,16 @@ pour le ciblage du contenu **et** des notifications.
 > dès que deux champs sont contraints. Un sondage **sans** `endsAt` n'est jamais
 > ramené : Firestore écarte d'une inégalité les documents qui ne portent pas le
 > champ, ce qui réserve la clôture d'un tel sondage à la FCPE.
+
+> La liste d'administration ne filtre **pas** sur le statut, et c'est la même
+> raison qui l'autorise : une règle ne filtre pas une requête, elle l'autorise ou
+> la refuse **entière**, et Firestore ne l'évalue qu'à partir des contraintes que
+> la requête porte. La branche FCPE de `allow read` exige `orgId` — c'est donc
+> `orgId` que la requête contraint, et elle rapporte aussi les **brouillons**, que
+> la FCPE est seule à voir. Un écran de parent, lui, devra contraindre le statut.
+> C'est aussi pourquoi l'index `polls(orgId, startsAt)` suffit là où la clôture
+> automatique a besoin du sien : deux contraintes, donc deux index distincts, et
+> aucun ne couvre l'autre.
 
 ---
 

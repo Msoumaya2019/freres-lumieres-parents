@@ -3,12 +3,19 @@
 /**
  * Écran d'administration des sondages.
  *
- * ## Ce que cet écran fait, et ce qu'il ne fait pas
+ * ## Ce que cet écran fait
  *
  * Il **crée** un sondage : la question, ses réponses, le ciblage, et le moment
- * où les résultats deviennent visibles. Il n'affiche pas les résultats — le
- * décompte vit dans `pollResults/{pollId}`, que la Cloud Function
- * `onPollVoteWritten` est seule à écrire, et l'écran qui le lira viendra après.
+ * où les résultats deviennent visibles. Il porte aussi le **suivi** — la liste
+ * des sondages de l'organisation, avec le décompte et la clôture — dans
+ * `poll-list.tsx`, montée sous le formulaire.
+ *
+ * Les deux moitiés vivent dans des fichiers séparés, et pas seulement par
+ * longueur : elles ne lisent pas la même chose. Le formulaire n'écrit qu'à la
+ * soumission et ne dépend d'aucune lecture ; la liste lit une page de
+ * documents, un décompte par ligne, et écrit une clôture. Un écran qui ferait
+ * les deux verrait chacun de ses états se mêler à ceux de l'autre — un
+ * rechargement de liste ferait clignoter le formulaire.
  *
  * ## `notify` n'est pas une case à cocher parmi d'autres, c'est un statut
  *
@@ -57,6 +64,7 @@ import {
 import type { Audience, PollResultsVisibility, School, SchoolClass } from '@fl/types';
 
 import { AudiencePicker } from '@/components/audience-picker';
+import { PollList } from '@/features/polls/poll-list';
 import { initializeFirebase } from '@/lib/firebase';
 import { useAdminAuth } from '@/providers/auth-provider';
 
@@ -99,6 +107,10 @@ export function PollsView(): React.JSX.Element {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [report, setReport] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // Incrémenté après une création : la liste se relit au lieu de fabriquer une
+  // ligne, et le sondage créé apparaît en tête puisqu'elle est triée du plus
+  // récent au plus ancien.
+  const [refreshToken, setRefreshToken] = useState(0);
 
   // Données de référence, nécessaires au ciblage uniquement. La lecture est
   // refusée à qui n'a pas la permission : dans ce cas on laisse les listes
@@ -206,9 +218,11 @@ export function PollsView(): React.JSX.Element {
 
       setReport(
         publish
-          ? `Sondage publié. Les parents de l’audience choisie peuvent voter (référence ${pollId}).`
-          : `Brouillon enregistré (référence ${pollId}). Il n’est lisible que par la FCPE tant qu’il n’est pas publié.`,
+          ? `Sondage publié. Les parents de l’audience choisie peuvent voter (référence ${pollId}). Il figure en tête du suivi ci-dessous.`
+          : `Brouillon enregistré (référence ${pollId}). Il n’est lisible que par la FCPE tant qu’il n’est pas publié. Il figure en tête du suivi ci-dessous.`,
       );
+
+      setRefreshToken((value) => value + 1);
     } catch (error) {
       setSubmitError(userMessage(error));
     } finally {
@@ -240,7 +254,8 @@ export function PollsView(): React.JSX.Element {
         <h1 className="text-2xl font-bold text-foreground">Sondages</h1>
         <p className="text-secondary">
           Posez une question aux familles, choisissez qui la reçoit, et décidez quand les résultats
-          deviennent visibles.
+          deviennent visibles. Le suivi, plus bas, montre ce que chaque sondage a recueilli et
+          permet d’en inscrire la clôture.
         </p>
       </header>
 
@@ -458,6 +473,12 @@ export function PollsView(): React.JSX.Element {
         {submitError ? <p className="text-sm text-danger">{submitError}</p> : null}
         {report ? <p className="text-sm text-secondary">{report}</p> : null}
       </form>
+
+      {polls && orgId ? (
+        <section className="flex flex-col gap-4 border-t border-border pt-8">
+          <PollList repository={polls} orgId={orgId} role={role} refreshToken={refreshToken} />
+        </section>
+      ) : null}
     </div>
   );
 }

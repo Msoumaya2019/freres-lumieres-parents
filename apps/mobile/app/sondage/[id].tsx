@@ -41,7 +41,7 @@ import {
   POLL_STATUS_LABELS,
   appErrorMessage,
   formatDateTime,
-  isPollOpen,
+  pollEffectiveStatus,
 } from '@fl/shared';
 import type { Poll, PollResultsVisibility } from '@fl/types';
 
@@ -98,12 +98,17 @@ export default function PollDetailScreen(): React.JSX.Element {
   const options = [...poll.options].sort((a, b) => a.order - b.order);
   const selection = brouillon ?? detail.myVote?.optionIds ?? [];
   const aVote = detail.myVote !== null;
-  // « Ouvert » n'est pas le statut seul : une échéance dépassée ferme le
-  // sondage au même titre qu'un statut `closed`, et c'est la **règle** qui
-  // tient l'heure annoncée plus haut (« Clôture prévue le … »). L'écran ne fait
-  // ici que ne pas proposer un vote qu'elle refuserait — un bouton qui échoue
-  // n'est pas une information. Voir `isPollOpen`.
-  const ouvert = isPollOpen({ status: poll.status, endsAt: poll.endsAt });
+  // Une seule dérivation, et elle sert **aux deux** endroits qui l'utilisent :
+  // le badge et la phrase qui dit si l'on peut encore voter. « Ouvert » n'est
+  // pas le statut seul — une échéance dépassée ferme le sondage au même titre
+  // qu'un statut `closed`, et c'est la **règle** qui tient l'heure annoncée.
+  //
+  // Les deux endroits étaient dérivés séparément, et le badge affichait
+  // « Ouvert » au-dessus d'un « Ce sondage est clos. » : la règle d'accord
+  // entre `isPollOpen` et `pollEffectiveStatus` est vérifiée par un test, sur
+  // le produit des statuts et des régimes d'échéance.
+  const etat = pollEffectiveStatus({ status: poll.status, endsAt: poll.endsAt });
+  const ouvert = etat === 'open';
   const peutVoter = ouvert && (!aVote || poll.allowChangeVote);
 
   const basculer = (optionId: string): void => {
@@ -126,10 +131,7 @@ export default function PollDetailScreen(): React.JSX.Element {
         <Card>
           <View style={{ gap: theme.spacing.md }}>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.sm }}>
-              <Badge
-                label={POLL_STATUS_LABELS[poll.status]}
-                tone={POLL_STATUS_BADGES[poll.status]}
-              />
+              <Badge label={POLL_STATUS_LABELS[etat]} tone={POLL_STATUS_BADGES[etat]} />
               {poll.anonymous ? <Badge label="Anonyme" /> : null}
               {poll.allowMultiple ? <Badge label="Choix multiple" /> : null}
             </View>
@@ -190,9 +192,7 @@ export default function PollDetailScreen(): React.JSX.Element {
 
         {!ouvert ? (
           <AppText variant="body" color="secondary">
-            {poll.status === 'draft'
-              ? 'Ce sondage n’est pas encore publié.'
-              : 'Ce sondage est clos.'}
+            {etat === 'draft' ? 'Ce sondage n’est pas encore publié.' : 'Ce sondage est clos.'}
           </AppText>
         ) : null}
 

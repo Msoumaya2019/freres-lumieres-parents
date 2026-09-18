@@ -920,7 +920,59 @@ read` exigeait `status in ['open', 'closed']` pour **tout le monde**, si
       dans `close-due.ts` et l'index dans `firestore.indexes.json` — deux fichiers,
       deux formats, et rien entre les deux — parce que Firestore refuse une requête
       non couverte en renvoyant vers la console, sans dire lequel manque.
-- [ ] Écran admin : suivre et clôturer (la création est faite plus haut)
+- [x] Écran admin : suivre et clôturer (la création est faite plus haut) —
+      `apps/admin/src/features/polls/poll-list.tsx` et `poll-row.tsx`, montés
+      sous le formulaire de création. La liste montre **tous** les statuts, du
+      plus récent au plus ancien, et c'est une décision à deux titres : la FCPE
+      suit un brouillon comme un sondage ouvert — c'est elle qui l'ouvrira — et
+      un filtre de statut n'aurait rien démontré de plus, puisqu'une règle de
+      requête s'évalue à partir des **seules contraintes de la requête**. La
+      branche FCPE de `allow read` exige `orgId`, et `fetchForAdmin` ne
+      contraint que cela. L'index `polls(orgId ↑, startsAt ↓)` est requis, et
+      il est **distinct** de celui de l'écran mobile : Firestore ne sert qu'un
+      **préfixe** des champs d'un index, donc `polls(orgId, status,
+audienceKeys, startsAt)` ne couvre pas `where orgId orderBy startsAt` —
+      `status` s'intercale. Un test tient l'accord entre la requête et sa
+      déclaration, et il a été **falsifié** : index retiré, **un seul** test
+      tombe (226 − 1), fichier restauré à l'octet près, empreinte vérifiée.
+      Le décompte est lu **par ligne**, et seulement si le rôle y a droit : la
+      branche `isFcpe()` ne dépend ni du statut ni de `resultsVisibility`, mais
+      `getResults()` **lève** un refus au lieu de rendre `null` — parce que
+      `null` veut dire « aucune voix », pas « je n'ai pas le droit ». La ligne
+      reproduit donc `isFcpeRole(role)` avant de demander, sans en faire une
+      protection : les règles restent seules juges.
+      **Un fait, deux sources, une seule écrite** — c'est le défaut trouvé en
+      écrivant cet écran, et il n'était pas dans l'écran neuf. Un sondage dont
+      l'échéance est passée est clos **par la règle**, mais le document porte
+      encore `status: 'open'` jusqu'au passage du planificateur. L'écran mobile
+      affichait donc « Ouvert » dans son badge et « Ce sondage est clos. » dans
+      sa phrase, à trois lignes d'écart. La dérivation est remontée dans
+      `@fl/shared` (`pollEffectiveStatus`), le badge lit désormais l'état
+      **effectif** et non le statut enregistré, et deux gardes la tiennent :
+      l'**accord** avec `isPollOpen`, vérifié sur le produit des quatre statuts
+      et des trois régimes d'échéance, et le cas du **brouillon**, qu'un repli
+      trop large déclarerait clos — donc publié, alors que la règle de lecture
+      n'ouvre aux parents que `open` et `closed`. Les deux ont été **falsifiées
+      séparément**, et la seconde le prouve : une règle d'échéance appliquée à
+      tous les statuts laisse l'accord vert et fait tomber la seule garde du
+      brouillon — l'accord seul n'aurait donc pas suffi.
+      Le **bouton**, lui, lit le statut **enregistré**, et les deux lectures
+      répondent à deux questions différentes : on n'inscrit une clôture que sur
+      un document qui porte encore `open`.
+      Enfin, la clôture n'est pas présentée d'une seule façon, parce qu'elle ne
+      fait pas la même chose selon le cas. **Échéance passée**, le vote est déjà
+      fermé et le décompte déjà publié : le bouton ne fait qu'**inscrire** un
+      fait accompli, et la confirmation le dit. **Échéance à venir ou absente**,
+      la clôture **ferme le vote maintenant** — et la date annoncée aux familles
+      ne sera pas honorée ; la confirmation le dit aussi, faute de quoi l'écran
+      promettrait le contraire de ce que la règle applique. Une clôture déjà
+      inscrite ne se réécrit pas (`close()` refuse un second appel), et **rien
+      dans cet écran ne rouvre un sondage clos** : c'est une limite assumée, à
+      signaler le jour où elle gênera.
+- [ ] Écran admin : ouvrir un brouillon — la règle de mise à jour l'autorise
+      (`allow update` n'exige pas `unchanged('status')`), le dépôt n'a pas la
+      méthode, et un brouillon enregistré n'a aujourd'hui **aucun** chemin vers
+      `open` depuis l'interface. C'est le pendant manquant du bouton de clôture.
 - [x] Tests : double vote refusé, brouillon illisible, cloisonnement
       d'organisation, création refusée à un parent, et le vote — dont, pour
       chaque refus, **un témoin qui réussit**. Les trois visibilités ont leurs

@@ -261,6 +261,47 @@ export function isPollOpen(input: PollOpenInput): boolean {
   return input.status === 'open' && !hasPollEnded(input);
 }
 
+/**
+ * Le statut **effectif** d'un sondage : ce que les règles en disent maintenant,
+ * et non ce que le document a enregistré.
+ *
+ * ## Pourquoi la distinction existe
+ *
+ * Un sondage ouvert dont l'échéance est passée **est** clos, et il l'est par la
+ * règle : `sondageOuvert()` exige une échéance non dépassée, donc plus aucun
+ * vote n'est accepté, et `resultatsVisibles()` publie le décompte. Le document,
+ * lui, porte encore `status: 'open'` — la clôture n'y est inscrite que lorsque
+ * le planificateur passe, ou lorsque la FCPE la déclenche.
+ *
+ * Il y a donc **deux sources** pour un même fait, et une seule est écrite. Un
+ * écran qui lirait `status` seul afficherait « Ouvert » au-dessus d'une phrase
+ * annonçant « Ce sondage est clos » — les deux dans le même écran. C'est la
+ * raison d'être de cette fonction, et c'est aussi pourquoi elle vit ici plutôt
+ * que dans un écran : le mobile et l'administration posent la même question.
+ *
+ * ## Elle est totale, sans repli implicite
+ *
+ * Chaque statut est couvert et rendu tel quel, sauf `open` sur une échéance
+ * dépassée. `draft` reste `draft` : un brouillon n'est pas votable, mais le
+ * confondre avec `closed` le ferait passer pour publié — et la règle de lecture
+ * ne les ouvre pas aux mêmes personnes. `archived` reste `archived`.
+ *
+ * ## Son rapport avec `isPollOpen` est démontrable
+ *
+ * Les deux fonctions répondent à deux questions différentes — « quel est son
+ * état ? » et « faut-il proposer un vote ? » — et doivent s'accorder :
+ *
+ *     isPollOpen(s) === (pollEffectiveStatus(s) === 'open')
+ *
+ * Un test le vérifie sur le produit de tous les statuts par les trois régimes
+ * d'échéance. Deux dérivations qui divergeraient rendraient un bouton
+ * cliquable sur un sondage que la règle refuse, ou l'inverse.
+ */
+export function pollEffectiveStatus(input: PollOpenInput): PollStatus {
+  if (input.status === 'open' && hasPollEnded(input)) return 'closed';
+  return input.status;
+}
+
 // ---------------------------------------------------------------------------
 // Visibilité des résultats de sondage
 // ---------------------------------------------------------------------------

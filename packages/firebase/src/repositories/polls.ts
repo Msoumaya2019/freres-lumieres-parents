@@ -70,16 +70,27 @@ import {
   collection,
   doc,
   getDoc,
+  orderBy,
+  query,
   serverTimestamp,
   setDoc,
+  where,
   type Firestore,
+  type QueryDocumentSnapshot,
 } from 'firebase/firestore';
 
-import { buildAudienceKeys, hasPollEnded, pollInputSchema, pollVoteSchema } from '@fl/shared';
+import {
+  PAGE_SIZES,
+  buildAudienceKeys,
+  hasPollEnded,
+  pollInputSchema,
+  pollVoteSchema,
+} from '@fl/shared';
 import type { PollInput, PollVoteInput } from '@fl/shared';
 import type { Poll, PollResults, PollVote } from '@fl/types';
 
 import { appError, invalidArgument, toAppError } from '../errors.js';
+import { paginate, type FirestorePage } from '../pagination.js';
 import { paths } from '../paths.js';
 
 export interface CreatePollParams {
@@ -119,6 +130,12 @@ export interface CastVoteParams {
    */
   voterId: string;
   input: PollVoteInput;
+}
+
+export interface AdminPollsParams {
+  orgId: string;
+  cursor?: QueryDocumentSnapshot | null;
+  pageSize?: number;
 }
 
 export interface PollRepository {
@@ -176,6 +193,28 @@ export interface PollRepository {
    */
   getMyVote(pollId: string, uid: string): Promise<PollVote | null>;
   /**
+   * Liste les sondages de l'organisation, du plus récent au plus ancien.
+   *
+   * ## Aucun filtre de statut, et ce n'est pas un oubli
+   *
+   * La FCPE suit un **brouillon** comme un sondage ouvert : c'est elle qui l'a
+   * enregistré, et c'est elle qui l'ouvrira. Filtrer sur `open` et `closed`
+   * ferait disparaître de l'écran les sondages qui n'attendent qu'elle.
+   *
+   * C'est aussi ce qui rend la requête **démontrable**. Les règles ne filtrent
+   * pas : elles autorisent ou refusent une requête **entière**, et Firestore
+   * n'évalue la règle qu'à partir des contraintes que la requête porte. La
+   * branche FCPE de `allow read` exige `orgId` — et c'est exactement ce que
+   * cette requête contraint. Un filtre de statut la restreindrait sans rien
+   * démontrer de plus ; c'est la même contrainte qui fait qu'un écran de parent
+   * devra, lui, contraindre le statut.
+   *
+   * L'index composite `polls(orgId, startsAt)` est requis, et un test tient
+   * l'accord entre cette requête et sa déclaration — voir
+   * `packages/testing/src/polls-index.test.ts`.
+   */
+  fetchForAdmin(params: AdminPollsParams): Promise<FirestorePage<Poll>>;
+  /**
    * Crée un sondage. Valide les données, calcule les clés d'audience, et
    * traduit `notify` en statut initial.
    */
@@ -203,10 +242,23 @@ export interface PollRepository {
   close(pollId: string): Promise<void>;
 }
 
+/**
+ * Document Firestore → `Poll`.
+ *
+ * L'identifiant n'est **pas** dans les données : il est porté par le chemin, et
+ * c'est le seul endroit où les deux se rejoignent. Une seule copie de ce
+ * collage, parce que `get` et `fetchForAdmin` le font tous les deux — et deux
+ * copies divergeraient le jour où `Poll` gagne un champ calculé.
+ */
+function mapPoll(snapshot: QueryDocumentSnapshot): Poll {
+  return { ...(snapshot.data() as Omit<Poll, 'id'>), id: snapshot.id };
+}
+
 export function createPollRepository(db: Firestore): PollRepository {
   return {
     newPollId: () => doc(collection(db, paths.polls())).id,
     get,
+    fetchForAdmin,
     getResults,
     getMyVote,
     create,
@@ -218,10 +270,30 @@ export function createPollRepository(db: Firestore): PollRepository {
     try {
       const snapshot = await getDoc(doc(db, paths.poll(pollId)));
       if (!snapshot.exists()) return null;
-      return { ...(snapshot.data() as Omit<Poll, 'id'>), id: snapshot.id };
+      return mapPoll(snapshot);
     } catch (error) {
       throw toAppError(error);
     }
+  }
+
+  function fetchForAdmin(params: AdminPollsParams): Promise<FirestorePage<Poll>> {
+    const { orgId, cursor = null, pageSize = PAGE_SIZES.polls } = params;
+
+    // La taille vient de la table partagée, qui déclarait déjà `polls` sans que
+    // personne ne la lise. Les dépôts plus anciens recopient la leur à la main ;
+    // l'écart se refermera en les alignant sur celle-ci, pas en ajoutant ici une
+    // seconde copie.
+    return paginate<Poll>({
+      pageSize,
+      cursor,
+      buildQuery: () =>
+        query(
+          collection(db, paths.polls()),
+          where('orgId', '==', orgId),
+          orderBy('startsAt', 'desc'),
+        ),
+      mapDocument: mapPoll,
+    });
   }
 
   async function getResults(pollId: string): Promise<PollResults | null> {

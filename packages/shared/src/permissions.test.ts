@@ -11,8 +11,9 @@ import {
   hasPermission,
   hasPollEnded,
   isPollOpen,
+  pollEffectiveStatus,
 } from './permissions.js';
-import { MANDATORY_NOTIFICATION_CATEGORIES } from './constants.js';
+import { MANDATORY_NOTIFICATION_CATEGORIES, POLL_STATUSES } from './constants.js';
 import { findRepoRoot } from './test-helpers/repo-root.js';
 
 describe('matrice de permissions', () => {
@@ -254,6 +255,54 @@ describe('échéance d’un sondage', () => {
     // un brouillon, ni un sondage clos.
     expect(isPollOpen({ status: 'draft', endsAt: echeance, now: secondeAvant })).toBe(false);
     expect(isPollOpen({ status: 'closed', endsAt: echeance, now: secondeAvant })).toBe(false);
+  });
+
+  it('rend un statut effectif qui s’accorde avec le droit de voter', () => {
+    // L'accord est vérifié sur le **produit** des statuts et des trois régimes
+    // d'échéance — absente, à venir, dépassée — plutôt que sur quelques cas
+    // choisis : c'est un accord entre deux fonctions, et un cas oublié serait
+    // précisément celui où les deux dérivations divergeraient.
+    const regimes = [
+      { nom: 'sans échéance', endsAt: undefined, now: secondeApres },
+      { nom: 'échéance à venir', endsAt: echeance, now: secondeAvant },
+      { nom: 'échéance dépassée', endsAt: echeance, now: secondeApres },
+    ] as const;
+
+    for (const statut of POLL_STATUSES) {
+      for (const regime of regimes) {
+        const entree = { status: statut, endsAt: regime.endsAt, now: regime.now };
+        expect(
+          isPollOpen(entree),
+          `${statut} / ${regime.nom} : le droit de voter et le statut effectif se contredisent`,
+        ).toBe(pollEffectiveStatus(entree) === 'open');
+      }
+    }
+  });
+
+  it('ne publie pas un brouillon en le déclarant clos', () => {
+    // Le repli qui attrape tout fermerait le vote d'un brouillon, mais il le
+    // ferait aussi passer pour **publié** : la règle de lecture ouvre aux
+    // parents les statuts `open` et `closed`, pas `draft`. Un brouillon dont
+    // l'échéance est passée reste donc un brouillon.
+    expect(pollEffectiveStatus({ status: 'draft', endsAt: echeance, now: secondeApres })).toBe(
+      'draft',
+    );
+    expect(pollEffectiveStatus({ status: 'archived', endsAt: echeance, now: secondeApres })).toBe(
+      'archived',
+    );
+  });
+
+  it('nomme la clôture que la règle applique déjà, et que le document ignore', () => {
+    // Le cas que cette fonction existe pour couvrir : `open` au document,
+    // clos par la règle. L'écran doit dire « Clôturé » — l'administration,
+    // elle, doit encore pouvoir **inscrire** cette clôture, ce qui est une
+    // autre décision, prise à partir du statut enregistré.
+    expect(pollEffectiveStatus({ status: 'open', endsAt: echeance, now: secondeApres })).toBe(
+      'closed',
+    );
+    expect(pollEffectiveStatus({ status: 'open', endsAt: echeance, now: secondeAvant })).toBe(
+      'open',
+    );
   });
 
   it('publie les résultats à l’échéance, sans clôture enregistrée', () => {
