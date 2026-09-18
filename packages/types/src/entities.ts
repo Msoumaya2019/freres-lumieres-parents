@@ -422,12 +422,19 @@ export interface ChannelDigest {
 //  5. Sondages
 // ===========================================================================
 
+/**
+ * Réponse possible à un sondage.
+ *
+ * Elle ne porte **pas** son nombre de voix, et ce n'est pas un rangement : le
+ * document de sondage est lisible par tout parent de l'organisation — c'est ce
+ * qui permet de poser la question avant d'y répondre. Y écrire les totaux
+ * reviendrait donc à publier les résultats en permanence, quel que soit
+ * `resultsVisibility`. Les compteurs vivent dans `PollResults`.
+ */
 export interface PollOption {
   id: string;
   label: string;
   order: number;
-  /** Nombre de voix, maintenu par transaction côté Cloud Function. */
-  votes: number;
 }
 
 export interface Poll extends Auditable, OrganizationScoped {
@@ -469,9 +476,56 @@ export interface Poll extends Auditable, OrganizationScoped {
   status: PollStatus;
   startsAt: DateLike;
   endsAt?: DateLike;
-  /** Nombre de participants distincts, maintenu par Cloud Function. */
-  totalVoters: number;
   closedAt?: DateLike;
+}
+
+/**
+ * Résultats d'un sondage — document **séparé**, et c'est une décision de
+ * sécurité, pas de rangement.
+ *
+ * ## Pourquoi ils ne peuvent pas vivre dans le sondage
+ *
+ * `polls/{pollId}` est lisible par **tout parent de l'organisation** : c'est ce
+ * qui permet de poser la question avant d'y répondre. Y écrire les totaux
+ * reviendrait donc à publier les résultats en permanence — et
+ * `resultsVisibility`, qui existe, est validé et est stocké depuis l'origine,
+ * ne serait lu par personne. Une promesse que les règles ne tiennent pas n'est
+ * pas tenue.
+ *
+ * On ne peut pas non plus se contenter de **masquer** les totaux à l'écran :
+ * une règle de lecture ne filtre pas des champs, elle ouvre ou ferme un
+ * document entier. Et la fenêtre entre le vote et la réécriture du décompte
+ * suffirait à les laisser filtrer par le cache local.
+ *
+ * ## L'identifiant du document **est** celui du sondage
+ *
+ * `pollResults/{pollId}`, et non une sous-collection à identifiant fixe : il ne
+ * peut donc pas exister deux documents de résultats pour un sondage, et il n'y
+ * a aucune constante à faire diverger entre le client et le serveur. La garde
+ * de couverture des règles exige d'ailleurs la comparaison d'organisation sur
+ * cette collection, puisqu'elle est de premier niveau.
+ *
+ * ## Un seul écrivain
+ *
+ * La Cloud Function `onPollVoteWritten`. Aucun client ne peut l'écrire — les
+ * règles le refusent — si bien que le décompte est **infalsifiable par
+ * construction**, et non par confiance dans le client.
+ *
+ * Le document peut être **absent** : un sondage sans voix n'en a pas. L'absence
+ * vaut zéro, et l'écran doit la traiter comme telle plutôt que d'attendre un
+ * document qui ne viendra qu'au premier vote.
+ */
+export interface PollResultsOption {
+  id: string;
+  votes: number;
+}
+
+export interface PollResults extends OrganizationScoped {
+  /** Nombre de participants distincts. La vérité est dans `votes/{uid}`. */
+  totalVoters: number;
+  /** Toutes les options du sondage, dans son ordre, y compris à zéro voix. */
+  options: readonly PollResultsOption[];
+  updatedAt: DateLike;
 }
 
 /**

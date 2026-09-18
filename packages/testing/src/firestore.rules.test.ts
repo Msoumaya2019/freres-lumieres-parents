@@ -246,6 +246,71 @@ function deviceTokenDocument(id: string, overrides: Record<string, unknown> = {}
   };
 }
 
+/**
+ * Sondage minimal mais complet, tel que le produit `create()` du repository.
+ *
+ * Les quatre champs de décision — `allowMultiple`, `anonymous`,
+ * `allowChangeVote`, `resultsVisibility` — sont présents **par défaut**, et ce
+ * n'est pas du confort : les règles les lisent, et lire un champ absent **lève**.
+ * Un fixture incomplet rend un test de refus vert pour une raison qui n'a rien
+ * à voir avec la clause visée, et c'est un défaut qui s'est déjà produit ici :
+ * deux tests de vote refusaient parce que le sondage était invotable.
+ *
+ * Les fixtures de vote plus haut restent écrites à la main : chacune porte le
+ * commentaire de la clause qu'elle exerce, et les fondre dans un constructeur
+ * ferait perdre ce lien.
+ *
+ * `omettre` retire des champs **après** construction, et ce détour est
+ * nécessaire : le SDK client refuse `undefined`, donc `{ resultsVisibility:
+ * undefined }` ne neutralise pas le champ — il fait échouer l'écriture du
+ * fixture. Comme elle a lieu dans `beforeEach`, l'échec emporte **tous** les
+ * tests du fichier, et le compte obtenu (187) ressemble à un fichier de règles
+ * qui ne compile pas. Le piège a été rencontré, et il coûte un cycle complet.
+ */
+function pollDocument(overrides: Record<string, unknown> = {}, omettre: readonly string[] = []) {
+  const document: Record<string, unknown> = {
+    question: 'Faut-il maintenir la kermesse ?',
+    options: [
+      { id: 'yes', label: 'Oui' },
+      { id: 'no', label: 'Non' },
+    ],
+    status: 'open',
+    allowMultiple: false,
+    anonymous: false,
+    allowChangeVote: true,
+    resultsVisibility: 'after_vote',
+    orgId: TEST_ORG,
+    audienceKeys: [`org:${TEST_ORG}`],
+    ...overrides,
+  };
+
+  for (const champ of omettre) delete document[champ];
+
+  return document;
+}
+
+/**
+ * Document de résultats tel que le compteur l'écrit.
+ *
+ * Il vit **hors** du sondage, et c'est tout l'objet de ces tests : le document
+ * de sondage est lisible par tout parent de l'organisation, donc y écrire les
+ * totaux les publierait à tous, quel que soit `resultsVisibility`.
+ *
+ * L'organisation est un paramètre, et non une constante : sans un document
+ * d'une autre organisation, aucun test ne peut distinguer « la règle cloisonne »
+ * de « tout est dans la même organisation ».
+ */
+function pollResultsDocument(orgId: string = TEST_ORG, votes = 2) {
+  return {
+    orgId,
+    totalVoters: votes,
+    options: [
+      { id: 'yes', votes },
+      { id: 'no', votes: 0 },
+    ],
+  };
+}
+
 describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
   beforeAll(async () => {
     testEnv = await createRulesTestEnvironment();
@@ -609,6 +674,115 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
         pollId: 'poll-anonyme',
         optionIds: ['yes'],
       });
+
+      // --- Résultats de sondage ----------------------------------------------
+      //
+      // Les résultats vivent dans une collection **séparée** du sondage. Le
+      // document de sondage est lisible par tout parent de l'organisation, donc
+      // y écrire les totaux les publierait à tous — et `resultsVisibility`, qui
+      // existait dans le modèle, n'était lu par personne.
+      //
+      // Chaque valeur de visibilité a son sondage, et chaque refus a son
+      // témoin : soit le **même document** lu par la FCPE — ce qui prouve que le
+      // refus porte sur la visibilité et non sur l'existence du document — soit
+      // un second parent, pour `after_vote`.
+      await setDoc(
+        doc(db, 'polls', 'poll-resultats-toujours'),
+        pollDocument({ id: 'poll-resultats-toujours', resultsVisibility: 'always' }),
+      );
+      await setDoc(doc(db, 'pollResults', 'poll-resultats-toujours'), pollResultsDocument());
+
+      // `after_vote`, sondage ouvert : un parent qui n'a pas voté ne lit rien,
+      // un parent qui a voté lit. Le vote de `otherParent` est le témoin de la
+      // seconde moitié — les deux lectures visent le **même** document.
+      await setDoc(
+        doc(db, 'polls', 'poll-resultats-apres-vote'),
+        pollDocument({ id: 'poll-resultats-apres-vote', resultsVisibility: 'after_vote' }),
+      );
+      await setDoc(doc(db, 'pollResults', 'poll-resultats-apres-vote'), pollResultsDocument());
+      await setDoc(doc(db, 'polls', 'poll-resultats-apres-vote', 'votes', UID.otherParent), {
+        pollId: 'poll-resultats-apres-vote',
+        uid: UID.otherParent,
+        optionIds: ['yes'],
+      });
+
+      // `after_end`, sondage **ouvert** : personne ne lit, sauf la FCPE.
+      await setDoc(
+        doc(db, 'polls', 'poll-resultats-apres-fin'),
+        pollDocument({ id: 'poll-resultats-apres-fin', resultsVisibility: 'after_end' }),
+      );
+      await setDoc(doc(db, 'pollResults', 'poll-resultats-apres-fin'), pollResultsDocument());
+
+      // Le même `after_end`, sondage **clos** : tout le monde lit. C'est la
+      // paire qui donne son sens à la précédente — sans elle, un refus ne
+      // dirait pas si la cause est la visibilité ou le statut.
+      await setDoc(
+        doc(db, 'polls', 'poll-resultats-clos'),
+        pollDocument({
+          id: 'poll-resultats-clos',
+          status: 'closed',
+          resultsVisibility: 'after_end',
+        }),
+      );
+      await setDoc(doc(db, 'pollResults', 'poll-resultats-clos'), pollResultsDocument());
+
+      // `after_vote` sur un sondage **clos**, et c'est le fixture qui fixe
+      // l'échelle : la clôture publie à tout le monde, y compris à qui n'a pas
+      // voté. Sans lui, « after_vote » et « after_end » seraient confondus une
+      // fois le sondage clos, et le choix produit ne serait pas tenu.
+      await setDoc(
+        doc(db, 'polls', 'poll-resultats-clos-apres-vote'),
+        pollDocument({
+          id: 'poll-resultats-clos-apres-vote',
+          status: 'closed',
+          resultsVisibility: 'after_vote',
+        }),
+      );
+      await setDoc(doc(db, 'pollResults', 'poll-resultats-clos-apres-vote'), pollResultsDocument());
+
+      // Un brouillon, même en `always` : personne ne lit. Publier les résultats
+      // d'un sondage non publié révélerait la question avant l'heure.
+      await setDoc(
+        doc(db, 'polls', 'poll-resultats-brouillon'),
+        pollDocument({
+          id: 'poll-resultats-brouillon',
+          status: 'draft',
+          resultsVisibility: 'always',
+        }),
+      );
+      await setDoc(doc(db, 'pollResults', 'poll-resultats-brouillon'), pollResultsDocument());
+
+      // Sans `resultsVisibility` : repli **fermé**. Le sondage est ouvert, donc
+      // rien n'est lisible — un repli ouvert aurait publié, alors que le défaut
+      // du schéma, lui, est `after_vote`.
+      await setDoc(
+        doc(db, 'polls', 'poll-resultats-sans-champ'),
+        pollDocument({ id: 'poll-resultats-sans-champ' }, ['resultsVisibility']),
+      );
+      await setDoc(doc(db, 'pollResults', 'poll-resultats-sans-champ'), pollResultsDocument());
+
+      // Une autre organisation : le document existe, et il est refusé.
+      await setDoc(
+        doc(db, 'polls', 'poll-resultats-autre-org'),
+        pollDocument({
+          id: 'poll-resultats-autre-org',
+          orgId: TEST_OTHER_ORG,
+          audienceKeys: [`org:${TEST_OTHER_ORG}`],
+          resultsVisibility: 'always',
+        }),
+      );
+      await setDoc(
+        doc(db, 'pollResults', 'poll-resultats-autre-org'),
+        pollResultsDocument(TEST_OTHER_ORG),
+      );
+
+      // Un sondage `always` **sans** document de résultats : l'absence doit se
+      // lire comme une absence, et non comme un refus — sinon l'écran
+      // afficherait une erreur là où il doit afficher des zéros.
+      await setDoc(
+        doc(db, 'polls', 'poll-resultats-sans-voix'),
+        pollDocument({ id: 'poll-resultats-sans-voix', resultsVisibility: 'always' }),
+      );
 
       // --- Signalements, modération, tâches internes -------------------------
       //
@@ -2035,6 +2209,143 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
       // ne saurait alors pas quelle réponse est déjà cochée.
       const autre = testEnv.authenticatedContext(UID.otherParent, CLAIMS.parent).firestore();
       await assertSucceeds(getDoc(doc(autre, 'polls', 'poll-1', 'votes', UID.otherParent)));
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Résultats de sondage
+  //
+  // `resultsVisibility` existait dans le modèle, était validé, était stocké — et
+  // n'était lu par **personne**. Les totaux vivaient sur `polls/{pollId}`, que
+  // tout parent de l'organisation peut lire : les résultats étaient donc
+  // publics, en permanence, quelle que soit la valeur choisie.
+  //
+  // Une règle de lecture ne filtre pas des champs, elle ouvre ou ferme un
+  // document entier : le seul correctif possible était de **déplacer** les
+  // totaux. Ces tests tiennent la promesse qui en découle. Chacun a son témoin,
+  // sans quoi un refus ne dit pas sur quoi il porte.
+  // -------------------------------------------------------------------------
+  describe('Résultats de sondage', () => {
+    it('un sondage « always » publie ses résultats à tout membre actif', async () => {
+      await assertSucceeds(
+        getDoc(doc(parent.firestore(), 'pollResults', 'poll-resultats-toujours')),
+      );
+    });
+
+    it('un sondage « after_vote » cache ses résultats à qui n’a pas voté', async () => {
+      await assertFails(
+        getDoc(doc(parent.firestore(), 'pollResults', 'poll-resultats-apres-vote')),
+      );
+    });
+
+    it('un sondage « after_vote » publie ses résultats à qui a voté', async () => {
+      // Le témoin du précédent, sur le **même document** : c'est ce qui prouve
+      // que le refus portait sur la visibilité, et non sur un document absent ou
+      // sur une organisation qui ne correspond pas.
+      const autre = testEnv.authenticatedContext(UID.otherParent, CLAIMS.parent).firestore();
+      await assertSucceeds(getDoc(doc(autre, 'pollResults', 'poll-resultats-apres-vote')));
+    });
+
+    it('un sondage « after_end » cache ses résultats tant qu’il est ouvert', async () => {
+      await assertFails(getDoc(doc(parent.firestore(), 'pollResults', 'poll-resultats-apres-fin')));
+    });
+
+    it('la FCPE lit les résultats d’un sondage ouvert, quelle que soit la visibilité', async () => {
+      // Témoin du précédent : le même document, lu par la FCPE. Elle administre
+      // le sondage et doit pouvoir en suivre le décompte avant de le clore.
+      await assertSucceeds(
+        getDoc(doc(fcpe.firestore(), 'pollResults', 'poll-resultats-apres-fin')),
+      );
+    });
+
+    it('la clôture publie les résultats à tous, même à qui n’a pas voté', async () => {
+      await assertSucceeds(getDoc(doc(parent.firestore(), 'pollResults', 'poll-resultats-clos')));
+    });
+
+    it('un sondage clos publie aussi ses résultats en « after_vote »', async () => {
+      // L'échelle est **emboîtée** : `always` ⊃ `after_vote` ⊃ `after_end`. Sans
+      // ce test, les deux dernières seraient confondues une fois le sondage
+      // clos — et un non-votant ne saurait jamais ce qui a été décidé.
+      await assertSucceeds(
+        getDoc(doc(parent.firestore(), 'pollResults', 'poll-resultats-clos-apres-vote')),
+      );
+    });
+
+    it('un brouillon ne publie pas ses résultats, même en « always »', async () => {
+      await assertFails(getDoc(doc(parent.firestore(), 'pollResults', 'poll-resultats-brouillon')));
+    });
+
+    it('la FCPE lit les résultats d’un brouillon', async () => {
+      // Témoin du précédent. Un brouillon n'est lisible par personne — mais la
+      // FCPE, elle, doit pouvoir préparer son sondage.
+      await assertSucceeds(
+        getDoc(doc(fcpe.firestore(), 'pollResults', 'poll-resultats-brouillon')),
+      );
+    });
+
+    it('un sondage sans visibilité déclarée ne publie rien tant qu’il est ouvert', async () => {
+      // Le repli est **fermé**. Le défaut du schéma est `after_vote`, mais lire
+      // un champ absent lève : sans repli explicite le refus viendrait d'une
+      // erreur d'évaluation — et un repli ouvert aurait publié.
+      await assertFails(
+        getDoc(doc(parent.firestore(), 'pollResults', 'poll-resultats-sans-champ')),
+      );
+    });
+
+    it('un parent ne lit pas les résultats du sondage d’une autre organisation', async () => {
+      await assertFails(getDoc(doc(parent.firestore(), 'pollResults', 'poll-resultats-autre-org')));
+    });
+
+    it('un membre de l’autre organisation lit ses propres résultats', async () => {
+      // Témoin du précédent : sans lui, le refus pourrait venir de la visibilité
+      // ou d'un document absent, et non du cloisonnement.
+      const autre = testEnv.authenticatedContext(
+        'parent-autre-organisation',
+        CLAIMS.parentOtherOrg,
+      );
+      await assertSucceeds(
+        getDoc(doc(autre.firestore(), 'pollResults', 'poll-resultats-autre-org')),
+      );
+    });
+
+    it('un membre de la FCPE d’une autre organisation ne lit pas les résultats', async () => {
+      // Le cloisonnement est vérifié **dans les deux branches**, FCPE comprise.
+      // C'est le cas que la garde de couverture existe pour empêcher : une règle
+      // qui s'appuie sur le seul rôle est satisfaite par Firestore sans
+      // contraindre aucun champ, et laisse passer la collection entière. Sans ce
+      // test, retirer la comparaison d'organisation n'aurait l'air de rien
+      // changer — la branche « parent » la refait plus bas, et la couvrirait.
+      const autre = testEnv.authenticatedContext('fcpe-autre-organisation', CLAIMS.fcpeOtherOrg);
+
+      await assertFails(getDoc(doc(autre.firestore(), 'pollResults', 'poll-resultats-toujours')));
+    });
+
+    it('les résultats d’un sondage sans voix se lisent comme absents, non comme interdits', async () => {
+      // Le document n'apparaît qu'au premier vote, puisque le client ne l'écrit
+      // jamais. L'absence doit donc se lire : sinon l'écran afficherait une
+      // erreur là où il doit afficher des zéros.
+      const snapshot = await getDoc(
+        doc(parent.firestore(), 'pollResults', 'poll-resultats-sans-voix'),
+      );
+
+      expect(snapshot.exists()).toBe(false);
+    });
+
+    it('un compte en attente ne lit pas les résultats publiés', async () => {
+      await assertFails(getDoc(doc(pending.firestore(), 'pollResults', 'poll-resultats-toujours')));
+    });
+
+    it('aucun client n’écrit les résultats, pas même la FCPE', async () => {
+      // La propriété qui rend le décompte infalsifiable : le seul écrivain est
+      // la Cloud Function, qui passe par le SDK Admin et ignore ces règles. Si
+      // un client pouvait écrire ce document, `resultsVisibility` protégerait
+      // la lecture d'un chiffre que n'importe qui pourrait fabriquer.
+      await assertFails(
+        setDoc(doc(parent.firestore(), 'pollResults', 'poll-1'), pollResultsDocument()),
+      );
+      await assertFails(
+        setDoc(doc(fcpe.firestore(), 'pollResults', 'poll-1'), pollResultsDocument()),
+      );
     });
   });
 

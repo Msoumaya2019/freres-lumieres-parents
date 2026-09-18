@@ -114,6 +114,7 @@ et autant de transfert.
 | Commentaires : `reactions` (map emoji → nombre) | évite de lire la sous-collection à chaque affichage          |
 | `counters/{orgId}`                              | évite les requêtes d'agrégation                              |
 | `highlights/{orgId}`                            | 1 lecture au lieu de 3 (prochain événement, dernier sondage) |
+| `pollResults` séparé de `polls`                 | un sondage écouté n'est plus réécrit à chaque vote           |
 | `reports.timeline[]` intégré                    | évite une sous-collection d'historique                       |
 | Commentaires et messages en sous-collections    | pagination naturelle, pas de requête globale                 |
 
@@ -134,18 +135,30 @@ convention d'affichage — un client hostile écrirait sans passer par
 l'application. Une lecture par commentaire écrit est le prix de cette
 garantie, et les commentaires sont rares.
 
-**Coût d'un vote.** Un vote coûte plus que le document qu'il écrit. S'y ajoutent
-la mise à jour du document de sondage par `onPollVoteWritten` — qui le lit dans
-une **transaction** avant de l'écrire, soit une lecture et une écriture — et les
-lectures de la règle, qui interroge le sondage parent pour vérifier qu'il est
-ouvert, dans la bonne organisation, et que le choix est permis. Sans elles, un
-identifiant de sondage suffirait à voter sur un brouillon, sur un sondage clos,
-ou dans le groupe scolaire voisin.
+**Coût d'un vote.** Un vote coûte plus que le document qu'il écrit.
 
-C'est le prix de la garantie, et il est modeste : un parent vote une fois par
-sondage. Le point à surveiller n'est pas le vote isolé, mais le **document de
-sondage**, réécrit à chaque vote — et donc tout déclencheur futur posé sur
-`polls/{pollId}`, qui serait invoqué une fois par votant.
+- l'écriture du vote : une écriture ;
+- la règle d'écriture, qui interroge le sondage parent pour vérifier qu'il est
+  ouvert, dans la bonne organisation, et que le choix est permis — une lecture
+  de règle, `exists()` et `get()` sur le même chemin étant mis en cache
+  ensemble. Sans elle, un identifiant de sondage suffirait à voter sur un
+  brouillon, sur un sondage clos, ou dans le groupe scolaire voisin ;
+- `onPollVoteWritten` : une transaction qui lit **deux** documents — le sondage,
+  qui fait autorité sur la liste des options, et `pollResults`, qui porte les
+  comptes — et en écrit un. Soit deux lectures et une écriture.
+
+**Coût d'une lecture de résultats.** Une lecture, plus celles de la règle : le
+sondage, pour son statut et sa visibilité, et en `after_vote` l'existence du vote
+de l'appelant. Une règle de lecture ne peut pas filtrer des champs : la
+visibilité se paie donc en lectures de règle. C'est le prix de la garantie, et il
+n'est payé que par qui a le droit de demander.
+
+Le tout est modeste — un parent vote une fois par sondage, et ne relit les
+résultats qu'une poignée de fois. Le point qui a **changé** est ailleurs, et
+c'est une bonne nouvelle : le document de sondage n'est plus réécrit à chaque
+vote. Il n'était pas seulement coûteux : tout déclencheur posé sur
+`polls/{pollId}` aurait été invoqué une fois par votant. C'est `pollResults` qui
+est désormais chaud, et personne ne l'écoute.
 
 **Coût d'un commentaire écrit depuis l'application.** Le client recharge la
 publication et la première page de commentaires après une écriture réussie

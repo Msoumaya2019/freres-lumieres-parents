@@ -945,6 +945,90 @@ service cloud.firestore {
     }
 
     // =========================================================================
+    //  Résultats de sondage — lisibles selon `resultsVisibility`
+    // =========================================================================
+
+    match /pollResults/{pollId} {
+
+      // Le document est **hors** du sondage, et c'est une décision de sécurité.
+      // `polls/{pollId}` est lisible par tout parent de l'organisation — c'est
+      // ce qui permet de poser la question avant d'y répondre — donc y écrire
+      // les totaux les publierait à tous, quel que soit `resultsVisibility`.
+      //
+      // Une règle de lecture ne filtre pas des champs : elle ouvre ou ferme un
+      // document entier. Déplacer les totaux est la seule façon d'honorer la
+      // promesse ; les masquer à l'écran ne l'honorerait pas.
+      function sondage() {
+        return get(/databases/$(database)/documents/polls/$(pollId)).data;
+      }
+
+      // La visibilité se lit **dans le sondage**, jamais dans une copie posée
+      // sur ce document : la FCPE peut resserrer `resultsVisibility` après
+      // coup, et une copie garderait l'ancienne valeur — les résultats
+      // continueraient d'être publiés en silence.
+      //
+      // Le repli est **fermé**, sur la plus restrictive des trois valeurs :
+      // lire un champ absent ne rend pas `false`, cela lève, et le refus qui en
+      // résulte ne nomme aucune clause. Le défaut du schéma, lui, est
+      // `after_vote` — mais une **permission** ne s'ouvre pas par omission.
+      function visibilite() {
+        return 'resultsVisibility' in sondage() ? sondage().resultsVisibility : 'after_end';
+      }
+
+      function aVote() {
+        return exists(
+          /databases/$(database)/documents/polls/$(pollId)/votes/$(request.auth.uid)
+        );
+      }
+
+      // Échelle **emboîtée** : `always` ⊃ `after_vote` ⊃ `after_end`.
+      //
+      //   - `always`     : dès que le sondage est publié ;
+      //   - `after_vote` : dès qu'on a voté, et pour **tous** une fois clos ;
+      //   - `after_end`  : à la clôture seulement.
+      //
+      // Fermer un sondage publie donc ses résultats à tout le monde, y compris
+      // à ceux qui n'ont pas voté — c'est ce que veut dire `after_end`, qui
+      // sans cela serait identique à « jamais ».
+      //
+      // Un brouillon n'a pas de résultats lisibles : personne ne l'a voté, et
+      // le publier révélerait la question avant sa publication.
+      function resultatsVisibles() {
+        let s = sondage();
+        return s.orgId == orgId()
+          && s.status in ['open', 'closed']
+          && (visibilite() == 'always' || s.status == 'closed' || aVote());
+      }
+
+      // La FCPE voit toujours : c'est elle qui administre le sondage et qui
+      // doit pouvoir en suivre le décompte avant de le clore. Même frontière
+      // que la création — `isFcpe()` —, et la comparaison d'organisation est
+      // exigée dans les **deux** branches.
+      //
+      // Un document de résultats **absent** se lit comme absent, et non comme
+      // interdit : c'est le cas d'un sondage que personne n'a encore voté — le
+      // document n'apparaît qu'au premier vote, puisque le client ne l'écrit
+      // jamais. Sans cette branche, la comparaison d'organisation ci-dessous
+      // lirait `resource.data` sur un document inexistant, ce qui **lève** : le
+      // refus serait alors indistinguable d'un refus de visibilité, et l'écran
+      // ne pourrait pas afficher des zéros.
+      //
+      // La contrepartie est étroite : on apprend qu'un identifiant de sondage
+      // n'a pas encore de résultats. Les identifiants sont aléatoires, et les
+      // sondages d'une autre organisation ne se listent pas — donc rien à en
+      // tirer. Le `||` court-circuite, si bien que `resource.data` n'est lu que
+      // sur un document qui existe.
+      allow read: if resource == null
+        || (resource.data.orgId == orgId()
+          && (isFcpe() || (isActive() && resultatsVisibles())));
+
+      // Un seul écrivain : la Cloud Function `onPollVoteWritten`, qui passe par
+      // le SDK Admin et ignore ces règles. Aucun client n'écrit un décompte —
+      // c'est ce qui rend les résultats infalsifiables, et non la confiance.
+      allow write: if false;
+    }
+
+    // =========================================================================
     //  Signalements — strictement privés
     // =========================================================================
 

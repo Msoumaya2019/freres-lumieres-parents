@@ -18,13 +18,18 @@
  * devenir quand l'administration ouvre son brouillon. Un déclencheur de
  * création raterait le second cas.
  *
- * ## Les compteurs démarrent à zéro, et c'est le serveur qui les tient
+ * ## Les compteurs ne sont pas sur le sondage, et c'est une décision de sécurité
  *
- * `options[].votes` et `totalVoters` sont écrits ici à zéro, et nulle part
- * ailleurs depuis le client : les règles réservent la modification du document
- * de sondage à la FCPE (`isFcpe()`), donc un parent qui vote ne peut pas
- * incrémenter quoi que ce soit. Le décompte appartient à une Cloud Function,
- * qui seule écrit dans un document qu'un parent n'a pas le droit de modifier.
+ * Le sondage ne porte **aucun** total : ni `options[].votes`, ni `totalVoters`.
+ * Il est lisible par tout parent de l'organisation — c'est ce qui permet de
+ * poser la question avant d'y répondre — donc y écrire les résultats les
+ * publierait à tout le monde, quel que soit `resultsVisibility`.
+ *
+ * Les totaux vivent dans `pollResults/{pollId}`, un document séparé dont la
+ * Cloud Function `onPollVoteWritten` est le **seul** écrivain : les règles y
+ * refusent toute écriture client. C'est ce qui les rend infalsifiables. Et comme
+ * un sondage sans voix n'a pas de document de résultats, `createPoll`
+ * n'initialise plus rien : l'absence vaut zéro.
  *
  * ## Le vote lit avant d'écrire, et ce n'est pas une précaution de confort
  *
@@ -53,7 +58,7 @@ import {
 
 import { buildAudienceKeys, pollInputSchema, pollVoteSchema } from '@fl/shared';
 import type { PollInput, PollVoteInput } from '@fl/shared';
-import type { Poll } from '@fl/types';
+import type { Poll, PollResults } from '@fl/types';
 
 import { appError, invalidArgument, toAppError } from '../errors.js';
 import { paths } from '../paths.js';
@@ -103,6 +108,21 @@ export interface PollRepository {
   /** Un sondage par son identifiant, ou `null`. */
   get(pollId: string): Promise<Poll | null>;
   /**
+   * Résultats d'un sondage, ou `null` s'il n'a encore reçu aucune voix.
+   *
+   * L'absence n'est pas une erreur : elle vaut zéro pour toutes les réponses, et
+   * c'est le cas d'un sondage que personne n'a encore voté. Le document
+   * n'apparaît qu'au premier vote, parce qu'il appartient à la Cloud Function
+   * qui le tient — le client ne l'écrit jamais.
+   *
+   * Un **refus** de lecture n'est pas une absence, et ne doit pas être confondu
+   * avec elle : quand `resultsVisibility` ne l'autorise pas encore, les règles
+   * rejettent la lecture et l'erreur remonte. L'écran doit donc décider
+   * *avant* d'appeler s'il a le droit de demander — une règle de lecture n'est
+   * pas un filtre, et un abonnement refusé ne se rouvre pas tout seul.
+   */
+  getResults(pollId: string): Promise<PollResults | null>;
+  /**
    * Crée un sondage. Valide les données, calcule les clés d'audience, et
    * traduit `notify` en statut initial.
    */
@@ -121,6 +141,7 @@ export function createPollRepository(db: Firestore): PollRepository {
   return {
     newPollId: () => doc(collection(db, paths.polls())).id,
     get,
+    getResults,
     create,
     vote,
   };
@@ -130,6 +151,15 @@ export function createPollRepository(db: Firestore): PollRepository {
       const snapshot = await getDoc(doc(db, paths.poll(pollId)));
       if (!snapshot.exists()) return null;
       return { ...(snapshot.data() as Omit<Poll, 'id'>), id: snapshot.id };
+    } catch (error) {
+      throw toAppError(error);
+    }
+  }
+
+  async function getResults(pollId: string): Promise<PollResults | null> {
+    try {
+      const snapshot = await getDoc(doc(db, paths.pollResult(pollId)));
+      return snapshot.exists() ? (snapshot.data() as PollResults) : null;
     } catch (error) {
       throw toAppError(error);
     }
@@ -161,14 +191,13 @@ export function createPollRepository(db: Firestore): PollRepository {
         orgId,
         question: data.question,
         ...(data.description ? { description: data.description } : {}),
-        // Les compteurs partent de zéro, et les règles refusent toute création
-        // qui tenterait de les fixer autrement : un sondage neuf ne peut pas
-        // naître avec des voix.
+        // Aucun compteur ici, et ce n'est pas un oubli : voir l'en-tête. Le
+        // sondage porte la question et ses réponses, jamais ce qu'elles ont
+        // recueilli — le document est lisible par tout parent de l'organisation.
         options: data.options.map((option) => ({
           id: option.id,
           label: option.label,
           order: option.order,
-          votes: 0,
         })),
         allowMultiple: data.allowMultiple,
         anonymous: data.anonymous,
@@ -180,7 +209,6 @@ export function createPollRepository(db: Firestore): PollRepository {
         status: data.notify ? 'open' : 'draft',
         startsAt: now,
         ...(data.endsAt ? { endsAt: data.endsAt } : {}),
-        totalVoters: 0,
         createdBy: authorId,
         createdAt: now,
         updatedAt: now,

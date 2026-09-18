@@ -24,6 +24,7 @@ export const COLLECTIONS = {
   channels: 'channels',
   channelDigests: 'channelDigests',
   polls: 'polls',
+  pollResults: 'pollResults',
   reports: 'reports',
   collectiveIssues: 'collectiveIssues',
   events: 'events',
@@ -75,6 +76,11 @@ export const paths = {
   pollVotes: (pollId: string) => `${COLLECTIONS.polls}/${pollId}/${SUBCOLLECTIONS.votes}`,
   pollVote: (pollId: string, voterKey: string) =>
     `${COLLECTIONS.polls}/${pollId}/${SUBCOLLECTIONS.votes}/${voterKey}`,
+  // Les résultats vivent **hors** du document de sondage : celui-ci est lisible
+  // par tout parent de l'organisation, et les totaux y seraient donc publics.
+  // L'identifiant du document de résultats est celui du sondage, ce qui rend
+  // impossible d'en avoir deux.
+  pollResult: (pollId: string) => `${COLLECTIONS.pollResults}/${pollId}`,
 
   channel: (channelId: string) => `${COLLECTIONS.channels}/${channelId}`,
   channelMessages: (channelId: string) =>

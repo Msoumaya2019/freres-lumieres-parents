@@ -534,12 +534,18 @@ second chemin, qui est aussi celui d'un sondage préparé la veille pour le
 lendemain. La décision se lit donc comme pour une publication : le statut
 **devient** `open`.
 
-> **Le sondage est désormais un document chaud.** `onPollVoteWritten` écrit dans
-> `polls/{pollId}` à **chaque vote** — les compteurs y vivent. Un déclencheur qui
-> n'agirait qu'à la seule existence d'une écriture annoncerait donc le sondage
-> une fois par votant. La transition de statut n'est plus seulement ce qui
-> permet de rattraper un brouillon ouvert plus tard : c'est ce qui rend la
-> fonction utilisable.
+> **Le sondage n'est plus un document chaud**, et c'est le déplacement des
+> résultats qui l'a rendu vrai. `onPollVoteWritten` écrivait dans
+> `polls/{pollId}` à chaque vote, parce que les compteurs y vivaient ; il écrit
+> désormais dans `pollResults/{pollId}`. Le document de sondage n'est donc
+> réécrit que par la FCPE — publication, clôture, correction d'une question — et
+> un déclencheur posé dessus n'est plus réveillé par les votes.
+>
+> La transition de statut reste néanmoins **la bonne lecture**, pour la raison
+> d'origine : c'est elle qui rattrape un brouillon ouvert plus tard. Mais elle
+> n'est plus ce qui rend la fonction utilisable, et la nuance compte — une
+> fonction qui n'agirait qu'à la première écriture passerait aujourd'hui les
+> tests, et casserait le jour où la FCPE ouvrirait un sondage préparé la veille.
 
 > **Prérequis de déploiement.** Le projet a désormais **deux** fonctions
 > planifiées — `onReceiptsDue` (toutes les heures) et `onChannelDigestsDue`

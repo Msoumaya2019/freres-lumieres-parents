@@ -47,6 +47,7 @@ export const COLLECTIONS = {
   // `paths.test.ts`.
   channelDigests: 'channelDigests',
   polls: 'polls',
+  pollResults: 'pollResults',
   reports: 'reports',
   collectiveIssues: 'collectiveIssues',
   events: 'events',
@@ -129,6 +130,9 @@ export const paths = {
   pollVotes: (pollId: PollId) => `${COLLECTIONS.polls}/${pollId}/${SUBCOLLECTIONS.votes}`,
   pollVote: (pollId: PollId, voterKey: string) =>
     `${COLLECTIONS.polls}/${pollId}/${SUBCOLLECTIONS.votes}/${voterKey}`,
+  // Hors du document de sondage, et c'est une décision de sécurité : voir
+  // `PollResults`. L'identifiant du document de résultats est celui du sondage.
+  pollResult: (pollId: PollId) => `${COLLECTIONS.pollResults}/${pollId}`,
 
   reports: () => COLLECTIONS.reports,
   report: (reportId: ReportId) => `${COLLECTIONS.reports}/${reportId}`,

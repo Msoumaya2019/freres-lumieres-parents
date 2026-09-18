@@ -310,29 +310,86 @@ Le point délicat est le **vote unique par compte**.
   l'application.
 - La clé `voterKey` reste l'UID dans les deux cas : c'est ce qui garantit
   l'unicité du vote, sans jamais l'exposer dans une réponse d'API.
-- Les compteurs `options[].votes` et `totalVoters` sont mis à jour par une
-  **Cloud Function transactionnelle**, jamais par le client. Un client qui
-  écrirait directement dans le compteur fausserait les résultats. Le décompte
-  parcourt les options **du sondage**, jamais celles du vote : une réponse que
-  le vote nomme mais que le sondage ne propose pas n'apparaît donc jamais dans
-  les résultats.
-- La sous-collection `votes` est la **source de vérité** ; les compteurs n'en
-  sont qu'un cache d'affichage. Un déclencheur Firestore est livré « au moins
-  une fois » : un rejeu applique le même écart deux fois, et le cache dérive. Le
+- Les compteurs ne sont **pas sur le sondage**. `polls/{pollId}` est lisible par
+  tout parent de l'organisation — c'est ce qui permet de poser la question avant
+  d'y répondre — donc y écrire les totaux les publierait à tous, quel que soit
+  `resultsVisibility`. Ils vivent dans `pollResults/{pollId}`, une collection
+  séparée dont la Cloud Function `onPollVoteWritten` est le **seul écrivain** :
+  les règles y refusent toute écriture client, et un test le vérifie pour un
+  parent comme pour la FCPE. Un décompte que personne ne peut écrire est
+  infalsifiable par construction, et non par confiance.
+- Ce déplacement n'est pas un rangement. Une règle de lecture ne filtre pas des
+  champs : elle ouvre ou ferme un **document entier**. Tant que les totaux
+  vivaient sur le sondage, la promesse « les résultats apparaissent après le
+  vote » était invivable — et la fenêtre entre le vote et la réécriture du
+  décompte suffisait à les laisser filtrer par le cache local. `PollOption` ne
+  porte donc plus de `votes`, et `Poll` plus de `totalVoters` : le modèle le dit,
+  et c'est ce qui empêche la régression. **Remettre un compteur sur le document
+  de sondage annulerait `resultsVisibility` sans qu'aucun test de règle ne
+  tombe** — les règles continueraient de faire ce qu'elles annoncent, sur un
+  document qui ne contient plus rien à protéger.
+- La sous-collection `votes` est la **source de vérité** ; `pollResults` n'en est
+  qu'un cache d'affichage. Un déclencheur Firestore est livré « au moins une
+  fois » : un rejeu applique le même écart deux fois, et le cache dérive. Le
   choix de l'incrément plutôt que du recomptage est délibéré — recompter
   coûterait une lecture par vote déjà exprimé, à chaque nouveau vote — et il est
   **réparable** : recalculer les compteurs depuis `votes` redonne un décompte
   exact. Ce recalcul n'est pas écrit.
-- Une **transaction**, et non un incrément ciblé : les voix vivent dans le
-  tableau `options`, où une réponse est désignée par son identifiant et non par
-  sa position. Réordonner les options — ce que l'administration fera en
-  corrigeant une question — déplacerait sinon les voix d'une réponse à l'autre,
-  en silence.
-- **Le document de sondage devient chaud** : chaque vote écrit dans
-  `polls/{pollId}`. Tout déclencheur posé sur ce chemin sera donc réveillé à
-  chaque vote, et pas seulement à la publication. `notifyPollAudience` devra
-  raisonner en **transition de statut**, jamais sur la seule existence d'une
-  écriture — sans quoi chaque vote annoncerait le sondage à tout le monde.
+- Une **transaction**, et non un incrément ciblé : une réponse est désignée par
+  son identifiant, et non par sa position. Réordonner les options — ce que
+  l'administration fera en corrigeant une question — déplacerait sinon les voix
+  d'une réponse à l'autre, en silence. La transaction lit les deux documents —
+  le sondage fait autorité sur la liste des options, `pollResults` sur les
+  comptes — et les fait rejouer quand deux votes arrivent ensemble.
+- **Le sondage cesse d'être un document chaud.** Le compteur n'écrit plus dans
+  `polls/{pollId}` : il n'est réécrit que par la FCPE, à la publication, à la
+  clôture ou à la correction d'une question. `notifyPollAudience`, qui écoutera
+  ce chemin, peut donc raisonner en **transition de statut** sans craindre d'être
+  réveillé par chaque vote. Le document chaud est désormais `pollResults`, que
+  personne n'écoute.
+- Le document de résultats **peut être absent** : un sondage sans voix n'en a
+  pas, puisque le client ne l'écrit jamais. Son absence se lit comme une absence
+  — `PollResults | null` — et non comme un refus. La règle autorise pour cela la
+  lecture d'un document inexistant, sans quoi `resource.data` serait lu sur un
+  document qui n'existe pas : cela **lève**, et l'écran afficherait une erreur là
+  où il doit afficher des zéros.
+
+### Visibilité des résultats — `resultsVisibility`
+
+Trois valeurs, déclarées dès l'origine dans le modèle, et longtemps lues par
+personne : les totaux étaient sur un document que tout parent pouvait lire, donc
+les résultats étaient publics en permanence. L'écart n'était visible nulle part —
+il n'y avait ni écran, ni test, ni règle pour le dire.
+
+L'échelle est **emboîtée** : `always` ⊃ `after_vote` ⊃ `after_end`.
+
+| Valeur       | Sondage ouvert                | Sondage clos |
+| ------------ | ----------------------------- | ------------ |
+| `always`     | lisible par tout membre actif | lisible      |
+| `after_vote` | lisible par qui a voté        | lisible      |
+| `after_end`  | lisible par la FCPE seule     | lisible      |
+
+Fermer un sondage publie donc ses résultats à tout le monde, y compris à ceux qui
+n'ont pas voté — c'est ce que veut dire `after_end`, qui sans cela serait
+identique à « jamais ». C'est un choix produit, tranché explicitement : l'autre
+lecture — « vous n'avez pas voté, vous ne voyez pas » — laisserait un parent
+absent sans moyen de savoir ce qui a été décidé.
+
+La **FCPE voit toujours**, quel que soit le statut : c'est elle qui administre le
+sondage et doit pouvoir en suivre le décompte avant de le clore. Un brouillon
+n'est donc lisible que par elle, et un brouillon en `always` ne publie rien.
+
+La visibilité est lue **dans le sondage**, jamais recopiée sur `pollResults` :
+la FCPE peut la resserrer après coup, et une copie garderait l'ancienne valeur —
+les résultats continueraient d'être publiés en silence. Le repli, quand le champ
+est absent, est **fermé** (`after_end`), alors que le défaut du schéma est
+`after_vote` : une permission ne s'ouvre pas par omission.
+
+Un point qui se paie à l'usage : **un abonnement refusé ne se rouvre pas tout
+seul**. Les règles sont évaluées à l'ouverture de l'écoute, donc l'écran doit
+décider _avant_ de s'abonner — au moment où il sait que le parent a voté, ou que
+le sondage est clos. Un abonnement posé trop tôt échoue et le restera.
+
 - Les règles lisent `allowMultiple`, `anonymous` et `allowChangeVote` **dans le
   sondage**. Ces trois champs conditionnent donc la possibilité même de voter :
   dans une règle, lire un champ **absent lève**, et l'écriture est refusée. Les

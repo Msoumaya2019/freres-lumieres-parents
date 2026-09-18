@@ -807,14 +807,31 @@ décision explicite de la FCPE.
 - [x] Sondage anonyme (aucun `uid` stocké) — et vérifié **par les règles**, non
       par le client : un sondage `anonymous` refuse tout champ `uid`, un sondage
       nominatif l'exige.
-- [ ] Résultats en temps réel selon la visibilité choisie
+- [x] Résultats selon la visibilité choisie — `resultsVisibility` existait, était
+      validé, était stocké, et n'était lu par **personne**. Les totaux vivaient
+      sur `polls/{pollId}`, que tout parent de l'organisation peut lire : les
+      résultats étaient donc publics en permanence, et la promesse « les
+      résultats apparaissent après le vote » était invivable. Une règle de
+      lecture ne filtre pas des champs, elle ouvre ou ferme un **document
+      entier** — le seul correctif possible était de **déplacer** les totaux dans
+      `pollResults/{pollId}`, dont la Cloud Function est le seul écrivain, ce qui
+      les rend infalsifiables. L'échelle est **emboîtée** (`always` ⊃
+      `after_vote` ⊃ `after_end`), la clôture publie à tout le monde, la FCPE lit
+      toujours, et le repli sur un champ absent est **fermé**. Effet de bord
+      bienvenu : le document de sondage cesse d'être réécrit à chaque vote, donc
+      `notifyPollAudience` n'a plus à se défendre des votes.
+- [ ] Écran des résultats — l'abonnement devra être posé **quand l'écran sait
+      qu'il y a droit**, jamais avant : les règles sont évaluées à l'ouverture de
+      l'écoute, et un abonnement refusé ne se rouvre pas tout seul.
 - [ ] Clôture manuelle et automatique
 - [ ] Écran admin : créer, suivre, clôturer
 - [x] Tests : double vote refusé, brouillon illisible, cloisonnement
       d'organisation, création refusée à un parent, et le vote — dont, pour
-      chaque refus, **un témoin qui réussit**. Quatorze mutations couvrent
-      l'ensemble des règles de sondage ; deux d'entre elles ont un ensemble
-      attendu vide, et c'est consigné : voir l'en-tête du banc.
+      chaque refus, **un témoin qui réussit**. Les trois visibilités ont leurs
+      tests, et leurs témoins sont le **même document** lu par la FCPE, ou un
+      second parent qui a voté. Quatorze mutations couvrent l'ensemble des règles
+      de sondage ; deux d'entre elles ont un ensemble attendu vide, et c'est
+      consigné : voir l'en-tête du banc.
 
 **Critère de sortie :** un compte ne peut voter qu'une fois, y compris en
 appelant Firestore directement.
