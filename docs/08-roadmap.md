@@ -603,8 +603,54 @@ ordinateur ; un parent qui tente d'y accéder est refusé.
 false`) : c'est le seul endroit où « ce qui a déjà été annoncé » est écrit,
       et le rendre modifiable permettrait d'annoncer un lot qui n'existe pas, ou de
       faire taire celui qui existe en repoussant sa fenêtre.
-- [ ] Les 7 déclencheurs — **4 sur 7** : publication, commentaire et réponse,
-      message de canal. Restent le sondage, le signalement et le rappel.
+- [x] Les 7 déclencheurs — **5 sur 7** : publication, commentaire et réponse,
+      message de canal, et **sondage**. Restent le signalement et le rappel.
+- [x] **Notification d'un sondage** — `notifyPollAudience`, branché sur les
+      **écritures** de `polls/{pollId}` et non sur la création. Un sondage peut
+      naître `open` — publié d'un seul geste — ou le devenir : un brouillon
+      préparé la veille pour le lendemain, que la FCPE ouvre plus tard. Un
+      déclencheur de création aurait raté le second chemin, un déclencheur de
+      mise à jour le premier. `pollNotificationPlan` ramène les deux à une seule
+      règle : le statut **devient** `open`, et le sondage n'a **jamais** été
+      notifié. La seconde garde n'est pas un confort : elle couvre le rejeu du
+      même événement, que Firestore peut produire seul, **et** la réouverture
+      (`closed` puis `open`), qui franchit la première sans y être arrêtée — un
+      aller-retour de statut renverrait sinon la même notification à toute
+      l'audience.
+      La **clôture ne notifie pas**, et ce n'est pas un oubli : `new_poll` est le
+      seul type qu'un sondage produise — `NotificationType` n'en prévoit pas
+      d'autre — et annoncer une clôture sous ce type ferait mentir l'historique
+      des envois, la collection même que l'administration lit pour savoir ce qui
+      est réellement parti.
+      Le **nom de l'auteur** n'est pas sur le document (`createPoll` a refusé d'y
+      recopier un nom qu'aucune règle ne vérifie) et le journal l'exige : le
+      déclencheur le lit sur le profil, par `nomDuProfil` — le format unique que
+      l'administration et le serveur partagent déjà — et **ne renonce pas** si ce
+      profil a disparu : le sondage est celui de l'association, et le repli est
+      « La FCPE ». La lecture est conditionnée au seul statut `open`, ce qui
+      évite une lecture de profil sur les écritures qui ne peuvent pas notifier —
+      et elles sont les plus nombreuses, le balayage planifié inscrivant la
+      clôture des sondages échus toutes les cinq minutes.
+      **Le défaut trouvé en écrivant le test de création** : `notifiedAt` était
+      figé par `unchangedOptional('notifiedAt')`, ce qui ne dit **rien** d'une
+      création — il n'y a pas de `resource` à comparer, donc rien à figer, et le
+      client peut poser la valeur qu'il veut. Un membre de la FCPE pouvait donc
+      écrire le champ sur le document qu'il venait de créer et **faire taire la
+      notification de son propre sondage**. Le champ est désormais fermé des deux
+      côtés — `absent()` à la création, `unchangedOptional()` ensuite — et le
+      banc des sondages porte une mutation pour chacune des deux clauses : 33 au
+      total.
+      Au passage, **deux affirmations fausses** ont été corrigées, toutes deux
+      trouvées en écrivant ce déclencheur : le commentaire de `close()` annonçait
+      une renotification de l'audience à la clôture — impossible, le plan ne part
+      que **vers** `open` — et il présentait le refus de clore un brouillon comme
+      tenu par les règles, alors qu'elles ne l'interdisent pas : `draft` → `open`
+      est déjà permis au même acteur, publier un brouillon étant un pouvoir de la
+      FCPE par conception. Ce refus nomme une méprise, il ne ferme pas une porte.
+      `docs/05-notifications.md` disait de son côté « on ne se notifie jamais
+      soi-même » tenue par les trois premiers déclencheurs : `onPostPublished` ne
+      l'applique pas du tout, et le document dit maintenant lequel, comment, et
+      pourquoi la question reste ouverte.
 - [x] Liens profonds vers le contenu concerné — **faits pour les publications et
       les commentaires**, les deux déclencheurs branchés : un commentaire
       s'ouvre dans le fil de sa publication, seul écran où il se lit. Les deux

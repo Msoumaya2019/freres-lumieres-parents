@@ -590,6 +590,23 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
         audienceKeys: [`org:${TEST_OTHER_ORG}`],
       });
 
+      // Un sondage **déjà notifié**, et c'est la seule raison d'être de cette
+      // fixture : `notifiedAt` y est **présent**, ce qui exerce la seconde
+      // moitié de `unchangedOptional()` — « présent des deux côtés ». Tous les
+      // autres sondages du harnais ne l'ont pas, et n'exercent donc que
+      // « absent des deux côtés ». Les deux chemins comptent : c'est
+      // précisément l'absence qui faisait lever `unchanged()`, et un helper qui
+      // ne couvrirait que l'absence laisserait passer le déplacement du champ
+      // sur un sondage déjà parti.
+      await setDoc(
+        doc(db, 'polls', 'poll-notifie'),
+        pollDocument({
+          id: 'poll-notifie',
+          createdBy: UID.fcpe,
+          notifiedAt: new Date('2026-09-10T08:00:00Z'),
+        }),
+      );
+
       // Quatre sondages de plus, et chacun porte une clause que les règles
       // doivent lire **dans le sondage** : le statut `closed`, le choix
       // multiple, l'interdiction de changer son vote, et l'anonymat.
@@ -2057,6 +2074,84 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
           orgId: TEST_ORG,
           audienceKeys: [`org:${TEST_ORG}`],
           endsAt: '2026-06-01T20:00:00Z',
+        }),
+      );
+    });
+
+    // -----------------------------------------------------------------------
+    // `notifiedAt`, le champ que le serveur seul écrit
+    //
+    // Le déclencheur le lit pour décider s'il doit envoyer, donc un client qui
+    // peut l'écrire fait taire la notification. Deux chemins y mènent, et il
+    // faut **deux clauses** pour les fermer — c'est ce que ces tests mesurent :
+    //
+    //  - la création, où `unchangedOptional()` n'a rien à quoi s'accrocher
+    //    (pas de `resource`) et où c'est `absent()` qui refuse ;
+    //  - la mise à jour, sur ses deux moitiés : champ présent en base, et champ
+    //    absent.
+    //
+    // Chaque refus a son témoin qui **réussit**, sur la même charge à un champ
+    // près — sans quoi `assertFails` serait satisfait par n'importe quelle
+    // raison de refuser, y compris une règle qui refuse toute mise à jour.
+    // -----------------------------------------------------------------------
+
+    it('la FCPE ne peut pas poser notifiedAt en créant un sondage', async () => {
+      // Le chemin le plus simple : écrire le champ sur le document qu'on vient
+      // de créer. Le témoin est « la FCPE crée un sondage ouvert » — charge
+      // identique, moins ce champ.
+      await assertFails(
+        setDoc(doc(fcpe.firestore(), 'polls', 'poll-fcpe-notifie'), {
+          question: 'Faut-il maintenir la kermesse ?',
+          options: [
+            { id: 'yes', label: 'Oui' },
+            { id: 'no', label: 'Non' },
+          ],
+          status: 'open',
+          orgId: TEST_ORG,
+          audienceKeys: [`org:${TEST_ORG}`],
+          notifiedAt: new Date('2026-09-10T08:00:00Z'),
+        }),
+      );
+    });
+
+    it('la FCPE ne peut pas déplacer notifiedAt sur un sondage déjà notifié', async () => {
+      // La moitié « présent des deux côtés » de `unchangedOptional()`.
+      await assertFails(
+        updateDoc(doc(fcpe.firestore(), 'polls', 'poll-notifie'), {
+          notifiedAt: new Date('2026-09-11T08:00:00Z'),
+        }),
+      );
+    });
+
+    it('la FCPE ne peut pas ajouter notifiedAt à un sondage jamais notifié', async () => {
+      // La moitié « absent en base, présent dans la requête ». Le sondage visé
+      // est `poll-1`, celui du témoin qui suit : les deux écritures ne
+      // diffèrent que par le champ.
+      await assertFails(
+        updateDoc(doc(fcpe.firestore(), 'polls', 'poll-1'), {
+          notifiedAt: new Date('2026-09-10T08:00:00Z'),
+        }),
+      );
+    });
+
+    it('la FCPE corrige la question d’un sondage jamais notifié', async () => {
+      // Le témoin des deux refus ci-dessus, et il porte sur le **même
+      // document** que l'un d'eux. C'est aussi le cas que `unchanged()` aurait
+      // cassé : il lève quand le champ est absent, et une erreur vaut refus.
+      await assertSucceeds(
+        updateDoc(doc(fcpe.firestore(), 'polls', 'poll-1'), {
+          question: 'Faut-il maintenir la kermesse cette année ?',
+        }),
+      );
+    });
+
+    it('la FCPE corrige la question d’un sondage déjà notifié', async () => {
+      // Le témoin du déplacement : la mise à jour doit rester possible, seul le
+      // déplacement du champ est refusé. Sans lui, le refus précédent serait
+      // indistinguable d'un refus de toute écriture sur un sondage notifié.
+      await assertSucceeds(
+        updateDoc(doc(fcpe.firestore(), 'polls', 'poll-notifie'), {
+          question: 'Faut-il maintenir la kermesse cette année ?',
         }),
       );
     });

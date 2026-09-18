@@ -342,11 +342,23 @@ Le point délicat est le **vote unique par compte**.
   le sondage fait autorité sur la liste des options, `pollResults` sur les
   comptes — et les fait rejouer quand deux votes arrivent ensemble.
 - **Le sondage cesse d'être un document chaud.** Le compteur n'écrit plus dans
-  `polls/{pollId}` : il n'est réécrit que par la FCPE, à la publication, à la
-  clôture ou à la correction d'une question. `notifyPollAudience`, qui écoutera
-  ce chemin, peut donc raisonner en **transition de statut** sans craindre d'être
-  réveillé par chaque vote. Le document chaud est désormais `pollResults`, que
+  `polls/{pollId}` : il n'est réécrit que par la FCPE — à la publication, à la
+  clôture, à la correction d'une question — et par le déclencheur
+  `notifyPollAudience`, qui y pose `notifiedAt` **après** son envoi. C'est peu, et
+  c'est ce qui permet à ce déclencheur de raisonner en **transition de statut**
+  plutôt qu'en état : il se réveille sur chaque écriture, mais la première clause
+  du plan — le statut **devient** `open` — l'arrête sur toutes celles qui ne
+  notifient pas. Sa propre écriture ne le relance pas non plus : elle trouve le
+  statut déjà `open` en base. Le document chaud est désormais `pollResults`, que
   personne n'écoute.
+- **`notifiedAt` appartient au serveur, et il est fermé des deux côtés.** C'est
+  la même règle que sur `Post`, à une clause près : `absent('notifiedAt')` à la
+  **création**, `unchangedOptional('notifiedAt')` ensuite. Les deux sont
+  nécessaires, et la première manquait — le test de création l'a montrée.
+  `unchangedOptional()` ne dit rien d'une création : il n'y a pas de `resource` à
+  comparer, donc rien à figer, et un membre de la FCPE pouvait poser le champ sur
+  le document qu'il venait d'écrire. Comme `pollNotificationPlan` le lit pour
+  décider, cela **faisait taire la notification de son propre sondage**.
 - Le document de résultats **peut être absent** : un sondage sans voix n'en a
   pas, puisque le client ne l'écrit jamais. Son absence se lit comme une absence
   — `PollResults | null` — et non comme un refus. La règle autorise pour cela la

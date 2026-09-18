@@ -131,6 +131,22 @@ service cloud.firestore {
       return !(field in request.resource.data) || request.resource.data[field] == value;
     }
 
+    // Vérifie qu'un champ est **absent** de l'écriture.
+    //
+    // C'est le complément de `unchangedOptional()`, et il ne le remplace pas :
+    // à la **création** il n'y a pas de `resource` à comparer, donc figer n'a
+    // rien à quoi s'accrocher et la clause laisse passer n'importe quelle
+    // valeur. Un champ que le serveur seul écrit — `notifiedAt` sur un sondage
+    // — se protège donc des deux côtés : interdit à la création, figé ensuite.
+    //
+    // Le raisonnement vaut pour tout champ de décision posé par le serveur, et
+    // pas seulement pour celui-ci : `unchangedOptional()` seul donne
+    // l'illusion d'un champ fermé alors qu'il reste grand ouvert au premier
+    // écran qui le pose à la création.
+    function absent(field) {
+      return !(field in request.resource.data);
+    }
+
     function isNonEmptyString(value, maxLength) {
       return value is string && value.size() > 0 && value.size() <= maxLength;
     }
@@ -871,8 +887,34 @@ service cloud.firestore {
       // `validPoll()` ne vérifie pas `authorId` : c'est `isFcpe()` qui décide
       // qui publie, et un membre de la FCPE n'a pas à être l'auteur pour ouvrir
       // un sondage au nom de l'association.
-      allow create: if isFcpe() && validPoll();
-      allow update: if isFcpe() && validPoll() && unchanged('orgId');
+      //
+      // ## `notifiedAt` est fermé des deux côtés, et il faut les deux
+      //
+      // C'est une décision de sécurité, pas de rangement. Le déclencheur
+      // `notifyPollAudience` lit ce champ pour décider s'il doit envoyer : un
+      // membre de la FCPE qui peut l'écrire fait donc **taire la notification
+      // de son propre sondage**. Le champ appartient au serveur, comme `stats`
+      // sur une publication.
+      //
+      // Les deux clauses ci-dessous ne sont pas redondantes, et la première a
+      // manqué pendant un temps — c'est le test de création qui l'a montrée.
+      // `unchangedOptional()` ne dit rien d'une **création** : il n'y a pas de
+      // `resource` à comparer, donc il n'y a rien à figer, et `allow create`
+      // laissait planter le champ. Le gel par `unchangedOptional()` n'était
+      // alors qu'une apparence : le chemin le plus simple — poser `notifiedAt`
+      // sur le document qu'on vient d'écrire — restait ouvert.
+      //
+      // `absent()` refuse ce chemin, `unchangedOptional()` refuse le
+      // déplacement. Le second est `unchangedOptional` et non `unchanged`
+      // parce que le champ est **facultatif** : `unchanged` lit
+      // `resource.data[field]`, ce qui lève quand il est absent — une erreur
+      // vaut refus, et corriger la question d'un sondage jamais notifié
+      // deviendrait impossible.
+      allow create: if isFcpe() && validPoll() && absent('notifiedAt');
+
+      allow update: if isFcpe() && validPoll() && unchanged('orgId')
+        && unchangedOptional('notifiedAt');
+
       allow delete: if isAdmin();
 
       match /votes/{voterKey} {

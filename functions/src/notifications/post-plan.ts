@@ -73,8 +73,15 @@ function cles(value: unknown): string[] {
  * d'administration, qui est un document d'historique et non une autorisation.
  * Le vérifier entièrement n'apporterait rien à l'envoi, qui ne lit que les clés
  * d'audience — déjà calculées et stockées à part.
+ *
+ * Exportée parce que `poll-plan.ts` lit le même champ sur un document `polls`,
+ * écrit par le même formulaire. La règle est celle de `clesAudience` : deux
+ * copies divergeraient sur le premier document malformé, et l'une des deux
+ * laisserait passer une audience que l'autre refuse. Le fichier est le bon
+ * endroit — c'est déjà lui qui porte `extraitNotification`, employé par les
+ * trois autres plans.
  */
-function audienceLisible(value: unknown): Audience | null {
+export function audienceLisible(value: unknown): Audience | null {
   if (typeof value !== 'object' || value === null) return null;
   const type = (value as Record<string, unknown>).type;
   if (typeof type !== 'string' || !(AUDIENCE_TYPES as readonly string[]).includes(type)) {

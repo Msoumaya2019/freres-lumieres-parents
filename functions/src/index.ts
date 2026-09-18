@@ -70,5 +70,9 @@ export { onDeviceTokenCreated, onDeviceTokenOwnerChanged } from './triggers/devi
 export { onPostPublished } from './triggers/post-notifications.js';
 export { notifyCommentAuthor } from './triggers/comment-notifications.js';
 export { notifyChannelAudience } from './triggers/channel-notifications.js';
+// Le sondage notifie à l'**ouverture**, et pas à la clôture : `new_poll` est le
+// seul type qu'il produise, et annoncer une clôture sous ce type ferait mentir
+// l'historique des envois. Voir `notifications/poll-plan.ts`.
+export { notifyPollAudience } from './triggers/poll-notifications.js';
 export { onReceiptsDue } from './triggers/receipts-schedule.js';
 export { onChannelDigestsDue } from './triggers/digest-schedule.js';

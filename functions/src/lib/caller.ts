@@ -36,6 +36,36 @@ export interface CallerContext {
   orgId: string;
 }
 
+/** Chaîne nettoyée, ou chaîne vide. */
+function texte(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+/**
+ * Nom d'affichage d'un profil, ou `null` s'il n'y en a pas.
+ *
+ * ## Pourquoi elle ne lève pas, là où `resolveCaller` lève
+ *
+ * Une fonction appelable **doit** identifier son acteur : sans profil, il n'y a
+ * pas d'action. Un déclencheur, lui, agit **au nom** d'un auteur dont le profil
+ * peut avoir disparu — la suppression d'un compte est une opération normale, et
+ * elle ne doit pas rendre muet le contenu qu'il a préparé. L'appelant décide
+ * alors du repli, et chacun a le sien : « Administrateur » ici, « La FCPE »
+ * pour un sondage.
+ *
+ * ## Pourquoi elle existe
+ *
+ * Le format du nom complet s'écrivait en ligne dans `resolveCaller`, et il
+ * allait s'écrire une seconde fois dans le déclencheur des sondages. Deux
+ * copies divergeraient sur la première retouche — une espace de trop, un
+ * deuxième prénom ajouté — et l'écart ne se verrait que dans un journal
+ * d'envoi, c'est-à-dire trop tard.
+ */
+export function nomDuProfil(data: Record<string, unknown> | undefined): string | null {
+  const nom = `${texte(data?.firstName)} ${texte(data?.lastName)}`.trim();
+  return nom.length > 0 ? nom : null;
+}
+
 /**
  * Résout l'appelant à partir de son profil en base.
  *
@@ -65,7 +95,7 @@ export async function resolveCaller(auth: { uid: string } | undefined): Promise<
 
   return {
     uid: auth.uid,
-    name: `${data.firstName ?? ''} ${data.lastName ?? ''}`.trim() || 'Administrateur',
+    name: nomDuProfil(data) ?? 'Administrateur',
     role,
     orgId,
   };

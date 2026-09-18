@@ -455,11 +455,17 @@ export function createPollRepository(db: Firestore): PollRepository {
       throw appError('not-found', 'Ce sondage n’existe plus.');
     }
 
-    // Déjà clos : refuser plutôt que réécrire. `closedAt` est un **fait**, et
-    // le réécrire le déplacerait. Surtout, le déclencheur de notification
-    // raisonne sur une **transition de statut** : une seconde écriture du même
-    // statut s'y lirait comme une transition, et renotifierait l'audience
-    // entière — le contraire d'un rattrapage discret.
+    // Déjà clos : refuser plutôt que réécrire. `closedAt` est un **fait** — la
+    // date à laquelle le vote a cessé d'être accepté — et le réécrire le
+    // déplacerait : le dossier porterait deux dates de clôture pour un seul
+    // événement.
+    //
+    // Le refus n'a rien à voir avec la notification, et il vaut mieux le dire
+    // que de laisser croire l'inverse : une clôture **ne notifie pas**.
+    // `pollNotificationPlan` ne part que sur une transition **vers** `open`, et
+    // une clôture va dans l'autre sens. Réécrire `closed` sur un document déjà
+    // clos ne ferait donc partir aucun envoi — renotifier l'audience est
+    // impossible par construction, pas seulement déconseillé.
     if (sondage.status === 'closed') {
       throw appError('failed-precondition', 'Ce sondage est déjà clos.');
     }
@@ -467,8 +473,15 @@ export function createPollRepository(db: Firestore): PollRepository {
     // Un brouillon ne se clôt pas, il se publie. Le clore le **publierait** :
     // la règle de lecture ouvre aux parents les statuts `open` et `closed`,
     // donc un brouillon clos deviendrait lisible par toute l'organisation —
-    // exactement ce que `notify: false` sert à éviter. La règle refuse cette
-    // transition ; ce refus-ci n'est là que pour la nommer.
+    // exactement ce que `notify: false` sert à éviter.
+    //
+    // Ce refus est une **commodité de vocabulaire**, et il ne faut pas s'y
+    // tromper : les règles n'interdisent pas la transition `draft` → `closed`.
+    // Elles n'ont pas à le faire, puisque `draft` → `open` est déjà permis au
+    // même acteur — publier un brouillon est un pouvoir de la FCPE, par
+    // conception. Ce que ce refus apporte, c'est de **nommer** la méprise :
+    // ouvrir un brouillon l'annonce à son audience, le clore le publierait
+    // sans annonce.
     if (sondage.status === 'draft') {
       throw appError(
         'failed-precondition',

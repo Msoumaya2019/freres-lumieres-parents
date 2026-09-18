@@ -439,7 +439,7 @@ Une publication de catégorie `urgent` :
 | 6   | Mise à jour d'un signalement  | `signalements`             | **auteur du signalement uniquement**              |
 | 7   | Rappel d'événement            | `agenda`                   | participants inscrits, ou audience de l'événement |
 
-Deux règles de bon sens appliquées partout :
+Deux règles de bon sens :
 
 - **On ne se notifie jamais soi-même.** L'auteur d'un commentaire ne reçoit
   pas de notification pour son propre commentaire.
@@ -447,18 +447,28 @@ Deux règles de bon sens appliquées partout :
   de 5 minutes regroupe les messages (« 3 nouveaux messages dans CE1 »). C'est le
   seul déclencheur qui l'exige, et le seul qui l'applique.
 
-**État : les déclencheurs 1 à 4 sont branchés** — `onPostPublished`, puis
+**État : les déclencheurs 1 à 5 sont branchés** — `onPostPublished`, puis
 `notifyCommentAuthor`, qui couvre à lui seul le nouveau commentaire **et** la
-réponse, puis `notifyChannelAudience`, qui regroupe les messages d'un canal. Les
-trois autres ne le sont pas.
+réponse, puis `notifyChannelAudience`, qui regroupe les messages d'un canal, puis
+`notifyPollAudience`, qui annonce un sondage à son ouverture. Les deux derniers —
+6 et 7 — ne le sont pas.
 
-La règle « on ne se notifie jamais soi-même » est tenue par les trois, mais
-**pas de la même façon**, et la différence est instructive : les deux premiers
-**renoncent à envoyer** quand le destinataire désigné est l'auteur du contenu —
-un commentaire de soi à soi n'intéresse personne. Le troisième ne le peut pas :
-un lot de messages peut n'avoir qu'un auteur, et renoncer éteindrait la
-notification **pour tout le monde**. La règle y devient une exclusion de
-destinataires, et non un abandon d'envoi.
+La première règle n'est tenue que par **deux** des quatre, et **pas de la même
+façon** — la différence est instructive :
+
+- `notifyCommentAuthor` **renonce à envoyer** quand le destinataire désigné est
+  l'auteur du contenu : un commentaire de soi à soi n'intéresse personne.
+- `notifyChannelAudience` ne le peut pas : un lot de messages peut n'avoir qu'un
+  auteur, et renoncer éteindrait la notification **pour tout le monde**. La règle
+  y devient une exclusion de destinataires, et non un abandon d'envoi.
+
+`onPostPublished` **ne l'applique pas**, et c'est un écart connu plutôt qu'une
+décision : il envoie à une **audience**, jamais à une personne désignée, et
+l'auteur d'une publication reçoit donc la notification de sa propre publication.
+`notifyPollAudience` est dans le même cas, pour la même raison. Le corriger
+suppose de trancher si un membre de la FCPE qui publie doit être prévenu de sa
+propre publication : la question n'est pas tranchée, et une phrase qui
+l'affirmerait serait une promesse qu'aucun test ne tiendrait.
 
 ---
 
@@ -519,7 +529,7 @@ un test l'exige.
 | Nouveau commentaire | `onDocumentCreated('posts/{postId}/comments/{commentId}')`       | `notifyCommentAuthor`                           | fait    |
 | Réponse             | idem, avec `parentId`                                            | `notifyCommentAuthor`                           | fait    |
 | Nouveau message     | `onDocumentCreated('channels/{channelId}/messages/{messageId}')` | `notifyChannelAudience` + `onChannelDigestsDue` | fait    |
-| Nouveau sondage     | `onDocumentWritten('polls/{pollId}')`                            | `notifyPollAudience`                            | à faire |
+| Nouveau sondage     | `onDocumentWritten('polls/{pollId}')`                            | `notifyPollAudience`                            | fait    |
 | Signalement         | `onDocumentUpdated('reports/{id}')`                              | `notifyReportAuthor`                            | à faire |
 | Rappel d'événement  | tâche planifiée horaire                                          | `sendEventReminders`                            | à faire |
 | Relecture des reçus | tâche planifiée horaire                                          | `onReceiptsDue`                                 | fait    |
@@ -539,13 +549,37 @@ lendemain. La décision se lit donc comme pour une publication : le statut
 > `polls/{pollId}` à chaque vote, parce que les compteurs y vivaient ; il écrit
 > désormais dans `pollResults/{pollId}`. Le document de sondage n'est donc
 > réécrit que par la FCPE — publication, clôture, correction d'une question — et
-> un déclencheur posé dessus n'est plus réveillé par les votes.
+> par `notifyPollAudience` lui-même, qui y pose `notifiedAt` après son envoi. Un
+> déclencheur posé dessus n'est plus réveillé par les votes.
 >
 > La transition de statut reste néanmoins **la bonne lecture**, pour la raison
 > d'origine : c'est elle qui rattrape un brouillon ouvert plus tard. Mais elle
 > n'est plus ce qui rend la fonction utilisable, et la nuance compte — une
 > fonction qui n'agirait qu'à la première écriture passerait aujourd'hui les
 > tests, et casserait le jour où la FCPE ouvrirait un sondage préparé la veille.
+
+**Deux gardes, et elles ne couvrent pas le même cas.** Le statut qui **devient**
+`open` arrête l'écriture ordinaire — la clôture, la correction d'une question, le
+balayage planifié. `notifiedAt` arrête le **rejeu** du même événement, que
+Firestore peut produire seul, **et** la réouverture : `closed` puis `open` est une
+vraie transition, donc elle franchit la première garde sans y être arrêtée, et un
+aller-retour de statut renverrait sinon la même notification à toute l'audience.
+Le marquage est posé **après** l'envoi, et non avant : marquer d'abord puis
+échouer laisserait le sondage marqué comme notifié alors que personne n'a rien
+reçu — une perte silencieuse, pire qu'un doublon.
+
+**La clôture ne notifie pas**, et ce n'est pas un oubli. `new_poll` est le seul
+type qu'un sondage produise — `NotificationType` n'en prévoit pas d'autre — et
+annoncer une clôture sous ce type ferait mentir `notifications`, la collection
+même que l'administration lit pour savoir ce qui est réellement parti.
+
+`notifiedAt` appartient au serveur, et les règles le ferment **des deux côtés** :
+`absent('notifiedAt')` à la création, `unchangedOptional('notifiedAt')` ensuite.
+Les deux clauses sont nécessaires, et la première a manqué pendant un temps — le
+test de création l'a montrée. `unchangedOptional()` ne dit rien d'une création :
+il n'y a pas de `resource` à comparer, donc rien à figer, et un membre de la FCPE
+pouvait poser le champ sur le document qu'il venait d'écrire — donc **faire taire
+la notification de son propre sondage**, puisque le plan le lit pour décider.
 
 > **Prérequis de déploiement.** Le projet a désormais **deux** fonctions
 > planifiées — `onReceiptsDue` (toutes les heures) et `onChannelDigestsDue`

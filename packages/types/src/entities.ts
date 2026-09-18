@@ -477,6 +477,25 @@ export interface Poll extends Auditable, OrganizationScoped {
   startsAt: DateLike;
   endsAt?: DateLike;
   closedAt?: DateLike;
+  /**
+   * Horodatage du dernier envoi de notification, pour éviter les doublons.
+   *
+   * Écrit **par le déclencheur**, jamais par un client : les règles le ferment
+   * des deux côtés (`absent('notifiedAt')` à la création,
+   * `unchangedOptional('notifiedAt')` ensuite). Sans ce gel, un membre de la
+   * FCPE pouvait le poser sur son propre sondage et **faire taire la
+   * notification** — le déclencheur le lit pour décider, et aurait conclu à un
+   * envoi déjà fait.
+   *
+   * C'est la même règle que sur `Post`, appliquée au même champ — à une
+   * différence près, et elle n'est pas cosmétique : `Post` ne l'interdit qu'à
+   * la mise à jour. La création y reste ouverte, et c'est un écart connu, non
+   * une décision ; il est porté par la feuille de route.
+   *
+   * Posé **après** l'envoi, et non avant : marquer d'abord puis échouer
+   * perdrait la notification en silence, ce qui est pire qu'un doublon.
+   */
+  notifiedAt?: DateLike;
 }
 
 /**
