@@ -1011,13 +1011,26 @@ service cloud.firestore {
       // à ceux qui n'ont pas voté — c'est ce que veut dire `after_end`, qui
       // sans cela serait identique à « jamais ».
       //
+      // `aVote()` est **conditionné** par `after_vote`, et c'est ce qui fait
+      // tenir l'emboîtement. Écrit en `|| aVote()` — sa première forme —, il
+      // s'appliquait aussi à `after_end` : un votant lisait alors le décompte
+      // en cours, alors que le tableau de `docs/02-data-model.md`, le
+      // commentaire ci-dessus et le libellé « À la clôture seulement » disent
+      // tous les trois « la FCPE seule ». `after_end` et `after_vote` ne
+      // différaient plus que pour un non-votant, c'est-à-dire que la troisième
+      // valeur ne tenait pas la promesse que l'écran d'administration fait
+      // choisir. Le défaut allait dans le sens **permissif**, et aucun test ne
+      // le voyait : le seul sondage `after_end` ouvert n'avait pas de vote.
+      //
       // Un brouillon n'a pas de résultats lisibles : personne ne l'a voté, et
       // le publier révélerait la question avant sa publication.
       function resultatsVisibles() {
         let s = sondage();
         return s.orgId == orgId()
           && s.status in ['open', 'closed']
-          && (visibilite() == 'always' || s.status == 'closed' || aVote());
+          && (visibilite() == 'always'
+            || s.status == 'closed'
+            || (visibilite() == 'after_vote' && aVote()));
       }
 
       // La FCPE voit toujours : c'est elle qui administre le sondage et qui

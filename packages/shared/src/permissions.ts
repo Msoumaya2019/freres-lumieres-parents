@@ -18,7 +18,7 @@
  * distincts — l'alternative serait de générer les règles depuis cette table,
  * ce qui reste possible mais n'est pas fait aujourd'hui.
  */
-import type { Permission, UserRole } from '@fl/types';
+import type { Permission, PollResultsVisibility, PollStatus, UserRole } from '@fl/types';
 
 /** Rôles autorisés pour chaque permission. */
 export const PERMISSION_MATRIX = {
@@ -190,4 +190,94 @@ export function canAccessFcpeSpace(role: UserRole | undefined | null): boolean {
  */
 export function isModeratorOrAbove(role: UserRole | undefined | null): boolean {
   return role === 'moderator' || role === 'admin';
+}
+
+// ---------------------------------------------------------------------------
+// Visibilité des résultats de sondage
+// ---------------------------------------------------------------------------
+
+export interface PollResultsVisibilityInput {
+  readonly role: UserRole | undefined | null;
+  readonly status: PollStatus;
+  /** Absent d'un document antérieur : voir le repli ci-dessous. */
+  readonly resultsVisibility: PollResultsVisibility | undefined;
+  /** Ai-je voté sur ce sondage ? */
+  readonly hasVoted: boolean;
+}
+
+/**
+ * Ai-je le droit de demander les résultats d'un sondage ?
+ *
+ * ## Pourquoi cette fonction existe
+ *
+ * `getResults` **lève** quand les règles refusent, et une règle de lecture ne
+ * filtre pas : elle ouvre ou ferme un document entier. Un écran qui demanderait
+ * les résultats « pour voir » se heurterait donc à un refus, et un abonnement
+ * refusé ne se rouvre pas tout seul. L'écran doit décider **avant** d'appeler —
+ * ce qui suppose de savoir répondre à cette question sans interroger le
+ * serveur.
+ *
+ * ## Elle reproduit `resultatsVisibles()` de `firebase/firestore.rules`
+ *
+ * L'échelle est **emboîtée** : `always` ⊃ `after_vote` ⊃ `after_end`.
+ *
+ * | Valeur       | Sondage ouvert                | Sondage clos |
+ * | ------------ | ----------------------------- | ------------ |
+ * | `always`     | lisible par tout membre actif | lisible      |
+ * | `after_vote` | lisible par qui a voté        | lisible      |
+ * | `after_end`  | lisible par la FCPE seule     | lisible      |
+ *
+ * Deux sources qui portent la même vérité sans pouvoir se lire : `permissions.test.ts`
+ * lit `firebase/firestore.rules` sur le disque et **échoue** si les trois
+ * branches de la règle cessent de correspondre à celles-ci. Sans ce contrôle,
+ * une règle resserrée ferait échouer la lecture d'un écran qui se croit
+ * autorisé — et rien ne le signalerait avant qu'un parent ne voie un message
+ * d'erreur à la place d'un décompte.
+ *
+ * ## Avoir voté n'ouvre pas `after_end`
+ *
+ * C'est le point que la règle a d'abord manqué, en écrivant `aVote()` comme un
+ * `||` inconditionnel : `after_end` et `after_vote` ne différaient plus que
+ * pour un non-votant, et la troisième valeur ne tenait pas la promesse que son
+ * libellé affiche. Voir le commentaire de `resultatsVisibles()`.
+ *
+ * ## Elle est plus stricte que la règle, jamais plus large
+ *
+ * Elle refuse quand le rôle est inconnu, ce que la règle ne fait pas : elle
+ * ignore `role` pour `always`, et s'en remet à `isActive()`. Un écart n'est
+ * donc possible que dans le sens qui **referme** — un écran renoncera à
+ * demander des résultats qu'il aurait pu lire, jamais l'inverse. C'est le seul
+ * sens acceptable pour une divergence entre deux sources.
+ */
+export function canReadPollResults(input: PollResultsVisibilityInput): boolean {
+  // Échec **fermé** sur un rôle inconnu, et c'est une condition de plus que la
+  // règle : celle-ci n'exige pas de rôle pour `always`, seulement `isActive()`
+  // — une propriété du jeton que le client ne voit pas ici. Mais « je ne sais
+  // pas encore qui je suis » ne doit pas ouvrir une permission. C'est la
+  // convention de tout ce module, et un profil non résolu ne devrait pas faire
+  // décider un écran : le prédicat est donc plus strict que la règle, jamais
+  // plus large.
+  if (!input.role) return false;
+
+  // La FCPE voit toujours : c'est elle qui administre le sondage et qui doit
+  // pouvoir en suivre le décompte avant de le clore.
+  if (canAccessFcpeSpace(input.role)) return true;
+
+  // Un brouillon n'a pas de résultats lisibles par un parent : personne ne l'a
+  // voté, et le publier révélerait la question avant sa publication.
+  if (input.status !== 'open' && input.status !== 'closed') return false;
+
+  // Fermer un sondage publie ses résultats à tout le monde, y compris à qui
+  // n'a pas voté. C'est ce que veut dire `after_end`, qui sans cela serait
+  // identique à « jamais ».
+  if (input.status === 'closed') return true;
+
+  // Le repli est **fermé**, sur la plus restrictive des trois valeurs. Le
+  // défaut du schéma, lui, est `after_vote` — mais une permission ne s'ouvre
+  // pas par omission, et la règle lit un champ absent en levant.
+  const visibilite = input.resultsVisibility ?? 'after_end';
+
+  if (visibilite === 'always') return true;
+
+  return visibilite === 'after_vote' && input.hasVoted;
 }

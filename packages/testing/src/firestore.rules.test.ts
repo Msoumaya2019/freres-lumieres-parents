@@ -706,12 +706,23 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
         optionIds: ['yes'],
       });
 
-      // `after_end`, sondage **ouvert** : personne ne lit, sauf la FCPE.
+      // `after_end`, sondage **ouvert** : la FCPE seule lit, votant compris.
+      // C'est le point où l'échelle se referme : `aVote()` ne suffit pas à
+      // ouvrir, sans quoi `after_end` et `after_vote` seraient la même valeur
+      // pour qui a voté, et le choix offert à l'administration ne voudrait
+      // rien dire. Le vote ci-dessous existe pour que ce cas soit **mesuré** :
+      // sans lui, le refus d'un votant serait indistinguable d'un refus de
+      // non-votant, et la clause fautive restait invisible.
       await setDoc(
         doc(db, 'polls', 'poll-resultats-apres-fin'),
         pollDocument({ id: 'poll-resultats-apres-fin', resultsVisibility: 'after_end' }),
       );
       await setDoc(doc(db, 'pollResults', 'poll-resultats-apres-fin'), pollResultsDocument());
+      await setDoc(doc(db, 'polls', 'poll-resultats-apres-fin', 'votes', UID.otherParent), {
+        pollId: 'poll-resultats-apres-fin',
+        uid: UID.otherParent,
+        optionIds: ['yes'],
+      });
 
       // Le même `after_end`, sondage **clos** : tout le monde lit. C'est la
       // paire qui donne son sens à la précédente — sans elle, un refus ne
@@ -2269,6 +2280,25 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
 
     it('un sondage « after_end » cache ses résultats tant qu’il est ouvert', async () => {
       await assertFails(getDoc(doc(parent.firestore(), 'pollResults', 'poll-resultats-apres-fin')));
+    });
+
+    it('un sondage « after_end » ne s’ouvre pas non plus à qui a voté', async () => {
+      // La promesse de `after_end` est « à la clôture **seulement** » — le
+      // libellé que l'écran d'administration fait choisir, et le tableau de
+      // `docs/02-data-model.md`. Avoir voté ne l'avance pas : sinon `after_end`
+      // et `after_vote` seraient la même valeur pour un votant, et la troisième
+      // option ne voudrait rien dire.
+      //
+      // `UID.otherParent` a bien voté sur ce sondage (voir la fixture), sans
+      // quoi ce test mesurerait le refus d'un non-votant — déjà couvert
+      // ci-dessus — au lieu de celui d'un votant.
+      //
+      // Le témoin qui donne son sens au refus est « un sondage « after_vote »
+      // publie ses résultats à qui a voté » : **même** votant, **même** statut
+      // ouvert, seule `resultsVisibility` diffère. Sans lui, on ne saurait pas
+      // si ce refus vient du vote, de l'identité ou du choix de visibilité.
+      const votant = testEnv.authenticatedContext(UID.otherParent, CLAIMS.parent).firestore();
+      await assertFails(getDoc(doc(votant, 'pollResults', 'poll-resultats-apres-fin')));
     });
 
     it('la FCPE lit les résultats d’un sondage ouvert, quelle que soit la visibilité', async () => {
