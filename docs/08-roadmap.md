@@ -651,9 +651,20 @@ false`) : c'est le seul endroit où « ce qui a déjà été annoncé » est éc
       soi-même » tenue par les trois premiers déclencheurs : `onPostPublished` ne
       l'applique pas du tout, et le document dit maintenant lequel, comment, et
       pourquoi la question reste ouverte.
-- [x] Liens profonds vers le contenu concerné — **faits pour les publications et
-      les commentaires**, les deux déclencheurs branchés : un commentaire
-      s'ouvre dans le fil de sa publication, seul écran où il se lit. Les deux
+- [ ] **Trancher « on ne se notifie jamais soi-même » pour un envoi de masse.**
+      La règle est tenue par `notifyCommentAuthor` — qui **renonce à envoyer** —
+      et par `notifyChannelAudience`, où elle devient une **exclusion de
+      destinataires** parce qu'un lot peut n'avoir qu'un auteur. Elle n'est
+      appliquée ni par `onPostPublished` ni par `notifyPollAudience` : tous deux
+      visent une **audience**, jamais une personne désignée, et l'auteur reçoit
+      donc la notification de son propre contenu. La corriger suppose de décider
+      si un membre de la FCPE qui publie ou qui ouvre un sondage doit être
+      prévenu de sa propre action — décision produit, pas correction de code.
+      `docs/05-notifications.md` l'écrit comme ouverte plutôt que de l'affirmer.
+- [x] Liens profonds vers le contenu concerné — **faits pour les publications,
+      les commentaires et les sondages**, les déclencheurs branchés : un
+      commentaire s'ouvre dans le fil de sa publication, seul écran où il se lit,
+      et un sondage s'ouvre sur son écran de vote. Les deux
       moitiés
       existent maintenant : `buildDeeplink` côté serveur, `parseDeeplink` et
       `routeForDeeplink` côté application, avec la table des routes vérifiée
@@ -662,10 +673,12 @@ false`) : c'est le seul endroit où « ce qui a déjà été annoncé » est éc
       qui n'ouvre rien. C'était faux jusqu'ici : la notification portait un lien
       que **personne ne lisait**, donc un tap ouvrait l'écran d'accueil, et rien
       ne le signalait.
-      **Reste :** les quatre autres types de cible (`channel`, `poll`, `event`,
-      `report`) sont reconnus mais sans écran ; ils sont déclarés dans
-      `TYPES_SANS_ROUTE` avec leur raison, et le test refuse un type qui ne
-      serait ni ouvrable ni excusé.
+      **Reste :** les trois autres types de cible (`channel`, `event`, `report`)
+      sont reconnus mais sans écran ; ils sont déclarés dans `TYPES_SANS_ROUTE`
+      avec leur raison, et le test refuse un type qui ne serait ni ouvrable ni
+      excusé. `poll` n'y figure plus, et c'est la ligne d'excuse qui a dû
+      disparaître le jour où l'écran est arrivé — le lien est désormais écrit
+      **et** honoré, et le test de couverture l'exige des deux côtés.
       **La notification de canal n'emporte donc aucun lien**, et non un lien
       refusé : mettre dans la charge une promesse que rien n'honore serait pire
       que de n'en mettre aucune. Le jour où l'écran des discussions existera, il
