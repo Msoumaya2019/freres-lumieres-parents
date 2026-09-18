@@ -883,16 +883,55 @@ read` exigeait `status in ['open', 'closed']` pour **tout le monde**, si
       la main, et un abonnement vivant rouvrirait un document chaud — exactement
       ce que le déplacement des totaux hors du sondage avait fait disparaître. Le
       suivi en direct reste utile à l'administration, pas au parent qui répond.
-- [ ] Clôture manuelle et automatique
+- [x] **Clôture manuelle et automatique** — et la décision centrale est que ce
+      n'est **pas** le planificateur qui ferme le vote : c'est la **règle**.
+      L'écran mobile affiche « Clôture prévue le … » et promet « Les résultats
+      seront publiés à la clôture du sondage » ; un sondage encore votable quatre
+      minutes après l'heure annoncée, parce que le cron n'est pas passé, serait
+      donc un mensonge affiché. `echeancePassee()` compare `endsAt` à
+      `request.time`, et les **deux moitiés** de la promesse en dépendent :
+      `sondageOuvert()` refuse le vote après l'heure, `resultatsVisibles()`
+      publie le décompte. Si l'échéance fermait le vote sans publier, l'écran
+      dirait « ce sondage est clos » en annonçant des résultats à venir.
+      La tâche planifiée (`onPollsDue`, toutes les cinq minutes) n'**enregistre**
+      que la clôture — `status: 'closed'` et `closedAt` — pour l'affichage et pour
+      que le déclencheur de notification raisonne sur une **transition de statut** ;
+      une horloge ne produit pas de transition, donc ne notifie rien. Elle est
+      pour cela **non critique** : le pire défaut possible est un sondage affiché
+      « ouvert » qui refuse les votes — visible, et réparable à la main — alors que
+      le défaut inverse changerait le résultat lui-même. La borne de vingt sondages
+      par passage n'est pas qu'une question de facture : c'est elle qui rend deux
+      passages chevauchants impossibles, et donc l'écriture **idempotente sans
+      transaction**.
+      Un sondage **sans** échéance n'est jamais ramené par la requête — une
+      inégalité Firestore écarte les documents qui ne portent pas le champ — ce qui
+      réserve sa clôture à la FCPE. `FauxFirestore` reproduit cette règle du
+      service au lieu de l'approximer, et un test l'exige : un faux plus permissif
+      que le service ne prouverait rien.
+      Deux gardes tiennent l'ensemble, et chacune a sa raison. Le **type** d'`endsAt`
+      est vérifié à l'écriture (`validPoll()`) parce que comparer un type inattendu
+      lève, et qu'un refus par erreur ne nomme aucune clause. `echeancePassee()` lit
+      `'endsAt' in s` **avant** de comparer, parce que lire un champ absent lève
+      aussi — sans quoi tout sondage sans échéance, c'est-à-dire presque tous,
+      deviendrait invotable et opaque, FCPE comprise.
+      L'index `polls(status ↑, endsAt ↑)` est le **seul** du modèle sans `orgId` :
+      le planificateur balaie toutes les organisations en un passage, et l'égalité
+      précède l'inégalité, ce qui fixe l'ordre des champs. Un test lit la requête
+      dans `close-due.ts` et l'index dans `firestore.indexes.json` — deux fichiers,
+      deux formats, et rien entre les deux — parce que Firestore refuse une requête
+      non couverte en renvoyant vers la console, sans dire lequel manque.
 - [ ] Écran admin : suivre et clôturer (la création est faite plus haut)
 - [x] Tests : double vote refusé, brouillon illisible, cloisonnement
       d'organisation, création refusée à un parent, et le vote — dont, pour
       chaque refus, **un témoin qui réussit**. Les trois visibilités ont leurs
       tests, et leurs témoins sont le **même document** lu par la FCPE, ou un
-      second parent qui a voté. Vingt-six mutations couvrent l'ensemble des règles
-      de sondage ; **une** d'entre elles a un ensemble attendu vide — la mutation
-      de diagnostic qui retire `exists()`, dont on veut vérifier qu'elle ne fait
-      rien tomber — et c'est consigné : voir l'en-tête du banc.
+      second parent qui a voté. **Trente et une** mutations couvrent l'ensemble des
+      règles de sondage ; **une** d'entre elles a un ensemble attendu vide — la
+      mutation de diagnostic qui retire `exists()`, dont on veut vérifier qu'elle
+      ne fait rien tomber — et c'est consigné : voir l'en-tête du banc. **Cinq**
+      visent l'échéance, et leur jeu témoin **est** le sujet : chacune doit tomber
+      sans qu'un cron soit passé, sinon la preuve porterait sur le planificateur au
+      lieu de la règle.
 
 **Critère de sortie :** un compte ne peut voter qu'une fois, y compris en
 appelant Firestore directement.

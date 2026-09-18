@@ -18,7 +18,9 @@
  * distincts — l'alternative serait de générer les règles depuis cette table,
  * ce qui reste possible mais n'est pas fait aujourd'hui.
  */
-import type { Permission, PollResultsVisibility, PollStatus, UserRole } from '@fl/types';
+import type { DateLike, Permission, PollResultsVisibility, PollStatus, UserRole } from '@fl/types';
+
+import { toDate } from './formatting.js';
 
 /** Rôles autorisés pour chaque permission. */
 export const PERMISSION_MATRIX = {
@@ -193,10 +195,77 @@ export function isModeratorOrAbove(role: UserRole | undefined | null): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Échéance d'un sondage
+// ---------------------------------------------------------------------------
+
+export interface PollDeadlineInput {
+  /** Échéance telle qu'elle figure au document, ou absente. */
+  readonly endsAt?: DateLike | null;
+  /**
+   * Instant de référence. Omis, l'horloge courante est prise.
+   *
+   * Il est injectable pour que la décision soit **éprouvable** : un test qui
+   * dépendrait de l'horloge ne pourrait pas vérifier la veille de l'échéance
+   * sans attendre, et ne pourrait pas non plus vérifier la minute qui suit.
+   */
+  readonly now?: DateLike | null;
+}
+
+/**
+ * L'échéance annoncée du sondage est-elle dépassée ?
+ *
+ * ## Elle reproduit `echeancePassee()` de `firebase/firestore.rules`
+ *
+ * L'écran mobile annonce « Clôture prévue le … » et promet que « les résultats
+ * seront publiés à la clôture du sondage ». Cette promesse est tenue par la
+ * **règle**, et non par la tâche planifiée qui enregistre la clôture : un
+ * sondage encore votable le temps que le passage ait lieu romprait l'heure
+ * annoncée. Le client doit donc savoir la calculer lui aussi — sans quoi
+ * l'écran proposerait un vote que la règle refuse, c'est-à-dire un bouton qui
+ * échoue.
+ *
+ * ## L'absence d'échéance n'est pas une échéance dépassée
+ *
+ * Un sondage sans date de clôture reste ouvert jusqu'à ce que la FCPE le
+ * close : c'est le cas le plus courant, et il ne doit pas être fermé par
+ * accident. Une échéance **illisible** se replie du même côté. Le champ est un
+ * `timestamp` que `validPoll()` exige, donc ce cas ne devrait pas exister —
+ * mais le repli qui l'absorbe est celui qui ne ferme rien tout seul.
+ */
+export function hasPollEnded(input: PollDeadlineInput): boolean {
+  const fin = toDate(input.endsAt);
+  if (!fin) return false;
+
+  const maintenant = toDate(input.now) ?? new Date();
+  return fin.getTime() <= maintenant.getTime();
+}
+
+export interface PollOpenInput extends PollDeadlineInput {
+  readonly status: PollStatus;
+}
+
+/**
+ * Le sondage accepte-t-il encore un vote ?
+ *
+ * Reproduit `sondageOuvert()` de `firebase/firestore.rules`, qui exige trois
+ * choses : le statut `open`, l'organisation du votant, et une échéance non
+ * dépassée. Le cloisonnement d'organisation n'est pas du ressort de cette
+ * fonction — le client ne connaît l'organisation du document que par le
+ * document lui-même, et la règle s'en charge. Ce qui est répondu ici est la
+ * question de l'**écran** : faut-il proposer un vote ?
+ *
+ * C'est aussi la brique de `canReadPollResults` : la clôture effective est le
+ * statut `closed` **ou** l'échéance dépassée, et les deux publient.
+ */
+export function isPollOpen(input: PollOpenInput): boolean {
+  return input.status === 'open' && !hasPollEnded(input);
+}
+
+// ---------------------------------------------------------------------------
 // Visibilité des résultats de sondage
 // ---------------------------------------------------------------------------
 
-export interface PollResultsVisibilityInput {
+export interface PollResultsVisibilityInput extends PollDeadlineInput {
   readonly role: UserRole | undefined | null;
   readonly status: PollStatus;
   /** Absent d'un document antérieur : voir le repli ci-dessous. */
@@ -270,7 +339,14 @@ export function canReadPollResults(input: PollResultsVisibilityInput): boolean {
   // Fermer un sondage publie ses résultats à tout le monde, y compris à qui
   // n'a pas voté. C'est ce que veut dire `after_end`, qui sans cela serait
   // identique à « jamais ».
-  if (input.status === 'closed') return true;
+  //
+  // Une **échéance dépassée** publie de même, et c'est la seconde moitié de la
+  // même promesse : l'écran annonce une heure de clôture, donc le décompte doit
+  // paraître à cette heure-là — sans attendre que la tâche planifiée ait
+  // enregistré le statut. `hasPollEnded` reproduit `echeancePassee()`, et
+  // l'échéance est éprouvée avant la visibilité, dans le même ordre que la
+  // règle.
+  if (input.status === 'closed' || hasPollEnded(input)) return true;
 
   // Le repli est **fermé**, sur la plus restrictive des trois valeurs. Le
   // défaut du schéma, lui, est `after_vote` — mais une permission ne s'ouvre

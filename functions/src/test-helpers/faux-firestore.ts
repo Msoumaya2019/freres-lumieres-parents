@@ -21,9 +21,20 @@
  *    dédoublonnage de `purgeDeviceTokens` ne serait éprouvé par rien, puisque
  *    le faux se contenterait d'écrire deux fois la même chose sans broncher. Un
  *    faux plus permissif que le service ne prouve rien.
+ *  - **une inégalité écarte les documents qui ne portent pas le champ.** Ce
+ *    n'est pas une commodité de comparaison : c'est la règle de Firestore, et
+ *    elle porte une décision ici — un sondage **sans** échéance n'est jamais
+ *    ramené par `endsAt <= maintenant`, donc n'est jamais clos automatiquement.
+ *    Un faux qui traiterait l'absence comme une valeur petite aurait l'air de
+ *    tout aussi bien marcher, tout en prouvant le contraire.
+ *  - **`set` fusionne sur `{ merge: true }`, remplace sinon** : la distinction
+ *    est celle qui empêche une clôture d'effacer la question du sondage.
  *
  * Le reste n'existe pas. Une méthode manquante doit lever : un faux trop
  * complaisant laisserait passer un appel qui, en production, ne compilerait pas.
+ * C'est pourquoi un opérateur de requête non implémenté **lève** au lieu de
+ * retomber sur une égalité — une retombée silencieuse rendrait vert un test qui
+ * ne mesure rien.
  */
 import type { Firestore } from 'firebase-admin/firestore';
 
@@ -35,6 +46,59 @@ export interface FauxDocumentRef {
   id: string;
   chemin: string;
   delete: () => Promise<void>;
+  set: (donnees: Record<string, unknown>, options?: { readonly merge?: boolean }) => Promise<void>;
+}
+
+/**
+ * Opérateurs de requête que le faux sait reproduire.
+ *
+ * Un opérateur absent de cette table **lève**, il ne retombe pas sur une
+ * égalité : une retombée silencieuse rendrait vert un test qui ne mesure rien,
+ * et c'est précisément ce que ce faux refuse d'être.
+ */
+const OPERATEURS: Record<string, (champ: unknown, valeur: unknown) => boolean> = {
+  '==': (champ, valeur) => egal(champ, valeur),
+  '<=': (champ, valeur) => comparable(champ, valeur, (a, b) => a <= b),
+  '<': (champ, valeur) => comparable(champ, valeur, (a, b) => a < b),
+  '>=': (champ, valeur) => comparable(champ, valeur, (a, b) => a >= b),
+  '>': (champ, valeur) => comparable(champ, valeur, (a, b) => a > b),
+};
+
+/** Égalité, les dates se comparant par leur instant et non par leur identité. */
+function egal(champ: unknown, valeur: unknown): boolean {
+  if (champ instanceof Date && valeur instanceof Date) return champ.getTime() === valeur.getTime();
+  return champ === valeur;
+}
+
+/**
+ * Comparaison d'inégalité.
+ *
+ * Deux refus, et le premier est une décision, pas une approximation :
+ *
+ *  - un champ **absent** ne satisfait jamais la comparaison. C'est la règle de
+ *    Firestore, et elle porte une décision ici — un sondage sans échéance n'est
+ *    jamais ramené par `endsAt <= maintenant`, donc jamais clos
+ *    automatiquement. Traiter l'absence comme une valeur très petite aurait
+ *    l'air de tout aussi bien marcher, tout en prouvant le contraire.
+ *  - une valeur qui n'est ni une date ni un nombre **lève** : Firestore
+ *    comparerait deux chaînes lexicographiquement, et deviner cette sémantique
+ *    serait inventer un comportement au lieu de le reproduire.
+ */
+function comparable(
+  champ: unknown,
+  valeur: unknown,
+  comparer: (gauche: number, droite: number) => boolean,
+): boolean {
+  if (champ === undefined || champ === null) return false;
+  return comparer(enNombre(champ), enNombre(valeur));
+}
+
+function enNombre(valeur: unknown): number {
+  if (valeur instanceof Date) return valeur.getTime();
+  if (typeof valeur === 'number') return valeur;
+  throw new Error(
+    `Le faux Firestore ne compare que des dates et des nombres, reçu ${typeof valeur}.`,
+  );
 }
 
 /** Faux Firestore portant une base en mémoire. */
@@ -59,12 +123,23 @@ export class FauxFirestore {
 
   collection(nom: string): unknown {
     const documents = this.collections.get(nom) ?? [];
-    const filtres: { champ: string; valeur: unknown }[] = [];
+    const filtres: {
+      champ: string;
+      comparer: (champ: unknown, valeur: unknown) => boolean;
+      valeur: unknown;
+    }[] = [];
     let maximum = Number.POSITIVE_INFINITY;
 
     const requete = {
-      where(champ: string, _operateur: string, valeur: unknown) {
-        filtres.push({ champ, valeur });
+      where(champ: string, operateur: string, valeur: unknown) {
+        // La fonction est resolue **ici**, et non a chaque evaluation : un
+        // operateur inconnu leve au moment ou la requete se construit, donc la
+        // ou l'erreur se lit, plutot qu'au milieu d'un filtrage.
+        const comparer = OPERATEURS[operateur];
+        if (!comparer) {
+          throw new Error(`Le faux Firestore n'implémente pas l'opérateur « ${operateur} ».`);
+        }
+        filtres.push({ champ, comparer, valeur });
         return requete;
       },
       limit(borne: number) {
@@ -73,7 +148,9 @@ export class FauxFirestore {
       },
       async get() {
         const trouves = documents
-          .filter((document) => filtres.every((filtre) => document[filtre.champ] === filtre.valeur))
+          .filter((document) =>
+            filtres.every((filtre) => filtre.comparer(document[filtre.champ], filtre.valeur)),
+          )
           .slice(0, maximum);
 
         return {
@@ -118,11 +195,33 @@ export class FauxFirestore {
 
   doc(chemin: string): FauxDocumentRef {
     const id = chemin.slice(chemin.lastIndexOf('/') + 1);
+    const nom = chemin.slice(0, chemin.lastIndexOf('/'));
+
     return {
       id,
       chemin,
       delete: async () => {
         this.supprimes.push(chemin);
+      },
+      set: async (donnees, options) => {
+        if (!this.collections.has(nom)) this.collections.set(nom, []);
+        const documents = this.collections.get(nom) ?? [];
+        const existant = documents.find((document) => document.id === id);
+
+        if (!existant) {
+          documents.push({ id, ...donnees });
+          return;
+        }
+
+        // Sans `merge`, Firestore **remplace** le document : les champs absents
+        // de l'écriture disparaissent. La distinction est mesurable, et c'est
+        // elle qui empêche une clôture d'effacer la question du sondage.
+        if (!options?.merge) {
+          for (const champ of Object.keys(existant)) {
+            if (champ !== 'id') delete existant[champ];
+          }
+        }
+        Object.assign(existant, donnees);
       },
     };
   }

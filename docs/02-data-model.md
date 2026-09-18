@@ -353,6 +353,22 @@ Le point délicat est le **vote unique par compte**.
   lecture d'un document inexistant, sans quoi `resource.data` serait lu sur un
   document qui n'existe pas : cela **lève**, et l'écran afficherait une erreur là
   où il doit afficher des zéros.
+- **« Clos » a deux sources, et une seule est écrite.** `status: 'closed'` est
+  **enregistré** — par la FCPE, ou par le balayage planifié `closeDuePolls` — et
+  `closedAt` porte l'heure de cette clôture. Mais un sondage dont `endsAt` est
+  passé est **déjà** clos du point de vue des règles, sans que rien n'ait été
+  écrit : `echeancePassee()` compare `endsAt` à `request.time`, et les deux
+  moitiés de la promesse affichée en dépendent — le vote est refusé
+  (`sondageOuvert()`), les résultats sont publiés (`resultatsVisibles()`). C'est
+  délibéré : l'écran annonce « Clôture prévue le … », et un sondage encore
+  votable quatre minutes après l'heure dite, parce que le cron n'est pas passé,
+  serait un mensonge affiché. Le balayage n'existe donc que pour rendre la
+  clôture **observable** — pour l'affichage, et pour qu'un déclencheur de
+  notification voie une **transition de statut** là où une horloge n'en produit
+  aucune. Deux conséquences à connaître : `closedAt` **peut être absent** sur un
+  sondage que les règles tiennent déjà pour clos, et `status` peut valoir `'open'`
+  alors que le vote est fermé. Aucun écran ne doit donc décider « ce sondage est
+  clos » en lisant `status` seul.
 
 ### Visibilité des résultats — `resultsVisibility`
 
@@ -646,6 +662,7 @@ pour le ciblage du contenu **et** des notifications.
 | `messages`          | `status` ↑, `createdAt` ↓                                      | fil de discussion (sous-collection) |
 | `polls`             | `orgId` ↑, `status` ↑, `endsAt` ↓                              | sondages ouverts                    |
 | `polls`             | `orgId` ↑, `audienceKeys` (array), `startsAt` ↓                | sondages visibles                   |
+| `polls`             | `status` ↑, `endsAt` ↑                                         | clôture automatique des échus       |
 | `reports`           | `orgId` ↑, `status` ↑, `createdAt` ↓                           | file de traitement FCPE             |
 | `reports`           | `authorId` ↑, `createdAt` ↓                                    | « mes signalements »                |
 | `collectiveIssues`  | `orgId` ↑, `published` ↑, `status` ↑, `lastUpdateAt` ↓         | sujets en cours                     |
@@ -670,6 +687,19 @@ pour le ciblage du contenu **et** des notifications.
 > On stocke donc aussi `orgId` (organisation principale) à plat sur le
 > document, ce qui permet `where('orgId','==',x).where('status','==','pending')`
 > — la requête exacte de la file de validation.
+
+> La clôture automatique est le seul index de ce tableau **sans `orgId`** : le
+> planificateur balaie toutes les organisations en un passage. Un index par
+> organisation obligerait à connaître la liste des organisations, et un balayage
+> organisation par organisation multiplierait les lectures pour un résultat
+> identique. La frontière n'est pas perdue pour autant : elle est tenue par la
+> règle de lecture, qui exige `orgId` pour chaque client, et l'écriture du
+> balayage ne touche que les trois champs de clôture — jamais le contenu du
+> sondage. L'égalité précède l'inégalité (`status` puis `endsAt`), et c'est cet
+> ordre qui rend l'index composite nécessaire ; un index simple ne suffit plus
+> dès que deux champs sont contraints. Un sondage **sans** `endsAt` n'est jamais
+> ramené : Firestore écarte d'une inégalité les documents qui ne portent pas le
+> champ, ce qui réserve la clôture d'un tel sondage à la FCPE.
 
 ---
 

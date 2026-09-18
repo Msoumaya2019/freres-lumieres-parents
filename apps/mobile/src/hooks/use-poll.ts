@@ -9,9 +9,12 @@
  * et un abonnement refusé ne se rouvre pas tout seul.
  *
  * La décision est prise **avant** l'appel, par `canReadPollResults`, qui
- * reproduit l'échelle des règles et porte la même vérité qu'elles. Le résultat
- * de cette décision n'est pas rangé dans un état : il se **déduit** du sondage
- * et de mon vote, ici comme dans `load`, à partir des mêmes entrées.
+ * reproduit l'échelle des règles et porte la même vérité qu'elles. Elle est
+ * prise **une seule fois**, dans `load`, et n'est pas rangée dans un état : c'est
+ * `results.status` qui la porte — `'idle'` veut dire « la lecture n'a pas été
+ * tentée », et non « la lecture a échoué ». Un champ qui redirait la même chose
+ * à côté de `results` serait une seconde vérité ; celui qui existait a été
+ * retiré, aucun écran ne le lisait.
  *
  * ## Une lecture ponctuelle, et non un abonnement
  *
@@ -65,8 +68,6 @@ export interface PollDetailResult {
   readonly error: AppError | null;
   /** Mon vote, ou `null` si je n'ai pas encore voté. */
   readonly myVote: PollVote | null;
-  /** Ai-je le droit de demander les résultats ? */
-  readonly canSeeResults: boolean;
   readonly results: AsyncData<PollResults | null>;
   readonly refreshing: boolean;
   refresh: () => void;
@@ -145,6 +146,7 @@ export function usePoll(pollId: string): PollDetailResult {
         status: poll.status,
         resultsVisibility: poll.resultsVisibility,
         hasVoted: myVote !== null,
+        endsAt: poll.endsAt,
       });
 
     setSnapshot({
@@ -233,24 +235,11 @@ export function usePoll(pollId: string): PollDetailResult {
   const poll = current?.poll.status === 'ready' ? current.poll.data : null;
   const myVote = current?.myVote ?? null;
 
-  // Dérivé, et non rangé : la même question que celle posée par `load` avant de
-  // lire les résultats, avec les mêmes entrées. La ranger dans un état
-  // introduirait une seconde vérité, qui pourrait retarder d'un rendu.
-  const canSeeResults =
-    poll !== null &&
-    canReadPollResults({
-      role,
-      status: poll.status,
-      resultsVisibility: poll.resultsVisibility,
-      hasVoted: myVote !== null,
-    });
-
   return {
     status,
     poll,
     error: current?.poll.status === 'error' ? current.poll.error : null,
     myVote,
-    canSeeResults,
     results: current?.results ?? { status: 'idle' },
     refreshing,
     refresh,

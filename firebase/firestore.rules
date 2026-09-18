@@ -153,6 +153,34 @@ service cloud.firestore {
           && request.resource.data[field].size() <= maxLength);
     }
 
+    // Une échéance dépassée **ferme** le sondage, et c'est la règle qui s'en
+    // charge — non la tâche planifiée qui enregistre la clôture.
+    //
+    // ## Pourquoi la règle, et pas le planificateur
+    //
+    // Parce que l'échéance est une promesse **affichée** : l'écran mobile
+    // annonce « Clôture prévue le … » et « les résultats seront publiés à la
+    // clôture du sondage ». Un sondage encore votable quatre minutes après
+    // l'heure annoncée, le temps que le passage planifié ait lieu, romprait
+    // cette promesse. Et la correction dépendrait alors d'un cron — une pièce
+    // qui peut être en panne ou en retard sans que rien ne le signale.
+    //
+    // Ici, l'échéance est tenue à la seconde, et la clôture enregistrée par le
+    // planificateur devient une simple mise à jour de confort : ce qu'elle
+    // apporte est le statut à jour pour l'administration et pour la
+    // notification, pas la garantie elle-même.
+    //
+    // ## Le champ est lu par `in` avant d'être comparé
+    //
+    // Le lire directement lève quand il est absent — et une erreur vaut refus.
+    // Un sondage **sans** date de clôture, qui est le cas le plus courant,
+    // deviendrait donc invotable. `validPoll()` garantit par ailleurs qu'une
+    // échéance présente est bien un `timestamp`, donc la comparaison ne peut
+    // pas rencontrer un type inattendu.
+    function echeancePassee(s) {
+      return 'endsAt' in s && s.endsAt <= request.time;
+    }
+
     // Contenu publié par la FCPE : lecture pour tout membre actif de
     // l'organisation, écriture réservée aux rôles FCPE et supérieurs.
     function canReadOrgContent() {
@@ -797,6 +825,14 @@ service cloud.firestore {
           && d.options.size() >= 2
           && d.options.size() <= 10
           && d.status in ['draft', 'open', 'closed']
+          // Une échéance, quand elle est là, doit être un `timestamp`. C'est ce
+          // que `echeancePassee()` compare à `request.time`, et comparer un
+          // type inattendu **lève** : un refus, donc, mais pour une raison qui
+          // ne nomme aucune clause — et qui fermerait le sondage à tout le
+          // monde, FCPE comprise, sans que rien ne dise pourquoi. Le contrôle
+          // est ici pour que la comparaison ne puisse pas rencontrer autre
+          // chose qu'un horodatage ou une absence.
+          && (!('endsAt' in d) || d.endsAt is timestamp)
           && d.audienceKeys is list
           && d.audienceKeys.size() > 0
           && d.orgId == orgId();
@@ -876,8 +912,16 @@ service cloud.firestore {
         // Un sondage `closed` est refusé comme un `draft` : accepter un vote
         // après la clôture reviendrait à laisser le résultat bouger sous les
         // yeux de ceux qui l'ont lu.
+        //
+        // Une **échéance dépassée** produit le même refus, sans attendre que
+        // le statut soit mis à jour : voir `echeancePassee()`. C'est le vote
+        // qui est ici protégé, et c'est celui qui compte — un vote accepté
+        // après l'heure annoncée change le résultat lui-même, quand une
+        // clôture enregistrée en retard ne change qu'un affichage.
         function sondageOuvert() {
-          return sondage().status == 'open' && sondage().orgId == orgId();
+          return sondage().status == 'open'
+            && sondage().orgId == orgId()
+            && !echeancePassee(sondage());
         }
 
         // Lire un champ **absent** dans une règle ne rend pas `false` : cela
@@ -1023,13 +1067,24 @@ service cloud.firestore {
       // le voyait : le seul sondage `after_end` ouvert n'avait pas de vote.
       //
       // Un brouillon n'a pas de résultats lisibles : personne ne l'a voté, et
-      // le publier révélerait la question avant sa publication.
+      // le publier révélerait la question avant sa publication. C'est ce que
+      // garde le filtre de statut ci-dessous, et il garde aussi le brouillon
+      // dont l'échéance serait déjà passée — une date saisie à l'avance ne
+      // publie rien tant que la FCPE n'a pas ouvert le sondage.
+      //
+      // Une **échéance dépassée** publie les résultats au même titre qu'un
+      // statut `closed`, et c'est la seconde moitié de la même promesse : si
+      // l'échéance fermait le vote sans publier le décompte, l'écran dirait
+      // « ce sondage est clos » en annonçant des résultats à venir, et les
+      // deux moitiés ne se rejoindraient qu'au passage du planificateur. Voir
+      // `echeancePassee()`.
       function resultatsVisibles() {
         let s = sondage();
         return s.orgId == orgId()
           && s.status in ['open', 'closed']
           && (visibilite() == 'always'
             || s.status == 'closed'
+            || echeancePassee(s)
             || (visibilite() == 'after_vote' && aVote()));
       }
 

@@ -737,6 +737,39 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
       );
       await setDoc(doc(db, 'pollResults', 'poll-resultats-clos'), pollResultsDocument());
 
+      // Une **échéance dépassée** est un troisième chemin vers la clôture, et
+      // il est calculé plutôt qu'enregistré : l'écran annonce « Clôture prévue
+      // le … », donc l'heure annoncée doit être tenue par la règle, sans
+      // attendre que le planificateur ait écrit `closed`. Les deux sondages
+      // ci-dessous ne diffèrent **que** par `endsAt` — même statut ouvert, même
+      // `after_end`, même lecteur — et c'est cette seule différence qui doit
+      // décider.
+      //
+      // Le document de résultats est écrit dans les deux cas, et ce n'est pas
+      // du remplissage : une lecture de `pollResults` sur un document **absent**
+      // réussit par la branche `resource == null`. Sans lui, le refus attendu
+      // sur l'échéance à venir serait vert pour une raison qui n'a rien à voir
+      // avec la visibilité.
+      await setDoc(
+        doc(db, 'polls', 'poll-echeance-passee'),
+        pollDocument({
+          id: 'poll-echeance-passee',
+          resultsVisibility: 'after_end',
+          endsAt: new Date('2026-01-01T00:00:00Z'),
+        }),
+      );
+      await setDoc(doc(db, 'pollResults', 'poll-echeance-passee'), pollResultsDocument());
+
+      await setDoc(
+        doc(db, 'polls', 'poll-echeance-a-venir'),
+        pollDocument({
+          id: 'poll-echeance-a-venir',
+          resultsVisibility: 'after_end',
+          endsAt: new Date('2099-01-01T00:00:00Z'),
+        }),
+      );
+      await setDoc(doc(db, 'pollResults', 'poll-echeance-a-venir'), pollResultsDocument());
+
       // `after_vote` sur un sondage **clos**, et c'est le fixture qui fixe
       // l'échelle : la clôture publie à tout le monde, y compris à qui n'a pas
       // voté. Sans lui, « after_vote » et « after_end » seraient confondus une
@@ -2004,6 +2037,30 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
       );
     });
 
+    it('une échéance qui n’est pas un horodatage est refusée', async () => {
+      // `echeancePassee()` compare `endsAt` à `request.time`. Comparer un type
+      // inattendu **lève**, et une erreur vaut refus : le sondage serait alors
+      // fermé à tout le monde, FCPE comprise, sans que rien ne nomme la clause
+      // fautive. Le contrôle appartient donc à l'écriture, une fois pour
+      // toutes, et non à chaque lecture.
+      //
+      // Le témoin est « la FCPE crée un sondage ouvert » : même charge, sans
+      // échéance — donc sans le champ, ce qui est l'autre cas à couvrir.
+      await assertFails(
+        setDoc(doc(fcpe.firestore(), 'polls', 'poll-echeance-texte'), {
+          question: 'Faut-il maintenir la kermesse ?',
+          options: [
+            { id: 'yes', label: 'Oui' },
+            { id: 'no', label: 'Non' },
+          ],
+          status: 'open',
+          orgId: TEST_ORG,
+          audienceKeys: [`org:${TEST_ORG}`],
+          endsAt: '2026-06-01T20:00:00Z',
+        }),
+      );
+    });
+
     // -----------------------------------------------------------------------
     // Le vote
     //
@@ -2049,6 +2106,34 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
       await assertFails(
         setDoc(doc(parent.firestore(), 'polls', 'poll-clos', 'votes', UID.parent), {
           pollId: 'poll-clos',
+          uid: UID.parent,
+          optionIds: ['yes'],
+        }),
+      );
+    });
+
+    it('voter après l’échéance annoncée est refusé, sans clôture enregistrée', async () => {
+      // `poll-echeance-passee` est toujours `open` : rien n'a écrit `closed`.
+      // L'écran annonce pourtant « Clôture prévue le … », donc l'heure est
+      // tenue par la règle, et non par le passage du planificateur — sans quoi
+      // un vote se déposerait après l'heure dite, et changerait le résultat
+      // lui-même, alors que le décompte est déjà publiable.
+      await assertFails(
+        setDoc(doc(parent.firestore(), 'polls', 'poll-echeance-passee', 'votes', UID.parent), {
+          pollId: 'poll-echeance-passee',
+          uid: UID.parent,
+          optionIds: ['yes'],
+        }),
+      );
+    });
+
+    it('et le témoin : la même écriture passe si l’échéance est à venir', async () => {
+      // Seul `endsAt` diffère de la fixture précédente : même statut, même
+      // visibilité, même organisation, même votant. Sans ce témoin, le refus
+      // ci-dessus pourrait venir de n'importe quoi d'autre que l'échéance.
+      await assertSucceeds(
+        setDoc(doc(parent.firestore(), 'polls', 'poll-echeance-a-venir', 'votes', UID.parent), {
+          pollId: 'poll-echeance-a-venir',
           uid: UID.parent,
           optionIds: ['yes'],
         }),
@@ -2320,6 +2405,22 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
       await assertSucceeds(
         getDoc(doc(parent.firestore(), 'pollResults', 'poll-resultats-clos-apres-vote')),
       );
+    });
+
+    it('une échéance dépassée publie les résultats, sans clôture enregistrée', async () => {
+      // Le sondage est toujours `open` : rien n'a écrit `closed`. C'est
+      // l'échéance qui publie — la seconde moitié de la promesse « les
+      // résultats seront publiés à la clôture du sondage ». Sans elle, l'écran
+      // annoncerait une clôture déjà passée tout en promettant des résultats à
+      // venir, jusqu'au passage du planificateur.
+      await assertSucceeds(getDoc(doc(parent.firestore(), 'pollResults', 'poll-echeance-passee')));
+    });
+
+    it('et le témoin : la même visibilité referme tant que l’échéance est à venir', async () => {
+      // Même lecteur, même statut `open`, même `after_end`, même organisation :
+      // seul `endsAt` diffère. Sans ce témoin, le succès ci-dessus pourrait
+      // venir de la visibilité, de l'organisation, ou d'un document absent.
+      await assertFails(getDoc(doc(parent.firestore(), 'pollResults', 'poll-echeance-a-venir')));
     });
 
     it('un brouillon ne publie pas ses résultats, même en « always »', async () => {

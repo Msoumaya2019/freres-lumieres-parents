@@ -59,6 +59,12 @@ export {
 } from './triggers/counters.js';
 export { onPollVoteWritten } from './triggers/poll-counters.js';
 
+// --- Sondages ----------------------------------------------------------------
+// La clôture **enregistrée** des sondages échus. Elle ne ferme pas le vote :
+// les règles le ferment à la seconde annoncée, et c'est cette séparation qui
+// rend le planificateur non critique. Voir `polls/close-due.ts`.
+export { onPollsDue } from './triggers/poll-schedule.js';
+
 // --- Notifications -----------------------------------------------------------
 export { onDeviceTokenCreated, onDeviceTokenOwnerChanged } from './triggers/device-tokens.js';
 export { onPostPublished } from './triggers/post-notifications.js';

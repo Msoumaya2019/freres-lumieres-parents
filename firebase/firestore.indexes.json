@@ -102,6 +102,14 @@
       ]
     },
     {
+      "collectionGroup": "polls",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "endsAt", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "reports",
       "queryScope": "COLLECTION",
       "fields": [

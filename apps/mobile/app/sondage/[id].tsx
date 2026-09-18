@@ -41,6 +41,7 @@ import {
   POLL_STATUS_LABELS,
   appErrorMessage,
   formatDateTime,
+  isPollOpen,
 } from '@fl/shared';
 import type { Poll, PollResultsVisibility } from '@fl/types';
 
@@ -97,7 +98,12 @@ export default function PollDetailScreen(): React.JSX.Element {
   const options = [...poll.options].sort((a, b) => a.order - b.order);
   const selection = brouillon ?? detail.myVote?.optionIds ?? [];
   const aVote = detail.myVote !== null;
-  const ouvert = poll.status === 'open';
+  // « Ouvert » n'est pas le statut seul : une échéance dépassée ferme le
+  // sondage au même titre qu'un statut `closed`, et c'est la **règle** qui
+  // tient l'heure annoncée plus haut (« Clôture prévue le … »). L'écran ne fait
+  // ici que ne pas proposer un vote qu'elle refuserait — un bouton qui échoue
+  // n'est pas une information. Voir `isPollOpen`.
+  const ouvert = isPollOpen({ status: poll.status, endsAt: poll.endsAt });
   const peutVoter = ouvert && (!aVote || poll.allowChangeVote);
 
   const basculer = (optionId: string): void => {

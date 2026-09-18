@@ -46,6 +46,24 @@
  * peut d'ailleurs être refusé alors que ces lectures avaient dit oui — le
  * sondage a pu être clos dans l'intervalle. C'est le comportement voulu : la
  * lecture sert le message, la règle sert la garantie.
+ *
+ * ## La clôture enregistrée n'est pas ce qui ferme le vote
+ *
+ * `close` écrit `status: 'closed'` et `closedAt`. Elle **enregistre** ce qui est
+ * déjà vrai : l'heure annoncée est tenue par les règles, qui comparent `endsAt`
+ * à `request.time`. Un sondage dont l'échéance est passée refuse déjà les votes
+ * et publie déjà ses résultats, que la FCPE ait cliqué ou non.
+ *
+ * C'est une décision, et elle a une conséquence utile : la clôture manuelle et
+ * la clôture automatique écrivent la **même** chose. Il n'y a pas deux façons
+ * d'être clos, donc rien à réconcilier, et le planificateur peut passer en
+ * retard sans qu'aucun vote ne se glisse après l'heure dite.
+ *
+ * Elle en a une seconde, moins visible : `close` **refuse** un sondage déjà
+ * clos, et refuse aussi un brouillon. Le refus d'un brouillon n'est pas une
+ * commodité — la règle de lecture ouvre aux parents les statuts `open` **et**
+ * `closed`, donc clore un brouillon le **publierait** à toute l'organisation,
+ * exactement ce que `notify: false` sert à éviter.
  */
 
 import {
@@ -57,7 +75,7 @@ import {
   type Firestore,
 } from 'firebase/firestore';
 
-import { buildAudienceKeys, pollInputSchema, pollVoteSchema } from '@fl/shared';
+import { buildAudienceKeys, hasPollEnded, pollInputSchema, pollVoteSchema } from '@fl/shared';
 import type { PollInput, PollVoteInput } from '@fl/shared';
 import type { Poll, PollResults, PollVote } from '@fl/types';
 
@@ -170,6 +188,19 @@ export interface PollRepository {
    * réservé à la FCPE.
    */
   vote(params: CastVoteParams): Promise<void>;
+  /**
+   * Enregistre la clôture d'un sondage : `status: 'closed'` et `closedAt`.
+   *
+   * Voir l'en-tête : la clôture **enregistrée** n'est pas ce qui ferme le vote,
+   * c'est l'échéance tenue par les règles. Cette écriture existe pour
+   * l'affichage et pour que le déclencheur de notification raisonne sur une
+   * **transition de statut** plutôt que sur une horloge.
+   *
+   * Refuse un sondage déjà clos — `closedAt` est un fait, et le réécrire
+   * rejouerait la transition, donc la notification. Refuse un brouillon : le
+   * clore le publierait.
+   */
+  close(pollId: string): Promise<void>;
 }
 
 export function createPollRepository(db: Firestore): PollRepository {
@@ -180,6 +211,7 @@ export function createPollRepository(db: Firestore): PollRepository {
     getMyVote,
     create,
     vote,
+    close,
   };
 
   async function get(pollId: string): Promise<Poll | null> {
@@ -294,6 +326,17 @@ export function createPollRepository(db: Firestore): PollRepository {
     if (sondage.status !== 'open') {
       throw appError('failed-precondition', 'Ce sondage n’est pas ouvert.');
     }
+    // Une échéance dépassée ferme le vote au même titre qu'un statut `closed`,
+    // et c'est la **règle** qui tient l'heure annoncée. Cette lecture ne fait
+    // que produire un message lisible : sans elle, l'écriture partait et
+    // revenait en `permission-denied` — un refus juste, mais muet, où ni le
+    // parent ni l'écran n'apprendraient que la date de clôture est passée.
+    if (hasPollEnded({ endsAt: sondage.endsAt })) {
+      throw appError(
+        'failed-precondition',
+        'Ce sondage est clos : la date de clôture annoncée est passée.',
+      );
+    }
     if (!sondage.allowMultiple && optionIds.length > 1) {
       throw invalidArgument('Ce sondage n’accepte qu’une seule réponse.');
     }
@@ -327,6 +370,50 @@ export function createPollRepository(db: Firestore): PollRepository {
           // quand on change de réponse, et c'est `updatedAt` qui l'indique.
           ...(dejaVote ? { updatedAt: now } : { createdAt: now }),
         },
+        { merge: true },
+      );
+    } catch (error) {
+      throw toAppError(error);
+    }
+  }
+
+  async function close(pollId: string): Promise<void> {
+    const sondage = await get(pollId);
+    if (!sondage) {
+      throw appError('not-found', 'Ce sondage n’existe plus.');
+    }
+
+    // Déjà clos : refuser plutôt que réécrire. `closedAt` est un **fait**, et
+    // le réécrire le déplacerait. Surtout, le déclencheur de notification
+    // raisonne sur une **transition de statut** : une seconde écriture du même
+    // statut s'y lirait comme une transition, et renotifierait l'audience
+    // entière — le contraire d'un rattrapage discret.
+    if (sondage.status === 'closed') {
+      throw appError('failed-precondition', 'Ce sondage est déjà clos.');
+    }
+
+    // Un brouillon ne se clôt pas, il se publie. Le clore le **publierait** :
+    // la règle de lecture ouvre aux parents les statuts `open` et `closed`,
+    // donc un brouillon clos deviendrait lisible par toute l'organisation —
+    // exactement ce que `notify: false` sert à éviter. La règle refuse cette
+    // transition ; ce refus-ci n'est là que pour la nommer.
+    if (sondage.status === 'draft') {
+      throw appError(
+        'failed-precondition',
+        'Ce sondage n’a jamais été publié : le clore le rendrait lisible par tous. Publiez-le d’abord.',
+      );
+    }
+
+    const now = serverTimestamp();
+
+    try {
+      // `merge: true` n'est pas une commodité. Sans lui, `setDoc` **remplace**
+      // le document : `validPoll()` verrait alors un sondage sans question ni
+      // réponses, et la règle le refuserait — mais le refus ne nommerait pas la
+      // cause, et le sondage serait perdu du même coup.
+      await setDoc(
+        doc(db, paths.poll(pollId)),
+        { status: 'closed', closedAt: now, updatedAt: now },
         { merge: true },
       );
     } catch (error) {

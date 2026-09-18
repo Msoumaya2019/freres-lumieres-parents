@@ -9,6 +9,8 @@ import {
   ROLE_PERMISSIONS,
   canReadPollResults,
   hasPermission,
+  hasPollEnded,
+  isPollOpen,
 } from './permissions.js';
 import { MANDATORY_NOTIFICATION_CATEGORIES } from './constants.js';
 import { findRepoRoot } from './test-helpers/repo-root.js';
@@ -197,6 +199,96 @@ describe('visibilité des résultats de sondage', () => {
   });
 });
 
+describe('échéance d’un sondage', () => {
+  const echeance = new Date('2026-06-01T20:00:00Z');
+  const secondeAvant = new Date('2026-06-01T19:59:59Z');
+  const secondeApres = new Date('2026-06-01T20:00:01Z');
+
+  it('n’est pas dépassée une seconde avant, et l’est une seconde après', () => {
+    // Le témoin de chaque côté de la borne, à une seconde près : c'est ce qui
+    // distingue « l'échéance est lue » de « quelque chose ferme le sondage ».
+    expect(hasPollEnded({ endsAt: echeance, now: secondeAvant })).toBe(false);
+    expect(hasPollEnded({ endsAt: echeance, now: secondeApres })).toBe(true);
+  });
+
+  it('l’est à l’instant même de l’échéance', () => {
+    // La borne est **inclusive**, et c'est le choix de la règle — `<=`. Un
+    // sondage « jusqu'à 20 h » n'accepte donc pas de vote à 20 h 00 mn 00 s :
+    // l'écart entre les deux conventions n'est que d'une seconde, mais il
+    // doit être le même des deux côtés, sinon le bouton et la règle se
+    // contrediraient à cet instant précis.
+    expect(hasPollEnded({ endsAt: echeance, now: echeance })).toBe(true);
+  });
+
+  it('n’est pas dépassée quand le sondage n’a pas d’échéance', () => {
+    // Le cas le plus courant : un sondage ouvert jusqu'à ce que la FCPE le
+    // close. L'absence de date ne ferme rien — et une échéance illisible se
+    // replie du même côté, pour ne pas fermer un sondage par accident.
+    expect(hasPollEnded({ now: secondeApres })).toBe(false);
+    expect(hasPollEnded({ endsAt: null, now: secondeApres })).toBe(false);
+  });
+
+  it('lit les trois formes de date que Firestore rend', () => {
+    // Un `Date` après une écriture locale, une chaîne ISO après une
+    // sérialisation, un `Timestamp` dans un instantané : les trois arrivent
+    // selon le chemin, et la décision ne doit pas dépendre du chemin.
+    const horodatage = {
+      seconds: Math.floor(echeance.getTime() / 1000),
+      nanoseconds: 0,
+      toDate: () => echeance,
+      toMillis: () => echeance.getTime(),
+    };
+
+    expect(hasPollEnded({ endsAt: horodatage, now: secondeApres })).toBe(true);
+    expect(hasPollEnded({ endsAt: echeance.toISOString(), now: secondeApres })).toBe(true);
+    expect(hasPollEnded({ endsAt: echeance, now: secondeApres })).toBe(true);
+  });
+
+  it('ferme le vote à l’échéance, et l’ouvre avant', () => {
+    expect(isPollOpen({ status: 'open', endsAt: echeance, now: secondeAvant })).toBe(true);
+    expect(isPollOpen({ status: 'open', endsAt: echeance, now: secondeApres })).toBe(false);
+  });
+
+  it('ne rouvre jamais ce qui n’était pas votable', () => {
+    // L'échéance ne fait que **fermer** : une date passée ne rend votable ni
+    // un brouillon, ni un sondage clos.
+    expect(isPollOpen({ status: 'draft', endsAt: echeance, now: secondeAvant })).toBe(false);
+    expect(isPollOpen({ status: 'closed', endsAt: echeance, now: secondeAvant })).toBe(false);
+  });
+
+  it('publie les résultats à l’échéance, sans clôture enregistrée', () => {
+    // La seconde moitié de la promesse affichée, et elle ne dépend pas du
+    // statut : le sondage est toujours `open`, c'est l'échéance qui publie.
+    const ouvert = {
+      role: 'parent' as const,
+      status: 'open' as const,
+      resultsVisibility: 'after_end' as const,
+      hasVoted: false,
+      endsAt: echeance,
+    };
+
+    expect(canReadPollResults({ ...ouvert, now: secondeApres })).toBe(true);
+    // Le témoin : même document, même lecteur, seule la seconde change.
+    expect(canReadPollResults({ ...ouvert, now: secondeAvant })).toBe(false);
+  });
+
+  it('ne publie pas les résultats d’un brouillon dont l’échéance est passée', () => {
+    // Le filtre de statut passe **avant** l'échéance, dans le prédicat comme
+    // dans la règle : une date de clôture saisie à l'avance ne publie rien
+    // tant que la FCPE n'a pas ouvert le sondage.
+    expect(
+      canReadPollResults({
+        role: 'parent',
+        status: 'draft',
+        resultsVisibility: 'always',
+        hasVoted: false,
+        endsAt: echeance,
+        now: secondeApres,
+      }),
+    ).toBe(false);
+  });
+});
+
 /**
  * Le prédicat et la règle portent la même décision, dans deux langages, et
  * **rien ne les lit ensemble** : les règles ne sont pas accessibles depuis le
@@ -270,5 +362,38 @@ describe('accord entre le prédicat et les règles Firestore', () => {
     expect(bloc('match /pollResults/{pollId}')).toContain(
       'isFcpe() || (isActive() && resultatsVisibles())',
     );
+  });
+
+  it('fait de l’échéance une branche de l’échelle, au même titre que la clôture', () => {
+    // Sans elle, la règle fermerait le vote à l'heure annoncée sans publier le
+    // décompte : l'écran dirait « ce sondage est clos » en annonçant des
+    // résultats à venir, et les deux moitiés de la promesse ne se
+    // rejoindraient qu'au passage du planificateur.
+    expect(bloc('function resultatsVisibles()')).toContain('echeancePassee(s)');
+  });
+
+  it('ferme le vote à l’échéance, et pas seulement à la clôture enregistrée', () => {
+    // C'est le vote qui compte : un vote accepté après l'heure annoncée change
+    // le résultat lui-même, quand une clôture enregistrée en retard ne change
+    // qu'un affichage.
+    expect(bloc('function sondageOuvert()')).toContain('!echeancePassee(sondage())');
+  });
+
+  it('éprouve la présence du champ avant de le comparer', () => {
+    // Lire un champ absent lève, et une erreur vaut refus : sans le `in`, un
+    // sondage sans date de clôture — le cas le plus courant — deviendrait
+    // invotable, et sa lecture des résultats échouerait pour une raison qui ne
+    // nomme aucune clause.
+    const corps = bloc('function echeancePassee(s)');
+    expect(corps).toContain("'endsAt' in s");
+    expect(corps).toContain('s.endsAt <= request.time');
+  });
+
+  it('exige qu’une échéance présente soit un horodatage', () => {
+    // La comparaison porterait sinon sur un type inattendu, ce qui **lève** :
+    // le sondage serait fermé à tout le monde, FCPE comprise, sans que rien ne
+    // dise pourquoi. Le contrôle appartient à `validPoll()`, donc à
+    // l'écriture — une fois le document écrit, la comparaison est sûre.
+    expect(bloc('function validPoll()')).toContain('d.endsAt is timestamp');
   });
 });
