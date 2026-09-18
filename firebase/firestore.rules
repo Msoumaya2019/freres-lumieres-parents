@@ -802,7 +802,27 @@ service cloud.firestore {
           && d.orgId == orgId();
       }
 
-      allow read: if canReadOrgContent() && resource.data.status in ['open', 'closed'];
+      // Deux branches, et elles ne disent pas la même chose.
+      //
+      // La FCPE lit **tous** les statuts, brouillon compris : c'est elle qui
+      // l'enregistre, c'est elle qui l'ouvrira, et c'est elle qui suit le
+      // décompte avant de le clore. Sans cette branche, un brouillon était
+      // illisible par **tout le monde**, son auteur compris — et les deux
+      // endroits qui annoncent le contraire (`createPoll`, qui promet que
+      // « l'administration l'ouvrira plus tard », et le déclencheur de
+      // notification, qui existe pour rattraper un brouillon ouvert plus tard)
+      // décrivaient un chemin que le code ne pouvait pas emprunter.
+      //
+      // Un parent, lui, ne lit que ce qui est publié : c'est ce qui permet de
+      // poser la question avant d'y répondre sans laisser voir une question
+      // encore en préparation.
+      //
+      // Ce n'est pas seulement une règle de lecture, c'est aussi ce qui rend
+      // une **requête** possible : les règles ne filtrent pas, donc l'écran
+      // d'administration liste les brouillons en ne contraignant que
+      // `orgId`, quand un écran de parent devra contraindre le statut.
+      allow read: if (isFcpe() && resource.data.orgId == orgId())
+        || (canReadOrgContent() && resource.data.status in ['open', 'closed']);
 
       // Création et mise à jour sont **séparées**, et ce n'est pas une
       // coquetterie de style : `unchanged()` lit `resource.data[field]`, qui

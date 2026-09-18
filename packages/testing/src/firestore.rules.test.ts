@@ -1917,6 +1917,27 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
       await assertFails(getDoc(doc(parent.firestore(), 'polls', 'poll-brouillon')));
     });
 
+    it('la FCPE lit son propre brouillon', async () => {
+      // Le témoin du précédent, et il manquait — ce qui n'était pas un oubli de
+      // test mais un défaut de la règle : elle refusait le brouillon à **tout le
+      // monde**, son auteur compris. Deux chemins annonçaient pourtant le
+      // contraire : `createPoll`, qui promet que « l'administration l'ouvrira
+      // plus tard », et le déclencheur de notification, qui n'existe que pour
+      // rattraper un brouillon ouvert après coup. Tous deux décrivaient une
+      // lecture que les règles rendaient impossible.
+      await assertSucceeds(getDoc(doc(fcpe.firestore(), 'polls', 'poll-brouillon')));
+    });
+
+    it('la FCPE d’une autre organisation ne lit pas un brouillon', async () => {
+      // La branche qui ouvre les brouillons est aussi celle qui pourrait ouvrir
+      // ceux du groupe scolaire voisin : c'est donc ici que se prouve la
+      // comparaison d'organisation qu'elle porte, et nulle part ailleurs — la
+      // branche « parent » la refait, mais refuse le brouillon de toute façon.
+      const autre = testEnv.authenticatedContext('fcpe-autre-organisation', CLAIMS.fcpeOtherOrg);
+
+      await assertFails(getDoc(doc(autre.firestore(), 'polls', 'poll-brouillon')));
+    });
+
     it('un sondage d’une autre organisation ne se lit pas', async () => {
       await assertFails(getDoc(doc(parent.firestore(), 'polls', 'poll-autre-org')));
     });

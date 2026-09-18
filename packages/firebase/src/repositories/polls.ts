@@ -9,9 +9,10 @@
  * l'administration ouvrira plus tard.
  *
  * Ce n'est pas un détail de rangement : la règle de lecture n'ouvre un sondage
- * qu'aux statuts `open` et `closed`, si bien qu'un brouillon n'est lisible par
- * **personne** — pas même par un parent de l'audience visée. Enregistrer sans
- * publier ne laisse donc rien filtrer.
+ * **aux parents** qu'aux statuts `open` et `closed`, si bien qu'enregistrer
+ * sans publier ne laisse rien filtrer. La FCPE, elle, lit tous les statuts —
+ * sans quoi elle ne pourrait pas rouvrir le sondage qu'elle vient
+ * d'enregistrer, et le brouillon serait un aller sans retour.
  *
  * C'est aussi cette traduction qui impose, côté notification, un déclencheur
  * d'**écriture** et non de création : un sondage peut naître `open`, ou le
