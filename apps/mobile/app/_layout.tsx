@@ -39,7 +39,7 @@ void SplashScreen.preventAutoHideAsync();
  * le segment courant devient `publier`. Sans cette entrée, le formulaire de
  * publication serait refermé à l'instant où il s'ouvre.
  */
-const DETAIL_ROUTES: readonly string[] = ['post', 'publier'];
+const DETAIL_ROUTES: readonly string[] = ['post', 'publier', 'sondage'];
 
 export default function RootLayout(): React.JSX.Element {
   return (
@@ -117,6 +117,15 @@ function RootNavigator(): React.JSX.Element {
             // retour, sans qu'aucun écran ait à les réimplémenter.
             headerShown: true,
             title: 'Publication',
+            headerStyle: { backgroundColor: theme.colors.surface },
+            headerTintColor: theme.colors.textPrimary,
+          }}
+        />
+        <Stack.Screen
+          name="sondage/[id]"
+          options={{
+            headerShown: true,
+            title: 'Sondage',
             headerStyle: { backgroundColor: theme.colors.surface },
             headerTintColor: theme.colors.textPrimary,
           }}

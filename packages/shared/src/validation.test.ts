@@ -25,6 +25,7 @@ import {
   NOTIFICATION_CATEGORIES,
   OPTIONAL_NOTIFICATION_CATEGORIES,
 } from './constants.js';
+import { DEEPLINK_ROUTES, DEEPLINK_TARGET_TYPES, buildDeeplink } from './deeplinks.js';
 import {
   firstIssueByField,
   notificationPrefsSchema,
@@ -221,13 +222,27 @@ describe('notificationSendSchema', () => {
   });
 
   it('refuse un lien profond qui n’ouvre aucun écran', () => {
-    // La forme seule ne suffit pas : `frereslumieres://poll/…` est un lien
-    // valide dont l'écran n'existe pas encore. L'accepter ici le ferait
-    // échouer **en silence** sur le téléphone, et l'administrateur croirait
-    // avoir posé un lien qui marche.
+    // La forme seule ne suffit pas : un lien bien formé dont l'écran n'existe
+    // pas encore serait accepté ici, puis échouerait **en silence** sur le
+    // téléphone — l'administrateur croirait avoir posé un lien qui marche.
+    //
+    // Le type est **choisi dans la table**, et non écrit ici. `poll` a servi
+    // d'exemple jusqu'au jour où son écran a existé : le test est alors devenu
+    // faux, pour une raison qui n'avait rien à voir avec ce qu'il vérifie. Le
+    // chercher dans `DEEPLINK_ROUTES` fait qu'il se relit tout seul — et s'il
+    // n'y a plus aucun type sans écran, il le dit, plutôt que de passer sur une
+    // liste vide.
+    const sansEcran = DEEPLINK_TARGET_TYPES.find((type) => !DEEPLINK_ROUTES[type]);
+    if (!sansEcran) {
+      throw new Error(
+        'Tous les types de cible ont un écran : ce test n’a plus d’exemple à refuser, ' +
+          'et ne mesure donc plus rien.',
+      );
+    }
+
     const resultat = notificationSendSchema.safeParse({
       ...annonce,
-      deeplink: 'frereslumieres://poll/p1',
+      deeplink: buildDeeplink({ type: sansEcran, id: 'p1' }),
     });
 
     expect(resultat.success).toBe(false);

@@ -59,7 +59,7 @@ import {
 
 import { buildAudienceKeys, pollInputSchema, pollVoteSchema } from '@fl/shared';
 import type { PollInput, PollVoteInput } from '@fl/shared';
-import type { Poll, PollResults } from '@fl/types';
+import type { Poll, PollResults, PollVote } from '@fl/types';
 
 import { appError, invalidArgument, toAppError } from '../errors.js';
 import { paths } from '../paths.js';
@@ -124,6 +124,40 @@ export interface PollRepository {
    */
   getResults(pollId: string): Promise<PollResults | null>;
   /**
+   * Mon vote sur ce sondage, ou `null` si je n'ai pas encore voté.
+   *
+   * L'écran en a besoin pour deux choses, et les deux comptent : afficher la
+   * réponse que **j'ai** choisie — un sondage à choix multiple ne se relit pas
+   * au décompte — et décider s'il peut demander les résultats. Un abonnement
+   * refusé ne se rouvre pas tout seul : l'écran doit savoir **avant** d'ouvrir
+   * l'écoute, et c'est ce vote qui tranche pour `after_vote`.
+   *
+   * Les règles n'autorisent chacun à lire que son propre vote
+   * (`voterKey == request.auth.uid`) : c'est aussi ce qui rend le double vote
+   * impossible, l'identifiant du document **étant** l'UID de l'électeur.
+   *
+   * ## Un refus n'est pas rabattu sur `null`
+   *
+   * La tentation est de rendre `null` plutôt que de laisser remonter l'erreur,
+   * pour qu'un refus ne casse pas l'écran. Ce serait un mensonge silencieux :
+   * un `null` signifie « je n'ai pas voté », et c'est ce qui **ferme** les
+   * résultats — un défaut de chemin ou une règle durcie se liraient alors comme
+   * une absence de vote, sans que rien ne le signale.
+   *
+   * Or un refus est ici **inatteignable** dès lors que le sondage est lisible,
+   * et c'est démontrable : la règle de lecture d'un sondage exige `isFcpe()`,
+   * ou `canReadOrgContent()` qui contient `isActive()` ; et `isFcpe()` n'est
+   * vrai que si `role()` l'est, or `role()` rend `'none'` hors `isActive()`.
+   * Les deux branches impliquent donc `isActive()`, qui est exactement la
+   * condition de la lecture du vote. L'appelant satisfait en outre
+   * `voterKey == request.auth.uid` par construction, puisqu'il passe son propre
+   * identifiant.
+   *
+   * Lever garde donc la garantie utile : si cette lecture échoue, c'est un vrai
+   * défaut, et il doit se voir.
+   */
+  getMyVote(pollId: string, uid: string): Promise<PollVote | null>;
+  /**
    * Crée un sondage. Valide les données, calcule les clés d'audience, et
    * traduit `notify` en statut initial.
    */
@@ -143,6 +177,7 @@ export function createPollRepository(db: Firestore): PollRepository {
     newPollId: () => doc(collection(db, paths.polls())).id,
     get,
     getResults,
+    getMyVote,
     create,
     vote,
   };
@@ -161,6 +196,19 @@ export function createPollRepository(db: Firestore): PollRepository {
     try {
       const snapshot = await getDoc(doc(db, paths.pollResult(pollId)));
       return snapshot.exists() ? (snapshot.data() as PollResults) : null;
+    } catch (error) {
+      throw toAppError(error);
+    }
+  }
+
+  async function getMyVote(pollId: string, uid: string): Promise<PollVote | null> {
+    try {
+      const snapshot = await getDoc(doc(db, paths.pollVote(pollId, uid)));
+      if (!snapshot.exists()) return null;
+      // `id` ne figure pas dans le document : il **est** l'identifiant du
+      // document, c'est-à-dire l'UID de l'électeur. On le recompose plutôt que
+      // de lire un champ qui n'existe pas, comme `get` le fait pour un sondage.
+      return { ...(snapshot.data() as Omit<PollVote, 'id'>), id: snapshot.id };
     } catch (error) {
       throw toAppError(error);
     }

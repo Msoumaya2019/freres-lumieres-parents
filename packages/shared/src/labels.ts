@@ -216,6 +216,21 @@ export const POLL_STATUS_LABELS: Record<PollStatus, string> = {
 };
 
 /**
+ * Couleur d'étiquette par statut de sondage.
+ *
+ * `open` est le seul statut sur lequel un parent peut agir : c'est le seul en
+ * vert. `draft` est en avertissement plutôt qu'en neutre parce qu'il n'est
+ * visible que de la FCPE — la couleur dit « celui-ci n'est pas encore
+ * publié », ce qui est l'information utile pour qui le regarde.
+ */
+export const POLL_STATUS_BADGES: Record<PollStatus, BadgeStyle> = {
+  draft: BADGE_COLORS.warning,
+  open: BADGE_COLORS.success,
+  closed: BADGE_COLORS.info,
+  archived: BADGE_COLORS.neutral,
+};
+
+/**
  * Quand les résultats d'un sondage deviennent lisibles.
  *
  * Les trois valeurs forment une échelle **emboîtée** : `always` publie dès la

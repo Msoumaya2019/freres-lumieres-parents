@@ -800,6 +800,17 @@ décision explicite de la FCPE.
       position : le schéma les exige, mais rien ne les référence avant
       l'écriture, et les tenir dans l'état serait un état de plus à maintenir
       pour rien.
+- [x] **Écran mobile du sondage** — `apps/mobile/app/sondage/[id].tsx` montre la
+      question, permet de voter (choix unique ou multiple selon le sondage) et
+      affiche les résultats **quand l'écran y a droit**. Le lien profond `poll`
+      est donc ouvrable : `DEEPLINK_ROUTES` le déclare, l'excuse « l'écran des
+      sondages n'existe pas encore » a disparu, et le test de couverture l'exige
+      des deux côtés — une route déclarée sans dossier d'écran fait échouer la
+      suite. La sélection en cours est **dérivée** (`brouillon ?? monVote`) et non
+      recopiée dans un état, ce qui évite le rendu vide qu'un effet de
+      synchronisation produirait. Reste ouvert : par où un parent **arrive** sur
+      un sondage. L'écran n'est atteignable aujourd'hui que par une notification,
+      et aucun onglet ne liste les sondages.
 - [x] Le **vote** : `vote()` côté client, compteur transactionnel côté Cloud
       Function, et les règles complétées. L'unicité était déjà tenue par
       l'identifiant du document ; ce qui manquait, c'est **ce qu'un vote a le
@@ -841,18 +852,47 @@ read` exigeait `status in ['open', 'closed']` pour **tout le monde**, si
       sondages publiés. C'est aussi ce qui rend les **requêtes** possibles, les
       règles ne filtrant pas — l'administration liste en ne contraignant que
       `orgId`, là où un écran de parent devra contraindre le statut.
-- [ ] Écran des résultats — l'abonnement devra être posé **quand l'écran sait
-      qu'il y a droit**, jamais avant : les règles sont évaluées à l'ouverture de
-      l'écoute, et un abonnement refusé ne se rouvre pas tout seul.
+- [x] **L'échelle de visibilité ne tenait pas sa troisième valeur** — trouvé en
+      écrivant l'écran mobile, et pas par un test. `resultatsVisibles()` lisait
+      `(visibilite() == 'always' || s.status == 'closed' || aVote())` : `aVote()`
+      était un `||` **inconditionnel**, donc sous `after_end` un parent qui avait
+      voté lisait le décompte en cours, alors que trois endroits disent le
+      contraire — le tableau de `docs/02-data-model.md` (« lisible par la FCPE
+      seule »), le commentaire de la règle, et le libellé « À la clôture
+      seulement » que l'écran d'administration fait choisir. `after_end` et
+      `after_vote` ne différaient plus que pour un non-votant, si bien que la
+      troisième option ne voulait rien dire pour qui avait voté. Le défaut allait
+      dans le sens **permissif**, et il était invisible : le seul sondage
+      `after_end` ouvert n'avait **aucun vote**, donc la fixture mesurait le refus
+      d'un non-votant, que la clause n'affectait pas. La garde est désormais
+      `(visibilite() == 'after_vote' && aVote())`, la fixture porte un vote, et
+      une mutation remet le défaut pour prouver que le test le voit.
+- [x] **Les résultats à l'écran, selon la visibilité** — la lecture n'est posée
+      que lorsque l'écran sait qu'il y a droit, et cette décision est prise
+      **avant** l'appel : une règle de lecture ne filtre pas des champs, donc une
+      lecture refusée lève, et un écran ne s'en remet pas tout seul. La décision
+      vit dans `canReadPollResults` (`@fl/shared`), qui reproduit
+      `resultatsVisibles()`, et un test **lit le fichier de règles** pour tenir
+      l'accord : les deux sources ne peuvent pas se lire au moment de l'exécution,
+      et c'est le seul endroit où elles se rencontrent. Le prédicat est plus
+      strict que la règle quand le rôle est inconnu, jamais plus large — une
+      divergence n'est acceptable que dans le sens qui referme.
+      **Écart assumé** : une **lecture ponctuelle**, et non l'abonnement
+      qu'annonçait ce point. Aucun écran de l'application n'utilise `onSnapshot` ;
+      le décompte ne bouge qu'au vote d'un autre parent, il est rafraîchissable à
+      la main, et un abonnement vivant rouvrirait un document chaud — exactement
+      ce que le déplacement des totaux hors du sondage avait fait disparaître. Le
+      suivi en direct reste utile à l'administration, pas au parent qui répond.
 - [ ] Clôture manuelle et automatique
-- [ ] Écran admin : créer, suivre, clôturer
+- [ ] Écran admin : suivre et clôturer (la création est faite plus haut)
 - [x] Tests : double vote refusé, brouillon illisible, cloisonnement
       d'organisation, création refusée à un parent, et le vote — dont, pour
       chaque refus, **un témoin qui réussit**. Les trois visibilités ont leurs
       tests, et leurs témoins sont le **même document** lu par la FCPE, ou un
-      second parent qui a voté. Quatorze mutations couvrent l'ensemble des règles
-      de sondage ; deux d'entre elles ont un ensemble attendu vide, et c'est
-      consigné : voir l'en-tête du banc.
+      second parent qui a voté. Vingt-six mutations couvrent l'ensemble des règles
+      de sondage ; **une** d'entre elles a un ensemble attendu vide — la mutation
+      de diagnostic qui retire `exists()`, dont on veut vérifier qu'elle ne fait
+      rien tomber — et c'est consigné : voir l'en-tête du banc.
 
 **Critère de sortie :** un compte ne peut voter qu'une fois, y compris en
 appelant Firestore directement.

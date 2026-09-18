@@ -385,10 +385,19 @@ les résultats continueraient d'être publiés en silence. Le repli, quand le ch
 est absent, est **fermé** (`after_end`), alors que le défaut du schéma est
 `after_vote` : une permission ne s'ouvre pas par omission.
 
-Un point qui se paie à l'usage : **un abonnement refusé ne se rouvre pas tout
-seul**. Les règles sont évaluées à l'ouverture de l'écoute, donc l'écran doit
-décider _avant_ de s'abonner — au moment où il sait que le parent a voté, ou que
-le sondage est clos. Un abonnement posé trop tôt échoue et le restera.
+Un point qui se paie à l'usage : **une lecture refusée ne se rattrape pas toute
+seule**. Les règles sont évaluées au moment de la lecture, donc l'écran doit
+décider _avant_ de demander — au moment où il sait que le parent a voté, ou que
+le sondage est clos. C'est le rôle de `canReadPollResults` (`@fl/shared`), qui
+reproduit l'échelle ci-dessus ; un test lit `firebase/firestore.rules` sur le
+disque pour tenir l'accord entre les deux, puisqu'elles ne peuvent pas se lire
+l'une l'autre à l'exécution.
+
+L'écran mobile lit les résultats **une fois**, à l'ouverture et après chaque
+vote, et non par un abonnement vivant : le décompte ne bouge qu'au vote d'un
+autre parent, et un abonnement rouvrirait un document chaud — ce que le
+déplacement des totaux hors du sondage avait justement fait disparaître. Le
+suivi en direct est un besoin de l'administration, pas du parent qui répond.
 
 - Les règles lisent `allowMultiple`, `anonymous` et `allowChangeVote` **dans le
   sondage**. Ces trois champs conditionnent donc la possibilité même de voter :

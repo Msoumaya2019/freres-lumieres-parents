@@ -61,6 +61,7 @@ export interface DeeplinkTarget {
  */
 export const DEEPLINK_ROUTES: Partial<Record<DeeplinkTargetType, string>> = {
   post: '/post',
+  poll: '/sondage',
 };
 
 /**
@@ -72,7 +73,6 @@ export const DEEPLINK_ROUTES: Partial<Record<DeeplinkTargetType, string>> = {
  */
 export const TYPES_SANS_ROUTE: Partial<Record<DeeplinkTargetType, string>> = {
   channel: "l'écran des discussions n'existe pas encore (phase 6)",
-  poll: "l'écran des sondages n'existe pas encore (phase 8)",
   event: "l'écran de l'agenda n'existe pas encore (phase 9)",
   report: "l'écran des signalements n'existe pas encore (phase 7)",
 };

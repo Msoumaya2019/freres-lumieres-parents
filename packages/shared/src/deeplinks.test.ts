@@ -146,9 +146,9 @@ describe('route à ouvrir pour un lien profond', () => {
   });
 
   it('ne rend rien pour un type sans écran', () => {
-    // Les quatre autres types sont reconnus mais aucun écran ne les ouvre
-    // encore. Rendre un chemin quand même enverrait l'application sur une
-    // route inexistante — l'écran « introuvable » à la place du contenu.
+    // Les autres types sont reconnus mais aucun écran ne les ouvre encore.
+    // Rendre un chemin quand même enverrait l'application sur une route
+    // inexistante — l'écran « introuvable » à la place du contenu.
     for (const type of DEEPLINK_TARGET_TYPES) {
       if (DEEPLINK_ROUTES[type]) continue;
       expect(routeForDeeplink(buildDeeplink({ type, id: 'abc123' }))).toBeNull();

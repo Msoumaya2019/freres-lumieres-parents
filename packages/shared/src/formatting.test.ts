@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { getAcademicYear, getAcademicYearRange } from './formatting.js';
+import { getAcademicYear, getAcademicYearRange, pluralize } from './formatting.js';
 
 /**
  * L'année scolaire est un calcul qui ne se trompe qu'une fois par an. Ces
@@ -82,5 +82,26 @@ describe('getAcademicYearRange', () => {
   it('refuse une année non numérique', () => {
     expect(() => getAcademicYearRange('abcd')).toThrow();
     expect(() => getAcademicYearRange('')).toThrow();
+  });
+});
+
+describe('pluralize', () => {
+  it('accorde le nom au-delà de un', () => {
+    expect(pluralize(0, 'commentaire')).toBe('0 commentaire');
+    expect(pluralize(1, 'commentaire')).toBe('1 commentaire');
+    expect(pluralize(2, 'commentaire')).toBe('2 commentaires');
+  });
+
+  it('emploie le pluriel fourni quand il diffère du singulier', () => {
+    expect(pluralize(3, 'cheval', 'chevaux')).toBe('3 chevaux');
+  });
+
+  it('accepte un mot invariable en le passant deux fois', () => {
+    // Le piège de cet utilitaire : il ajoute un « s » par défaut. Un mot
+    // invariable — « voix », « repas », « taux » — doit donc être passé deux
+    // fois, sinon l'écran affiche « 3 voixs ». Le défaut est invisible tant
+    // qu'on n'a pas plus d'une unité à compter.
+    expect(pluralize(3, 'voix', 'voix')).toBe('3 voix');
+    expect(pluralize(1, 'voix', 'voix')).toBe('1 voix');
   });
 });
