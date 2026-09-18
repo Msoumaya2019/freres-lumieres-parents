@@ -790,8 +790,16 @@ décision explicite de la FCPE.
       signalait : les deux seuls tests qui s'en approchaient attendaient un
       **refus**, qu'ils obtenaient pour la mauvaise raison. La règle est
       désormais scindée, et un test qui **réussit** tient le rôle de témoin.
-- [ ] Création d'un sondage (options, durée, audience, anonymat) — **le dépôt
-      existe, l'écran reste à écrire**
+- [x] Création d'un sondage (options, durée, audience, anonymat) : l'écran
+      d'administration (`apps/admin/src/features/polls/`) compose le formulaire
+      et appelle `createPoll`. Deux points ont demandé une décision plutôt
+      qu'une traduction. **`notify` n'est pas une case parmi d'autres** : c'est
+      le choix du statut initial, et l'écran le présente pour ce qu'il est —
+      publier maintenant, ou enregistrer en brouillon. **Les identifiants des
+      réponses** (`option-1`…) sont fabriqués à la soumission, à partir de la
+      position : le schéma les exige, mais rien ne les référence avant
+      l'écriture, et les tenir dans l'état serait un état de plus à maintenir
+      pour rien.
 - [x] Le **vote** : `vote()` côté client, compteur transactionnel côté Cloud
       Function, et les règles complétées. L'unicité était déjà tenue par
       l'identifiant du document ; ce qui manquait, c'est **ce qu'un vote a le
@@ -820,6 +828,19 @@ décision explicite de la FCPE.
       toujours, et le repli sur un champ absent est **fermé**. Effet de bord
       bienvenu : le document de sondage cesse d'être réécrit à chaque vote, donc
       `notifyPollAudience` n'a plus à se défendre des votes.
+- [x] **Un brouillon est lisible par la FCPE** — le défaut a été trouvé en
+      cherchant à écrire l'écran d'administration, et pas par un test : `allow
+read` exigeait `status in ['open', 'closed']` pour **tout le monde**, si
+      bien qu'un brouillon était illisible par son auteur lui-même. Trois
+      endroits annonçaient pourtant le contraire — `createPoll` (« l'administration
+      l'ouvrira plus tard »), le déclencheur de notification, qui n'existe que
+      pour rattraper un brouillon ouvert après coup, et `docs/02-data-model.md`,
+      qui écrivait déjà « un brouillon n'est lisible que par elle ». Rien ne
+      comparait la règle à ce qu'elle promettait. La lecture se scinde donc en
+      deux branches : la FCPE lit tous les statuts, un parent seulement les
+      sondages publiés. C'est aussi ce qui rend les **requêtes** possibles, les
+      règles ne filtrant pas — l'administration liste en ne contraignant que
+      `orgId`, là où un écran de parent devra contraindre le statut.
 - [ ] Écran des résultats — l'abonnement devra être posé **quand l'écran sait
       qu'il y a droit**, jamais avant : les règles sont évaluées à l'ouverture de
       l'écoute, et un abonnement refusé ne se rouvre pas tout seul.

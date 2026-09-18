@@ -19,6 +19,7 @@ import type {
   ModerationReason,
   ModerationStatus,
   NotificationCategory,
+  PollResultsVisibility,
   PollStatus,
   PostCategory,
   ReportCategory,
@@ -212,6 +213,20 @@ export const POLL_STATUS_LABELS: Record<PollStatus, string> = {
   open: 'Ouvert',
   closed: 'Clôturé',
   archived: 'Archivé',
+};
+
+/**
+ * Quand les résultats d'un sondage deviennent lisibles.
+ *
+ * Les trois valeurs forment une échelle **emboîtée** : `always` publie dès la
+ * mise en ligne, `after_vote` à partir du vote de chacun **et** pour tous à la
+ * clôture, `after_end` à la clôture seulement. Les libellés le disent dans cet
+ * ordre, du plus ouvert au plus fermé.
+ */
+export const POLL_RESULTS_VISIBILITY_LABELS: Record<PollResultsVisibility, string> = {
+  always: 'Toujours — dès la publication',
+  after_vote: 'Après avoir voté — et pour tous à la clôture',
+  after_end: 'À la clôture seulement',
 };
 
 export const REPORT_CATEGORY_LABELS: Record<ReportCategory, string> = {

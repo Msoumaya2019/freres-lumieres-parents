@@ -80,7 +80,7 @@ export const ADMIN_SECTIONS: readonly AdminSection[] = [
     description: 'Créer un sondage et suivre les résultats',
     permission: 'poll.create',
     phase: 'Phase 8',
-    implemented: false,
+    implemented: true,
   },
   {
     slug: 'agenda',
@@ -166,5 +166,6 @@ export const DEDICATED_ROUTE_SLUGS: readonly string[] = [
   'journal',
   'notifications',
   'publications',
+  'sondages',
   'utilisateurs',
 ];
