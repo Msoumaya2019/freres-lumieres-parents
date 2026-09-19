@@ -54,6 +54,13 @@ export const PERMISSION_MATRIX = {
   'poll.create': ['fcpe', 'moderator', 'admin'],
   'poll.update.own': ['fcpe', 'moderator', 'admin'],
   'poll.update.any': ['moderator', 'admin'],
+  // Ouvrir un brouillon : la question devient lisible par toute son audience, et
+  // une notification part. C'est la même liste que `poll.close`, et ce n'est pas
+  // une recopie : `poll.create` accorde **déjà** ce pouvoir, puisque
+  // `pollInputSchema.notify` publie d'emblée. Une liste plus étroite
+  // interdirait au bouton ce que le formulaire de création autorise au même
+  // acteur — la FCPE enregistre un brouillon exprès pour l'ouvrir plus tard.
+  'poll.open': ['fcpe', 'moderator', 'admin'],
   'poll.close': ['fcpe', 'moderator', 'admin'],
   'poll.vote': ['parent', 'fcpe', 'moderator', 'admin'],
 

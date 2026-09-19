@@ -27,11 +27,16 @@
  * ## Pourquoi la liste est rechargée après chaque écriture
  *
  * Clore un sondage change son statut, donc son badge et le libellé de son
- * bouton, et publie son décompte. Retoucher l'état local donnerait une liste
- * juste jusqu'à la prochaine ouverture ; le rechargement coûte une requête sur
- * une collection de quelques dizaines de documents, et garantit que ce qui est
- * affiché existe vraiment. C'est le choix déjà fait pour les publications et
- * pour la file des comptes.
+ * bouton, et publie son décompte. **Ouvrir un brouillon fait plus** : il change
+ * le statut, le badge, et `startsAt` — donc la **place** du sondage dans la
+ * liste, qui est triée dessus. Une liste retouchée à la main le laisserait à sa
+ * position de brouillon, c'est-à-dire précisément là où on ne le cherche plus
+ * après l'avoir publié.
+ *
+ * Retoucher l'état local donnerait une liste juste jusqu'à la prochaine
+ * ouverture ; le rechargement coûte une requête sur une collection de quelques
+ * dizaines de documents, et garantit que ce qui est affiché existe vraiment.
+ * C'est le choix déjà fait pour les publications et pour la file des comptes.
  *
  * ## Le bouton « Actualiser » n'est pas un ornement
  *
@@ -172,6 +177,21 @@ export function PollList({
     );
   }
 
+  function open(target: Poll): void {
+    // Même raison que pour la clôture, et elle porte ici sur la notification :
+    // elle part dans les deux cas, mais dans l'un elle annonce un sondage
+    // auquel plus personne ne peut répondre. Le taire ferait passer pour une
+    // publication ordinaire un envoi qui ne l'est pas.
+    const echeancePassee = hasPollEnded({ endsAt: target.endsAt });
+
+    void run(
+      () => repository.open(target.id),
+      echeancePassee
+        ? 'Brouillon publié, mais l’échéance annoncée est déjà passée : la règle refuse les votes, et le décompte est publié. La notification part malgré tout.'
+        : 'Brouillon publié. La question est désormais lisible par son audience, et la notification d’annonce est déclenchée.',
+    );
+  }
+
   return (
     <div className="flex flex-col gap-4">
       <header className="flex flex-wrap items-end justify-between gap-3">
@@ -240,6 +260,7 @@ export function PollList({
                 repository={repository}
                 busy={busy}
                 onClose={close}
+                onOpen={open}
               />
             </li>
           ))}

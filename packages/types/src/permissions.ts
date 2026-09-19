@@ -35,6 +35,7 @@ export type Permission =
   | 'poll.create'
   | 'poll.update.own'
   | 'poll.update.any'
+  | 'poll.open'
   | 'poll.close'
   | 'poll.vote'
   // --- Signalements ---------------------------------------------------------

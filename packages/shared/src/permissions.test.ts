@@ -36,6 +36,7 @@ describe('matrice de permissions', () => {
       'moderation.queue.read',
       'fcpe.access',
       'report.read.any',
+      'poll.open',
     ] as const;
 
     for (const permission of forbidden) {
@@ -76,6 +77,25 @@ describe('matrice de permissions', () => {
     expect(hasPermission('fcpe', 'report.read.any')).toBe(true);
     expect(hasPermission('fcpe', 'report.reply.internal')).toBe(true);
     expect(hasPermission('fcpe', 'poll.create')).toBe(true);
+  });
+
+  it('confie à la FCPE l’ouverture d’un brouillon comme sa clôture', () => {
+    // Les deux listes sont **identiques**, et ce n'est pas une recopie :
+    // `poll.create` accorde déjà le pouvoir de publier, par `notify: true`.
+    // Une liste plus étroite interdirait au bouton ce que le formulaire de
+    // création autorise au même acteur — la FCPE enregistre un brouillon
+    // exprès pour l'ouvrir plus tard.
+    //
+    // C'est donc l'**égalité** qui est la propriété à tenir, et non chacune
+    // des deux listes prise seule : le jour où l'on voudra qu'un modérateur
+    // publie sans pouvoir clore, ou l'inverse, ce test forcera à le décider
+    // au lieu de le laisser dériver.
+    expect(PERMISSION_MATRIX['poll.open']).toEqual(PERMISSION_MATRIX['poll.close']);
+
+    expect(hasPermission('fcpe', 'poll.open')).toBe(true);
+    expect(hasPermission('moderator', 'poll.open')).toBe(true);
+    expect(hasPermission('admin', 'poll.open')).toBe(true);
+    expect(hasPermission('parent', 'poll.open')).toBe(false);
   });
 
   it('autorise tous les rôles validés à participer aux discussions et aux sondages', () => {

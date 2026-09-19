@@ -359,6 +359,24 @@ Le point délicat est le **vote unique par compte**.
   comparer, donc rien à figer, et un membre de la FCPE pouvait poser le champ sur
   le document qu'il venait d'écrire. Comme `pollNotificationPlan` le lit pour
   décider, cela **faisait taire la notification de son propre sondage**.
+- **`startsAt` est écrit deux fois, et jamais après publication.** `create` y met
+  l'instant de création, quel que soit le statut — un brouillon en porte donc une,
+  et c'est elle qui le place dans la liste d'administration. `open()` la
+  **corrige** en publiant : l'écran l'affiche « Mis en ligne le », et la liste est
+  triée dessus, si bien qu'un brouillon ouvert trois semaines plus tard doit
+  remonter en tête — sans quoi le sondage qu'on vient de publier reste enfoui à sa
+  place de brouillon. Comme `open()` n'accepte que `draft`, le champ ne bouge plus
+  une fois le sondage publié : c'est ce qui rend la correction inoffensive, et
+  c'est la raison pour laquelle `open()` refuse un statut `open` au lieu de le
+  tolérer.
+- **`PollStatus` déclare quatre statuts, les règles en acceptent trois.** La règle
+  d'écriture exige `status in ['draft', 'open', 'closed']` : `archived` n'est donc
+  atteignable que par le **serveur**, qui contourne les règles — et aucun code ne
+  le pose aujourd'hui. L'écart est **figé par un test** plutôt que corrigé, parce
+  que les deux moitiés ont leur raison d'être : le type décrit ce que le modèle
+  autorise, la règle ce qu'un client peut écrire. À retenir le jour où l'on
+  archivera un sondage : `close()` l'accepterait, et le **republicrait** en
+  `closed`.
 - Le document de résultats **peut être absent** : un sondage sans voix n'en a
   pas, puisque le client ne l'écrit jamais. Son absence se lit comme une absence
   — `PollResults | null` — et non comme un refus. La règle autorise pour cela la

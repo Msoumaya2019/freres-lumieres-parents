@@ -1026,12 +1026,52 @@ audienceKeys, startsAt)` ne couvre pas `where orgId orderBy startsAt` —
       ne sera pas honorée ; la confirmation le dit aussi, faute de quoi l'écran
       promettrait le contraire de ce que la règle applique. Une clôture déjà
       inscrite ne se réécrit pas (`close()` refuse un second appel), et **rien
-      dans cet écran ne rouvre un sondage clos** : c'est une limite assumée, à
-      signaler le jour où elle gênera.
-- [ ] Écran admin : ouvrir un brouillon — la règle de mise à jour l'autorise
-      (`allow update` n'exige pas `unchanged('status')`), le dépôt n'a pas la
-      méthode, et un brouillon enregistré n'a aujourd'hui **aucun** chemin vers
-      `open` depuis l'interface. C'est le pendant manquant du bouton de clôture.
+      ne rouvre un sondage clos** — ni cet écran, ni le dépôt, qui refuse tout
+      ce qui n'est pas un brouillon. Les règles, elles, l'autoriseraient : la
+      garantie est dans le dépôt, et il fallait le dire avant qu'on la croie
+      tenue ailleurs.
+- [x] Écran admin : ouvrir un brouillon — le pendant manquant du bouton de
+      clôture, et **un chemin qui manquait** plutôt qu'une commodité. La règle
+      l'autorisait depuis l'origine (`allow update` n'exige pas
+      `unchanged('status')`) et `notifyPollAudience` était écrit pour rattraper
+      un brouillon ouvert plus tard — mais aucun dépôt n'écrivait
+      `status: 'open'`, donc **la moitié du plan de notification était du code
+      que rien ne pouvait exécuter**, et l'en-tête de `createPoll` promettait que
+      « l'administration l'ouvrira plus tard » sans qu'aucun bouton ne le
+      permette.
+      Trois décisions sont prises, et chacune se voit. **Seul `draft` est
+      accepté** : `open` réécrit `startsAt`, donc l'accepter sur un sondage déjà
+      publié déplacerait sa date de mise en ligne, et refuser `closed` n'est pas
+      la même chose que refuser `open` — le message nomme le cas. **`startsAt`
+      est corrigé à la publication** : l'écran affiche « mis en ligne le » et la
+      liste d'administration est triée dessus, donc un brouillon ouvert trois
+      semaines plus tard doit remonter en tête, et non rester à sa place de
+      brouillon ; comme seul `draft` est accepté, le champ est écrit **au plus
+      deux fois** dans la vie d'un sondage, et jamais après publication.
+      **Une échéance passée ne fait pas refuser** : `endsAt` n'est corrigeable
+      par aucun écran, donc refuser **enfermerait** le brouillon — ni ouvrable,
+      ni corrigeable ; l'écran avertit que la notification annoncera un sondage
+      que la règle refuse déjà, et la décision reste à la FCPE.
+      La permission `poll.open` est nouvelle, et sa liste de rôles est
+      **identique** à `poll.close` — ce n'est pas une recopie : `poll.create`
+      accorde déjà ce pouvoir par `notify: true`, et une liste plus étroite
+      interdirait au bouton ce que le formulaire de création autorise au même
+      acteur. Un test tient l'**égalité** des deux listes, pour que le jour où
+      l'une bougera sans l'autre, il faille le décider.
+      Le dépôt est **plus étroit que la règle**, et c'est mesuré : `closed` →
+      `open` est permis par les règles — un test le fige, précisément pour que
+      personne ne croie la garantie tenue par elles — et c'est `open()` qui
+      refuse. Enfin, `packages/firebase` reçoit son **premier test de dépôt** :
+      un faux Firestore délibérément bête, qui enregistre et restitue sans rien
+      décider, et six tests falsifiés par cinq mutations
+      (`.workbuddy-ai/falsifier-depot-sondages.py`).
+      Ouvert : `close()` accepterait un statut `archived` — que `validPoll()`
+      refuse à l'écriture, mais que le **serveur** peut poser — et le clore le
+      **republicrait** en `closed`. Aucun code ne pose `archived` aujourd'hui :
+      c'est latent, et c'est la même famille que « clore un brouillon le
+      publierait ». Ouvert aussi : rien n'écrit de **journal d'audit** pour un
+      sondage, alors que `poll.close` est déclaré dans `AdminAction` et porte un
+      libellé — un vocabulaire que personne n'emploie.
 - [x] Tests : double vote refusé, brouillon illisible, cloisonnement
       d'organisation, création refusée à un parent, et le vote — dont, pour
       chaque refus, **un témoin qui réussit**. Les trois visibilités ont leurs

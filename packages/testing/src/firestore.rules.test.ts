@@ -2157,6 +2157,50 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
     });
 
     // -----------------------------------------------------------------------
+    // Ouvrir un brouillon
+    //
+    // Le pendant de la clôture, et le seul chemin par lequel un brouillon
+    // enregistré redevient publiable. Les règles l'autorisaient depuis
+    // l'origine — `allow update` ne contraint pas `status` — mais aucun dépôt
+    // ne l'écrivait, donc rien ne l'empruntait : c'est le dépôt qui a manqué,
+    // pas la règle.
+    //
+    // Ces tests fixent donc ce que la règle **permet** ; ce que le dépôt
+    // **propose** est plus étroit qu'elle, et c'est là que le refus de rouvrir
+    // un sondage clos se tient.
+    // -----------------------------------------------------------------------
+
+    it('la FCPE publie un brouillon', async () => {
+      await assertSucceeds(
+        updateDoc(doc(fcpe.firestore(), 'polls', 'poll-brouillon'), { status: 'open' }),
+      );
+    });
+
+    it('un parent ne peut pas écrire le statut d’un sondage', async () => {
+      // Le témoin du précédent, et il vise `poll-1` plutôt qu'un brouillon :
+      // un parent **peut lire** `poll-1`, donc le refus ne peut pas venir d'un
+      // document introuvable. Sur un brouillon, `assertFails` serait satisfait
+      // par un `not-found` et ne dirait rien du rôle — c'est précisément le
+      // piège que le témoin du dessus écarte dans l'autre sens.
+      await assertFails(updateDoc(doc(parent.firestore(), 'polls', 'poll-1'), { status: 'open' }));
+    });
+
+    it('la FCPE rouvre un sondage clos, et c’est la règle qui le permet', async () => {
+      // Ce test fige un fait, et ce n'est pas un oubli de la règle : elle
+      // **n'interdit pas** `closed` → `open`, et n'a pas à le faire, puisque
+      // `draft` → `open` est déjà permis au même acteur — publier un sondage est
+      // un pouvoir de la FCPE, par conception. `poll-clos` n'annonce aucune
+      // échéance, donc le rouvrir rouvrirait réellement le vote.
+      //
+      // Le refus de rouvrir appartient donc au **dépôt**, et c'est une commodité
+      // de vocabulaire plutôt qu'une porte fermée. Le jour où quelqu'un croira
+      // la garantie tenue par les règles, c'est ici que ça se verra.
+      await assertSucceeds(
+        updateDoc(doc(fcpe.firestore(), 'polls', 'poll-clos'), { status: 'open' }),
+      );
+    });
+
+    // -----------------------------------------------------------------------
     // Le vote
     //
     // Toutes les conditions qui décident de ce qu'un vote a le droit d'être

@@ -55,10 +55,33 @@
  *    maintenant**. C'est une décision, et elle a une conséquence que l'écran
  *    doit nommer — la date annoncée aux familles ne sera pas honorée.
  *
- * D'où la confirmation en deux temps. `close()` refuse un second appel, et rien
- * dans cet écran ne rouvre un sondage clos : la fermeture est donc à sens
- * unique **depuis ici**, même si la règle de mise à jour, elle, accepterait un
- * retour à `open` — `unchanged('status')` n'y figure pas.
+ * D'où la confirmation en deux temps. `close()` refuse un second appel, et
+ * `open()` refuse tout ce qui n'est pas un brouillon : la fermeture est donc à
+ * sens unique **de bout en bout**, et pas seulement depuis cet écran. La règle
+ * de mise à jour, elle, accepterait un retour à `open` — `unchanged('status')`
+ * n'y figure pas. C'est le dépôt qui tient la ligne, et il faut le savoir avant
+ * de croire que les règles la tiennent.
+ *
+ * ## Ouvrir un brouillon est l'autre moitié du même écran, et elle notifie
+ *
+ * Sans elle, le bouton de clôture n'avait pas de pendant : `close()` refuse un
+ * brouillon, et le refuse pour une bonne raison — le clore le publierait **sans
+ * annonce**. Ouvrir publie **avec** annonce, et c'est le seul geste de cet
+ * écran dont la conséquence sorte de l'application.
+ *
+ * Trois choses le distinguent de la clôture, et la confirmation les dit :
+ * la question devient lisible par toute son audience, une notification part et
+ * ne se rappelle pas, et `startsAt` est réécrit — le sondage remonte donc en
+ * tête de liste, daté d'aujourd'hui.
+ *
+ * ## Un brouillon dont l'échéance est passée reste ouvrable, et l'écran le dit
+ *
+ * La règle refusera les votes dès la publication, et le décompte sera publié
+ * aussitôt : la notification annoncera donc un sondage auquel plus personne ne
+ * peut répondre. C'est laid, et ce n'est pourtant pas un motif d'interdire —
+ * `endsAt` n'est corrigeable par aucun écran, donc refuser ici **enfermerait**
+ * le brouillon : ni ouvrable, ni corrigeable, et supprimable par un
+ * administrateur seulement. L'écran avertit, et la décision reste à la FCPE.
  */
 
 import { useEffect, useState } from 'react';
@@ -86,6 +109,7 @@ interface PollRowProps {
   /** Une écriture est en cours : les actions sont neutralisées. */
   readonly busy: boolean;
   readonly onClose: (poll: Poll) => void;
+  readonly onOpen: (poll: Poll) => void;
 }
 
 const ACTION_CLASS =
@@ -97,6 +121,7 @@ export function PollRow({
   repository,
   busy,
   onClose,
+  onOpen,
 }: PollRowProps): React.JSX.Element {
   const echeancePassee = hasPollEnded({ endsAt: poll.endsAt });
   // Une seule dérivation, et deux lectures : le badge et son libellé viennent
@@ -113,10 +138,19 @@ export function PollRow({
 
   const peutLire = role !== undefined && isFcpeRole(role);
   const peutClore = poll.status === 'open' && hasPermission(role, 'poll.close');
+  // Le statut enregistré, comme pour la clôture, et pour la même raison : c'est
+  // le document qui décide de ce que `open()` accepte. Un brouillon n'a jamais
+  // été publié, donc il reste ouvrable même si son échéance est passée — et
+  // c'est la confirmation, plus bas, qui le signale.
+  const peutOuvrir = poll.status === 'draft' && hasPermission(role, 'poll.open');
 
   const [results, setResults] = useState<PollResults | null | undefined>(undefined);
   const [tallyError, setTallyError] = useState<string | null>(null);
-  const [confirmation, setConfirmation] = useState(false);
+  // **Quelle** confirmation est ouverte, et non « y a-t-il une confirmation » :
+  // les deux gestes ne se ressemblent pas — l'un inscrit une clôture, l'autre
+  // publie et notifie — et un booléen obligerait à relire `poll.status` pour
+  // savoir lequel on affiche, c'est-à-dire à dériver deux fois la même chose.
+  const [confirmation, setConfirmation] = useState<'close' | 'open' | null>(null);
 
   useEffect(() => {
     if (!peutLire) return;
@@ -255,37 +289,65 @@ export function PollRow({
         </div>
       ) : null}
 
-      {confirmation ? (
+      {confirmation !== null ? (
         <div className="flex flex-col gap-3 rounded-md border border-border bg-surface-muted p-3">
-          <p className="text-sm text-foreground">
-            {closParLEcheance
-              ? `Le vote est déjà fermé depuis le ${formatDateTime(poll.endsAt)} : la règle refuse les votes et publie le décompte. Inscrire la clôture ne change rien pour les familles — cela l’écrit au document, et la fiche cessera d’afficher « clôture non inscrite ».`
-              : poll.endsAt
-                ? `Clore maintenant ferme le vote : dès que le statut passe à « clôturé », la règle n’accepte plus de vote. La date annoncée (${formatDateTime(poll.endsAt)}) ne sera donc pas honorée, et les familles ne pourront plus voter avant.`
-                : `Clore maintenant ferme le vote : dès que le statut passe à « clôturé », la règle n’accepte plus de vote. Ce sondage n’annonce aucune date de clôture — c’est cette action qui y met fin.`}
-          </p>
-          <p className="text-xs text-muted">
-            Rien dans cet écran ne rouvre un sondage clos, et une clôture déjà inscrite ne peut pas
-            être réécrite.
-          </p>
+          {confirmation === 'open' ? (
+            <>
+              <p className="text-sm text-foreground">
+                Ouvrir ce brouillon le publie : la question devient lisible par toute son audience,
+                et une notification est envoyée. Un envoi parti ne se retire pas.
+              </p>
+              {echeancePassee ? (
+                <p className="text-sm text-warning">
+                  {`L’échéance annoncée (${formatDateTime(poll.endsAt)}) est déjà passée : la règle refusera les votes dès la publication, et le décompte sera publié aussitôt. La notification partira quand même, pour un sondage auquel plus personne ne peut répondre.`}
+                </p>
+              ) : null}
+              <p className="text-xs text-muted">
+                Le sondage remontera en tête de liste, daté d’aujourd’hui : « mis en ligne » désigne
+                l’instant de la publication, et non celui où le brouillon a été enregistré.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-sm text-foreground">
+                {closParLEcheance
+                  ? `Le vote est déjà fermé depuis le ${formatDateTime(poll.endsAt)} : la règle refuse les votes et publie le décompte. Inscrire la clôture ne change rien pour les familles — cela l’écrit au document, et la fiche cessera d’afficher « clôture non inscrite ».`
+                  : poll.endsAt
+                    ? `Clore maintenant ferme le vote : dès que le statut passe à « clôturé », la règle n’accepte plus de vote. La date annoncée (${formatDateTime(poll.endsAt)}) ne sera donc pas honorée, et les familles ne pourront plus voter avant.`
+                    : `Clore maintenant ferme le vote : dès que le statut passe à « clôturé », la règle n’accepte plus de vote. Ce sondage n’annonce aucune date de clôture — c’est cette action qui y met fin.`}
+              </p>
+              <p className="text-xs text-muted">
+                Rien ne rouvre un sondage clos : ni cet écran, ni le dépôt, qui refuse tout ce qui
+                n’est pas un brouillon. Et une clôture déjà inscrite ne peut pas être réécrite.
+              </p>
+            </>
+          )}
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
               className="rounded-md bg-primary px-3 py-1.5 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
               disabled={busy}
               onClick={() => {
-                setConfirmation(false);
-                onClose(poll);
+                setConfirmation(null);
+                if (confirmation === 'open') {
+                  onOpen(poll);
+                } else {
+                  onClose(poll);
+                }
               }}
             >
-              {closParLEcheance ? 'Inscrire la clôture' : 'Clore le sondage'}
+              {confirmation === 'open'
+                ? 'Publier le sondage'
+                : closParLEcheance
+                  ? 'Inscrire la clôture'
+                  : 'Clore le sondage'}
             </button>
             <button
               type="button"
               className={ACTION_CLASS}
               disabled={busy}
               onClick={() => {
-                setConfirmation(false);
+                setConfirmation(null);
               }}
             >
               Annuler
@@ -294,13 +356,26 @@ export function PollRow({
         </div>
       ) : (
         <div className="flex flex-wrap gap-2">
+          {peutOuvrir ? (
+            <button
+              type="button"
+              className={ACTION_CLASS}
+              disabled={busy}
+              onClick={() => {
+                setConfirmation('open');
+              }}
+            >
+              Ouvrir
+            </button>
+          ) : null}
+
           {peutClore ? (
             <button
               type="button"
               className={ACTION_CLASS}
               disabled={busy}
               onClick={() => {
-                setConfirmation(true);
+                setConfirmation('close');
               }}
             >
               {closParLEcheance ? 'Inscrire la clôture' : 'Clore'}
@@ -309,8 +384,8 @@ export function PollRow({
 
           {poll.status === 'draft' ? (
             <p className="text-xs text-muted">
-              Un brouillon ne se clôt pas : il n’est lisible que par la FCPE, et le clore le
-              publierait à toute l’organisation.
+              Un brouillon ne se clôt pas, il se publie : le clore le rendrait lisible par toute
+              l’organisation sans qu’aucune notification ne parte.
             </p>
           ) : null}
         </div>

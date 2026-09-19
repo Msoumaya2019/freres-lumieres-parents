@@ -64,6 +64,18 @@
  * commodité — la règle de lecture ouvre aux parents les statuts `open` **et**
  * `closed`, donc clore un brouillon le **publierait** à toute l'organisation,
  * exactement ce que `notify: false` sert à éviter.
+ *
+ * ## `open` est un chemin qui manquait, pas une commodité
+ *
+ * `create` traduit `notify: true` en `open` : c'est le premier cas du
+ * déclencheur de notification. Le second — un document qui **devient** `open`
+ * — n'était atteignable par aucun écran tant que `open` n'existait pas ici,
+ * alors que les règles l'autorisaient depuis l'origine (`allow update` ne
+ * contraint pas `status`) et que `notifyPollAudience` était écrit pour le
+ * rattraper. Autrement dit : la moitié de `pollNotificationPlan` était du code
+ * que rien ne pouvait exécuter, et un brouillon enregistré était un aller sans
+ * retour — l'en-tête ci-dessus promettait « l'administration l'ouvrira plus
+ * tard » sans qu'aucun bouton ne le permette.
  */
 
 import {
@@ -220,6 +232,60 @@ export interface PollRepository {
    */
   create(params: CreatePollParams): Promise<string>;
   /**
+   * Publie un brouillon : `status: 'open'`, et la question devient lisible par
+   * toute son audience.
+   *
+   * ## Ce n'est pas le symétrique de `close`, et cela se voit à deux endroits
+   *
+   * `close` **enregistre** un fait que la règle tient déjà : l'échéance ferme le
+   * vote sans qu'on écrive rien, et clore ne fait qu'inscrire une date.
+   * `open`, lui, **change ce que la règle autorise** — tant que le document
+   * porte `draft`, aucun parent ne peut le lire ; dès qu'il porte `open`, il le
+   * peut.
+   *
+   * Et il **notifie**. C'est la seule écriture de ce dépôt dont la conséquence
+   * sorte de l'application : `notifyPollAudience` part sur la transition vers
+   * `open`, et rien ne la rappelle. Un envoi parti ne se retire pas.
+   *
+   * ## Seul `draft` est accepté, et c'est une liste blanche
+   *
+   * `open` n'accepte qu'un statut, là où `close` énumère ceux qu'il refuse. La
+   * différence n'est pas de style : `open` **réécrit `startsAt`** (voir plus
+   * bas), donc l'accepter sur un sondage déjà publié **déplacerait sa date de
+   * mise en ligne** — un sondage ouvert depuis un mois remonterait en tête de
+   * liste et s'afficherait comme publié aujourd'hui.
+   *
+   * Refuser `closed` n'est pas refuser `open` : un sondage clos a été publié,
+   * puis fermé. Le rouvrir changerait ce que la règle autorise après une
+   * clôture annoncée, et **aucune notification ne le dirait** — `notifiedAt`
+   * est déjà posé, et le plan s'arrête sur cette garde. C'est une action d'une
+   * autre nature, que ce dépôt ne propose pas.
+   *
+   * ## `startsAt` est corrigé ici, et c'est le sens du champ
+   *
+   * `create` écrit `startsAt: now` quel que soit le statut, donc un brouillon
+   * porte l'instant de sa **création**. Ce n'est pas ce que le champ veut dire :
+   * l'écran l'affiche « Mis en ligne le », et la liste d'administration est
+   * triée dessus. Un brouillon ouvert trois semaines plus tard doit donc
+   * remonter en tête — sinon le sondage qu'on vient de publier reste à sa place
+   * de brouillon, et peut se retrouver en seconde page.
+   *
+   * Comme seul `draft` est accepté, `startsAt` est écrit **au plus deux fois**
+   * dans la vie d'un sondage : à sa création, et à sa publication. Jamais
+   * après, et c'est ce qui rend ce déplacement inoffensif.
+   *
+   * ## Une échéance déjà passée ne fait pas refuser
+   *
+   * Publier un brouillon dont l'échéance est passée envoie une notification
+   * pour un sondage que la règle refuse déjà. Ce n'est pourtant pas un motif de
+   * refus : il n'existe **aucun** moyen de corriger `endsAt` après coup, donc
+   * refuser enfermerait ce brouillon — impossible à ouvrir, impossible à
+   * corriger, et supprimable par un administrateur seulement. L'écran, lui, le
+   * dit avant d'agir : c'est une décision qui se prend en connaissance de
+   * cause, pas un cas à interdire.
+   */
+  open(pollId: string): Promise<void>;
+  /**
    * Enregistre le vote de l'appelant, ou remplace son vote précédent.
    *
    * Le décompte des voix n'est pas écrit ici : il appartient à la Cloud
@@ -262,6 +328,7 @@ export function createPollRepository(db: Firestore): PollRepository {
     getResults,
     getMyVote,
     create,
+    open,
     vote,
     close,
   };
@@ -371,6 +438,41 @@ export function createPollRepository(db: Firestore): PollRepository {
 
       await setDoc(reference, payload);
       return reference.id;
+    } catch (error) {
+      throw toAppError(error);
+    }
+  }
+
+  async function open(pollId: string): Promise<void> {
+    const sondage = await get(pollId);
+    if (!sondage) {
+      throw appError('not-found', 'Ce sondage n’existe plus.');
+    }
+
+    // La comparaison porte sur le statut **enregistré**, et non sur le statut
+    // effectif. Ici les deux donnent la même réponse — `pollEffectiveStatus` ne
+    // reclasse que `open` sur une échéance passée, jamais `draft` — mais la
+    // question posée est bien celle du document : ouvrir publie un brouillon,
+    // cela ne demande pas si le sondage serait votable. Un brouillon dont
+    // l'échéance est passée reste donc publiable, et c'est voulu (voir
+    // l'interface).
+    if (sondage.status !== 'draft') {
+      throw appError(
+        'failed-precondition',
+        sondage.status === 'open'
+          ? 'Ce sondage est déjà publié.'
+          : 'Ce sondage a déjà été publié : le rouvrir rouvrirait le vote sans qu’aucune notification ne parte.',
+      );
+    }
+
+    const now = serverTimestamp();
+
+    try {
+      await setDoc(
+        doc(db, paths.poll(pollId)),
+        { status: 'open', startsAt: now, updatedAt: now },
+        { merge: true },
+      );
     } catch (error) {
       throw toAppError(error);
     }
