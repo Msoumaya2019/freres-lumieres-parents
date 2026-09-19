@@ -286,6 +286,18 @@ supprime que la sienne — c'est ce qui suffit à afficher l'état du bouton.
 > `stats` évite une requête par canal pour afficher l'aperçu du dernier
 > message. Sur 13 canaux, c'est 13 lectures économisées à chaque ouverture
 > de l'écran Discussions.
+>
+> **Ces trois champs n'ont encore aucun écrivain.** `messageCount` est posé à
+> zéro par `scripts/seed-channels.mjs`, et `lastMessageAt`,
+> `lastMessagePreview` et `lastMessageAuthorName` ne sont renseignés par
+> personne : il faut un déclencheur d'activité, qui reste à écrire. L'écran
+> doit donc traiter un aperçu **absent**, et non un aperçu vide.
+>
+> Les 13 canaux viennent de `DEFAULT_CHANNELS` (`@fl/shared`), écrits par
+> `scripts/seed-channels.mjs`. Le script relit chaque document avant d'écrire
+> et ne pose `stats` qu'à la création : une fusion Firestore descend dans les
+> objets imbriqués, donc réécrire `stats` remettrait `messageCount` à zéro à
+> chaque exécution.
 
 #### `channels/{channelId}/messages/{messageId}`
 
@@ -716,6 +728,7 @@ pour le ciblage du contenu **et** des notifications.
 | `posts`             | `orgId` ↑, `pinned` ↑, `publishedAt` ↓                         | épinglés en tête                    |
 | `posts`             | `authorId` ↑, `publishedAt` ↓                                  | « mes publications »                |
 | `channels`          | `orgId` ↑, `status` ↑, `order` ↑                               | liste des canaux                    |
+| `channels`          | `orgId` ↑, `type` ↑, `order` ↑                                 | liste des canaux vue par un parent  |
 | `channels`          | `orgId` ↑, `audienceKeys` (array), `order` ↑                   | canaux visibles                     |
 | `messages`          | `status` ↑, `createdAt` ↓                                      | fil de discussion (sous-collection) |
 | `polls`             | `orgId` ↑, `status` ↑, `endsAt` ↓                              | sondages ouverts                    |
@@ -746,6 +759,15 @@ pour le ciblage du contenu **et** des notifications.
 > On stocke donc aussi `orgId` (organisation principale) à plat sur le
 > document, ce qui permet `where('orgId','==',x).where('status','==','pending')`
 > — la requête exacte de la file de validation.
+
+> L'index `channels(orgId, type, order)` n'est pas une optimisation : il est
+> **imposé par la règle de lecture**. Celle-ci s'écrit
+> `orgId == orgId() && (type != 'fcpe' || isFcpe())`. Pour un parent, la seconde
+> moitié se réduit à `type != 'fcpe'`, et Firestore refuse une requête **entière**
+> quand elle pourrait rendre un document interdit — une règle n'est pas un
+> filtre. La requête d'un parent doit donc contraindre `type` elle-même.
+> Mesuré, et non déduit, par `packages/testing/src/firestore.rules.test.ts` : la
+> même requête sans cette contrainte est refusée en `permission-denied`.
 
 > La clôture automatique est le seul index de ce tableau **sans `orgId`** : le
 > planificateur balaie toutes les organisations en un passage. Un index par

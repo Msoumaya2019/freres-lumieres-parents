@@ -26,6 +26,7 @@
     "emulators:export": "firebase emulators:export ./firebase/emulator-data --force",
     "rules:test": "firebase emulators:exec --only firestore,storage \"npm run test -w @fl/testing\"",
     "seed:reference": "node scripts/seed-reference-data.mjs",
+    "seed:channels": "node scripts/seed-channels.mjs",
     "bootstrap:admin": "node scripts/bootstrap-admin.mjs",
     "deploy:rules": "firebase deploy --only firestore:rules,firestore:indexes,storage",
     "deploy:functions": "firebase deploy --only functions",

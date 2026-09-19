@@ -502,6 +502,21 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
       // qu'un auteur ne peut ni usurper une identité, ni s'attribuer un rôle,
       // ni effacer la trace d'un signalement.
       await setDoc(doc(db, 'channels', 'channel-1'), channelDocument());
+      // Un second canal, réservé à la FCPE. Il existe pour que la frontière de
+      // lecture des canaux soit mesurée à l'unité **et** en liste : la règle
+      // est une disjonction (`type != 'fcpe' || isFcpe()`), et Firestore refuse
+      // une requête entière quand elle pourrait rendre un document interdit.
+      await setDoc(
+        doc(db, 'channels', 'channel-fcpe'),
+        channelDocument({
+          id: 'channel-fcpe',
+          name: 'Bureau',
+          type: 'fcpe',
+          audience: { type: 'fcpe' },
+          audienceKeys: [`fcpe:${TEST_ORG}`],
+          order: 2,
+        }),
+      );
       await setDoc(
         doc(db, 'channels', 'channel-1', 'messages', 'message-du-parent'),
         messageDocument(),
@@ -3016,6 +3031,72 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
 
     it('personne ne retire la réaction d’un autre', async () => {
       await assertFails(deleteDoc(reaction(parent, UID.otherParent)));
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Canaux
+  // -------------------------------------------------------------------------
+
+  describe('Canaux', () => {
+    it('un membre actif lit un canal de son organisation', async () => {
+      await assertSucceeds(getDoc(doc(parent.firestore(), 'channels', 'channel-1')));
+    });
+
+    it('un parent ne lit pas un canal réservé à la FCPE', async () => {
+      await assertFails(getDoc(doc(parent.firestore(), 'channels', 'channel-fcpe')));
+    });
+
+    it('un membre FCPE lit le canal réservé à la FCPE', async () => {
+      await assertSucceeds(getDoc(doc(fcpe.firestore(), 'channels', 'channel-fcpe')));
+    });
+
+    it('un compte en attente ne lit aucun canal', async () => {
+      await assertFails(getDoc(doc(pending.firestore(), 'channels', 'channel-1')));
+    });
+
+    it('un parent d’une autre organisation ne lit pas un canal', async () => {
+      const db = testEnv.authenticatedContext('parent-externe', CLAIMS.parentOtherOrg).firestore();
+      await assertFails(getDoc(doc(db, 'channels', 'channel-1')));
+    });
+
+    it('un membre FCPE liste les canaux de son organisation', async () => {
+      // `isFcpe()` est vrai : la disjonction de la règle est satisfaite sans
+      // contraindre `type`, donc la requête passe.
+      await assertSucceeds(
+        getDocs(query(collection(fcpe.firestore(), 'channels'), where('orgId', '==', TEST_ORG))),
+      );
+    });
+
+    it('un parent liste les canaux en écartant le type fcpe', async () => {
+      // Mesuré, et non déduit. Pour un parent `isFcpe()` est faux, donc la
+      // règle se réduit à `resource.data.type != 'fcpe'` : Firestore ne peut
+      // la satisfaire que si la requête contraint `type` elle-même.
+      await assertSucceeds(
+        getDocs(
+          query(
+            collection(parent.firestore(), 'channels'),
+            where('orgId', '==', TEST_ORG),
+            where('type', 'in', ['general', 'school', 'level', 'theme']),
+          ),
+        ),
+      );
+    });
+
+    it('un parent ne liste pas les canaux sans écarter le type fcpe', async () => {
+      // On exige la **raison** du refus, pas seulement qu'il y en ait une.
+      // `assertFails` passerait aussi sur une faute de frappe dans le nom de la
+      // collection ou sur un chemin mal formé : il ne prouverait alors rien sur
+      // la règle. C'est le point qui décide de la requête du dépôt.
+      const failure = await getDocs(
+        query(collection(parent.firestore(), 'channels'), where('orgId', '==', TEST_ORG)),
+      ).then(
+        () => null,
+        (error: unknown) => error,
+      );
+
+      expect(failure).not.toBeNull();
+      expect((failure as { code?: string }).code).toBe('permission-denied');
     });
   });
 

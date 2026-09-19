@@ -45,58 +45,18 @@ import {
 // ---------------------------------------------------------------------------
 
 /**
- * Établissements et niveaux ouverts.
+ * Elles vivent dans `@fl/shared`, et non ici.
  *
- * Modifier ce bloc suffit : les identifiants de classes en découlent, donc
- * ajouter un niveau crée la classe correspondante sans autre intervention.
+ * Elles y étaient, et les canaux de discussion par défaut s'adressent à une
+ * **école** ou à un **niveau** : deux tables recopiées auraient divergé en
+ * silence, et un canal de niveau aurait visé une école inexistante sans que
+ * rien ne le signale. Une seule source, lue par ce script **et** par
+ * `DEFAULT_CHANNELS`.
+ *
+ * Modifier `REFERENCE_SCHOOLS` suffit : les identifiants de classes en
+ * découlent, donc ajouter un niveau crée la classe correspondante sans autre
+ * intervention.
  */
-const SCHOOLS = [
-  {
-    id: 'maternelle-freres-lumieres',
-    name: 'École maternelle Frères Lumières',
-    level: 'maternelle',
-    levels: [
-      { code: 'PS', label: 'Petite section' },
-      { code: 'MS', label: 'Moyenne section' },
-      { code: 'GS', label: 'Grande section' },
-    ],
-  },
-  {
-    id: 'elementaire-freres-lumieres',
-    name: 'École élémentaire Frères Lumières',
-    level: 'elementaire',
-    levels: [
-      { code: 'CP', label: 'CP' },
-      { code: 'CE1', label: 'CE1' },
-      { code: 'CE2', label: 'CE2' },
-      { code: 'CM1', label: 'CM1' },
-      { code: 'CM2', label: 'CM2' },
-    ],
-  },
-];
-
-const ORGANIZATION = {
-  name: 'FCPE — Écoles Frères Lumières',
-  slug: DEFAULT_ORG_ID,
-  city: 'Montmagny',
-  settings: {
-    // Conservation des signalements clos : un an couvre une année scolaire.
-    reportRetentionDays: 365,
-    // Nombre de signalements distincts au-delà duquel on propose d'en faire
-    // un sujet collectif plutôt que de traiter les cas isolément.
-    collectiveIssueThreshold: 5,
-  },
-  active: true,
-};
-
-// ---------------------------------------------------------------------------
-// Aides
-// ---------------------------------------------------------------------------
-
-/** Identifiant de classe déterministe : « elementaire-freres-lumieres-ce1 ». */
-function classId(schoolId, levelCode) {
-  return `${schoolId}-${levelCode.toLowerCase()}`;
-}
 
 // ---------------------------------------------------------------------------
 // Exécution
@@ -109,16 +69,19 @@ await run(async () => {
   const academicYear =
     typeof args['academic-year'] === 'string' ? args['academic-year'] : shared.getAcademicYear();
 
+  const schools = shared.REFERENCE_SCHOOLS;
+  const organization = shared.REFERENCE_ORG;
+
   if (!/^\d{4}-\d{4}$/.test(academicYear)) {
     throw new Error(`Année scolaire invalide : « ${academicYear} ». Format attendu : 2026-2027.`);
   }
 
-  const classCount = SCHOOLS.reduce((total, school) => total + school.levels.length, 0);
+  const classCount = schools.reduce((total, school) => total + school.levels.length, 0);
 
   await confirmTarget({
     projectId,
     description:
-      `créer ou mettre à jour 1 organisation, ${SCHOOLS.length} écoles et ` +
+      `créer ou mettre à jour 1 organisation, ${schools.length} écoles et ` +
       `${classCount} classes (année ${academicYear})`,
     args,
   });
@@ -131,11 +94,14 @@ await run(async () => {
   log.step('Organisation');
   await firestore
     .doc(`organizations/${DEFAULT_ORG_ID}`)
-    .set({ id: DEFAULT_ORG_ID, ...ORGANIZATION, updatedAt: now }, { merge: true });
-  log.ok(`${ORGANIZATION.name} (${DEFAULT_ORG_ID})`);
+    .set(
+      { id: DEFAULT_ORG_ID, ...organization, slug: DEFAULT_ORG_ID, updatedAt: now },
+      { merge: true },
+    );
+  log.ok(`${organization.name} (${DEFAULT_ORG_ID})`);
 
   // --- Établissements et classes -------------------------------------------
-  for (const school of SCHOOLS) {
+  for (const school of schools) {
     log.step(school.name);
 
     const levels = school.levels.map((entry) => entry.code);
@@ -160,7 +126,7 @@ await run(async () => {
     const batch = firestore.batch();
 
     for (const entry of school.levels) {
-      const id = classId(school.id, entry.code);
+      const id = shared.classIdFor(school.id, entry.code);
       batch.set(
         firestore.doc(`classes/${id}`),
         {

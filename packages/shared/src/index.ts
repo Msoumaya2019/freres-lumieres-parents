@@ -7,6 +7,8 @@
  */
 
 export * from './constants.js';
+export * from './reference.js';
+export * from './channels.js';
 export * from './labels.js';
 export * from './reactions.js';
 export * from './audience.js';

@@ -70,6 +70,15 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "orgId", "order": "ASCENDING" },
+        { "fieldPath": "type", "order": "ASCENDING" },
+        { "fieldPath": "order", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "channels",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "orgId", "order": "ASCENDING" },
         { "fieldPath": "audienceKeys", "arrayConfig": "CONTAINS" },
         { "fieldPath": "order", "order": "ASCENDING" }
       ]

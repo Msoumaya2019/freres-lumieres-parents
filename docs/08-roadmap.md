@@ -906,12 +906,30 @@ et uniquement celles-là ; les préférences sont respectées, sauf pour `urgent
 - [ ] Fil de discussion paginé (30 messages)
 - [ ] Envoi de message, réponse, réaction, pièce jointe
 - [ ] Signalement d'un message
-- [ ] Création des 13 canaux par défaut (script d'amorçage)
+- [x] Création des 13 canaux par défaut (script d'amorçage)
 - [ ] Canaux en lecture seule
 - [ ] Modération : masquer un message
 
 **Critère de sortie :** un seul listener temps réel dans toute l'application,
 celui du canal ouvert.
+
+**État au 19 septembre 2026.** Le socle serveur est en place et mesuré : la liste
+`DEFAULT_CHANNELS` dans `@fl/shared`, le dépôt `createChannelRepository`, le
+script `scripts/seed-channels.mjs` — exécuté contre l'émulateur, relancé, et
+vérifié —, et huit tests de règles qui fixent la frontière de lecture des canaux.
+
+Trois points restent ouverts, et deux ne sont pas du travail d'écran :
+
+- **L'aperçu du dernier message n'a aucun écrivain.** Rien ne renseigne
+  `lastMessagePreview` ni `lastMessageAt` : il faut un déclencheur d'activité.
+- **La réaction sur un message n'a aucun support.** Il n'existe ni chemin ni
+  règle pour `channels/{id}/messages/{mid}/reactions` ; l'écriture serait refusée
+  par défaut. `ChannelMessage.reactions` existe et les règles le figent, mais
+  rien ne l'alimente. La case « réaction » de cette phase demande donc d'abord
+  des règles, pas un bouton.
+- **Le signalement d'un message dépend de la phase 7.** `ModerationTargetType`
+  accepte déjà `'message'`, ce qui n'est pas la même chose qu'un dépôt capable
+  de l'écrire.
 
 ---
 
