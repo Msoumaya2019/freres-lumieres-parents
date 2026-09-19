@@ -112,13 +112,13 @@ quatre travaux parallèles**. Chacun déclare `needs: quality`, donc un échec d
 formatage, de lint, de types ou de tests les **annule tous** — au lieu de les
 laisser tourner pour rien.
 
-| Travail (nom affiché)                     | Contenu                                                | Dépend de |
-| ----------------------------------------- | ------------------------------------------------------ | --------- |
-| `quality` — Format · Lint · Types · Tests | audit, packages, formatage, ESLint, types, tests       | —         |
-| `build-admin` — Build Web Admin           | build Next.js de production, archivé en artefact       | `quality` |
-| `mobile-check` — Vérification Expo        | `expo config`, puis `expo export --platform android`   | `quality` |
-| `build-functions` — Build Cloud Functions | compilation TypeScript des Cloud Functions             | `quality` |
-| `rules` — Tests des règles Firebase       | émulateur Firestore sous Java 21, `npm run rules:test` | `quality` |
+| Travail (nom affiché)                     | Contenu                                                           | Dépend de |
+| ----------------------------------------- | ----------------------------------------------------------------- | --------- |
+| `quality` — Format · Lint · Types · Tests | audit, flux de travail, packages, formatage, ESLint, types, tests | —         |
+| `build-admin` — Build Web Admin           | build Next.js de production, archivé en artefact                  | `quality` |
+| `mobile-check` — Vérification Expo        | `expo config`, puis `expo export --platform android`              | `quality` |
+| `build-functions` — Build Cloud Functions | compilation TypeScript des Cloud Functions                        | `quality` |
+| `rules` — Tests des règles Firebase       | émulateur Firestore sous Java 21, `npm run rules:test`            | `quality` |
 
 Le travail `quality`, lui, est bien une suite d'étapes :
 
@@ -127,14 +127,20 @@ Le travail `quality`, lui, est bien une suite d'étapes :
 | 1. Checkout              | `actions/checkout`                     | oui          |
 | 2. Node 22 + cache npm   | `actions/setup-node` avec `cache: npm` | oui          |
 | 3. Installation          | `npm ci` (lockfile strict)             | oui          |
-| 4. Audit des dépendances | `npm audit --audit-level=high`         | oui          |
-| 5. Build des packages    | `npm run build:packages`               | oui          |
-| 6. Formatage             | `npm run format:check`                 | oui          |
-| 7. ESLint                | `npm run lint`                         | oui          |
-| 8. TypeScript            | `npm run typecheck`                    | oui          |
-| 9. Tests unitaires       | `npm run test`                         | oui          |
+| 4. Flux de travail       | `npm run workflows:check`              | oui          |
+| 5. Audit des dépendances | `npm audit --audit-level=high`         | oui          |
+| 6. Build des packages    | `npm run build:packages`               | oui          |
+| 7. Formatage             | `npm run format:check`                 | oui          |
+| 8. ESLint                | `npm run lint`                         | oui          |
+| 9. TypeScript            | `npm run typecheck`                    | oui          |
+| 10. Tests unitaires      | `npm run test`                         | oui          |
 
-L'étape 4 est bloquante et son seuil est `high`. Il est haut parce que les avis
+L'étape 4 est le contrôle statique des flux de travail — voir § 5. Elle est
+placée tôt parce qu'une faute de syntaxe dans un script `run:` ne se voit
+qu'à l'exécution du flux concerné, c'est-à-dire sur un exécuteur macOS réservé
+pour quinze minutes.
+
+L'étape 5 est bloquante et son seuil est `high`. Il est haut parce que les avis
 modérés de cet arbre sont, pour l'essentiel, des outils de construction qui ne
 quittent jamais la machine. Mais **la porte ne remplace pas la lecture** : un
 avis réellement joignable dans le paquet livré n'est pas forcément « haut », et
@@ -159,7 +165,7 @@ de vérifier réellement les règles de sécurité avant la production.
 
 ### Un document qui ne bloque pas l'étape de formatage
 
-L'étape 6 — le formatage — échoue parfois pour une raison qui n'a rien à voir
+L'étape 7 — le formatage — échoue parfois pour une raison qui n'a rien à voir
 avec le contenu. Deux constructions, et deux seulement, ont été trouvées et
 mesurées — **toutes deux à l'intérieur d'une entrée de liste**, et **toutes deux
 seulement au retrait six**, celui des documents de ce dépôt :
@@ -289,12 +295,86 @@ visant `main`**, et une fois par semaine — une nouvelle règle d'analyse peut
 détecter un problème dans du code ancien. Signale les motifs dangereux —
 injection, données non validées, usage incorrect de la cryptographie.
 
+### `ios-unsigned.yml`
+
+**Déclenchement manuel uniquement** (`workflow_dispatch`) : un build natif iOS
+occupe un exécuteur macOS une quinzaine de minutes, et la majorité des commits ne
+mérite pas un binaire.
+
+Il produit un **IPA non signé**, et c'est le point à comprendre avant de le
+lancer : iOS refuse d'installer ce qui n'est pas signé. Le fichier est un
+**produit intermédiaire**, à re-signer sur la machine de l'utilisateur
+(Sideloadly, AltStore) avec son propre identifiant Apple. Signer en CI exigerait
+un certificat et un profil de provisionnement, qui n'ont pas leur place dans un
+dépôt public.
+
+**Pourquoi ce flux existe à côté de `mobile-build.yml` :** celui-ci passe par
+EAS, qui demande un compte Expo, un jeton et un `projectId` renseigné dans
+`app.json` — trois choses à obtenir avant de produire quoi que ce soit.
+`ios-unsigned.yml` n'en demande **aucune** : il génère le projet Xcode avec
+`expo prebuild`, compile sans signature, et empaquette.
+
+Il exige en revanche **sept variables de dépôt** — les six
+`EXPO_PUBLIC_FIREBASE_*` et `EXPO_PUBLIC_DEFAULT_ORG_SLUG` — déclarées dans
+`Settings → Secrets and variables → Actions → onglet Variables`. Ce ne sont pas
+des secrets : elles sont embarquées en clair dans l'application livrée, et les
+mettre en secret donnerait une fausse impression de protection. Le flux
+**s'arrête avant toute installation** si l'une manque, plutôt que de partir sur
+quinze minutes de compilation.
+
+Ces variables sont déclarées **au niveau du job**, et non de l'étape
+`expo prebuild`. Metro remplace `process.env.EXPO_PUBLIC_*` pendant la phase
+« Bundle React Native code and images », **à l'intérieur de `xcodebuild`** :
+déclarées sur le prebuild seul, elles ne seraient jamais inlinées. Le binaire se
+compilerait, s'installerait, et n'afficherait **aucune donnée** — un défaut
+invisible avant l'installation sur un téléphone. C'est ce que vérifie
+`scripts/verify-bundle-config.mjs`, après empaquetage, sur le bundle réellement
+embarqué, et dans les deux encodages — une table de chaînes Hermes range le non
+ASCII en UTF-16LE.
+
+L'exécuteur est `macos-26`, et non `macos-15` : Xcode 26 est le premier à fournir
+Swift 6.2, exigé par `expo-modules-jsi` (`swift-tools-version: 6.2`). L'image
+`macos-15` a Xcode 26 installé mais **16.4 par défaut**, et la compilation
+échouerait sur un message qui nomme « apple » — le dossier du paquet, et non
+Apple.
+
+Trois obstacles attendent la re-signature, et **aucun message d'erreur ne les
+nomme** : un mot de passe d'application est refusé par un compte gratuit (il faut
+le mot de passe principal et la double authentification), le mode développeur est
+obligatoire depuis iOS 16, et sous Windows iTunes doit venir du site d'Apple —
+la version du Microsoft Store n'installe pas les pilotes Apple Mobile Device.
+
 ### Les tests de règles ne sont pas un workflow à part
 
 Ils forment le travail `rules` de `ci.yml`. Il n'existe **aucun**
 `rules-tests.yml` : un workflow séparé n'apporterait rien, puisqu'il faudrait le
-déclencher en plus pour obtenir un résultat déjà visible. Les trois workflows du
-dépôt sont `ci.yml`, `codeql.yml` et `mobile-build.yml`.
+déclencher en plus pour obtenir un résultat déjà visible.
+
+### Le contrôle des flux de travail
+
+`scripts/check-workflows.mjs`, lancé par `npm run workflows:check` — étape 4 de
+`ci.yml`. Il analyse les quatre flux, puis passe **chaque** script `run:` à
+`bash -n`. Un flux de travail se teste normalement en le poussant, c'est-à-dire
+au pire moment : une faute de frappe dans un script ne se paie pas en secondes
+mais en un aller-retour complet, après l'installation des dépendances. Ici, elle
+se paie en une seconde.
+
+Sa portée est écrite dans son en-tête, et elle est volontairement étroite :
+`bash -n` **analyse sans évaluer**, donc il attrape un `then` manquant ou une
+quote non fermée, mais **pas** une expansion fautive. Il vérifie en outre que le
+déclencheur existe, que chaque action est épinglée à un SHA, que `permissions`
+est déclaré, que les `working-directory` et les chemins de scripts cités
+existent, et que les expressions `steps.X.outputs.Y` et `inputs.X` désignent
+quelque chose de réel — y compris, pour une étape `run:`, une sortie qu'elle
+**écrit** réellement.
+
+La liste des flux attendus est **fermée dans les deux sens** : un flux supprimé
+échoue, et un flux ajouté mais non déclaré échoue aussi. C'est le seul contrôle
+du dépôt dont l'absence d'un sujet produirait un vert trompeur — rien d'autre
+dans la chaîne ne lit `.github/workflows`.
+
+Les quatre workflows du dépôt sont `ci.yml`, `codeql.yml`, `ios-unsigned.yml`
+et `mobile-build.yml`.
 
 ---
 

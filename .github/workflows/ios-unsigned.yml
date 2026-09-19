@@ -1,0 +1,340 @@
+# =============================================================================
+#  IPA iOS non signé
+# =============================================================================
+#
+#  DÉCLENCHEMENT MANUEL UNIQUEMENT.
+#
+#  Un build natif iOS prend une quinzaine de minutes sur un exécuteur macOS.
+#  Le lancer à chaque push serait un gaspillage : la majorité des commits ne
+#  mérite pas un binaire. `ci.yml` vérifie déjà, à chaque pull request, que le
+#  bundle se construit.
+#
+#  Utilisation : Actions → IPA iOS → Run workflow
+#
+#  ## Pourquoi ce flux existe à côté de `mobile-build.yml`
+#
+#  `mobile-build.yml` passe par EAS, qui demande un compte Expo, un jeton, et
+#  un `projectId` renseigné dans `app.json` — trois choses à obtenir avant de
+#  produire quoi que ce soit. Celui-ci n'en demande **aucune** : il génère le
+#  projet Xcode, compile sans signature, et empaquette.
+#
+#  ## Ce qu'il produit, et ce qu'il ne produit pas
+#
+#  Un IPA **non signé**. iOS refuse d'installer ce qui n'est pas signé : le
+#  fichier est un produit intermédiaire, à re-signer sur la machine de
+#  l'utilisateur (Sideloadly, AltStore) avec son propre identifiant Apple. La
+#  signature en CI exigerait un certificat et un profil de provisionnement, qui
+#  n'ont pas leur place dans un dépôt public.
+#
+#  ## La configuration Firebase n'est pas un secret
+#
+#  Elle est lue dans les **variables** du dépôt (`vars.`), et non dans les
+#  secrets. Les six valeurs `EXPO_PUBLIC_FIREBASE_*` et le slug d'organisation
+#  sont de toute façon embarquées en clair dans l'application livrée : les
+#  mettre en secret donnerait une fausse impression de protection sans rien
+#  protéger. La sécurité réelle est assurée par les Security Rules.
+#
+#  Actions épinglées à un SHA de commit — voir l'en-tête de `ci.yml`.
+# =============================================================================
+
+name: IPA iOS
+
+on:
+  workflow_dispatch:
+    inputs:
+      retention:
+        description: "Durée de conservation de l'artefact, en jours"
+        required: false
+        default: "14"
+        type: string
+
+concurrency:
+  group: ios-unsigned-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  ipa:
+    name: Compiler l'IPA
+    # Xcode 26 est le premier à fournir Swift 6.2, exigé par `expo-modules-jsi`
+    # (`swift-tools-version: 6.2`). L'image `macos-15` a Xcode 26 installé mais
+    # 16.4 **par défaut** : la compilation échouerait sur un message qui nomme
+    # « apple » — le dossier du paquet, et non Apple.
+    runs-on: macos-26
+    timeout-minutes: 60
+
+    env:
+      # AU NIVEAU DU JOB, et non de l'étape `expo prebuild`.
+      #
+      # Metro remplace `process.env.EXPO_PUBLIC_*` pendant la phase « Bundle
+      # React Native code and images », à l'intérieur de `xcodebuild`. Déclarées
+      # sur le prebuild seul, elles ne seraient jamais inlinées : le binaire se
+      # compilerait, s'installerait, et n'afficherait aucune donnée. Le défaut
+      # ne se voit qu'après installation, sur un téléphone.
+      EXPO_PUBLIC_APP_ENV: production
+      # Littéral, et non un booléen : `assertEmulatorsAllowed` lève au démarrage
+      # si les émulateurs sont activés en production.
+      EXPO_PUBLIC_USE_FIREBASE_EMULATORS: "false"
+      EXPO_PUBLIC_FIREBASE_API_KEY: ${{ vars.EXPO_PUBLIC_FIREBASE_API_KEY }}
+      EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN: ${{ vars.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN }}
+      EXPO_PUBLIC_FIREBASE_PROJECT_ID: ${{ vars.EXPO_PUBLIC_FIREBASE_PROJECT_ID }}
+      EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET: ${{ vars.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET }}
+      EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${{ vars.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID }}
+      EXPO_PUBLIC_FIREBASE_APP_ID: ${{ vars.EXPO_PUBLIC_FIREBASE_APP_ID }}
+      EXPO_PUBLIC_DEFAULT_ORG_SLUG: ${{ vars.EXPO_PUBLIC_DEFAULT_ORG_SLUG }}
+      # Tous les chemins de ce travail sont relatifs à la **racine du dépôt**.
+      # Aucune étape de compilation ou d'empaquetage ne déclare de
+      # `working-directory` : les préfixer une seconde fois produirait
+      # `apps/mobile/apps/mobile/ios/…`, et xcodebuild répondrait « does not
+      # exist » pour un espace de travail qu'une étape précédente vient de
+      # trouver. La seule exception est `expo prebuild`, qui doit s'exécuter
+      # dans le paquet de l'application.
+      IOS_DIR: apps/mobile/ios
+
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Installer Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.22.2"
+          cache: npm
+
+      - name: Vérifier la version d'Xcode
+        # Quelques secondes, contre un échec obscur après deux minutes de
+        # compilation. GitHub bascule régulièrement la version par défaut de ses
+        # images, et l'annonce dans son propre journal.
+        run: |
+          VERSION=$(xcodebuild -version | head -n 1 | sed 's/^Xcode //')
+          MAJEUR=${VERSION%%.*}
+
+          echo "Xcode $VERSION"
+
+          if [ "$MAJEUR" -lt 26 ]; then
+            echo "::error::Xcode $VERSION est trop ancien pour ce projet."
+            echo "expo-modules-jsi déclare « swift-tools-version: 6.2 », fourni à partir d'Xcode 26."
+            exit 1
+          fi
+
+      - name: Vérifier la configuration Firebase
+        # Avant d'installer quoi que ce soit : un build de quinze minutes ne doit
+        # pas partir sur une variable manquante.
+        run: |
+          MANQUANTES=""
+
+          for NOM in \
+            EXPO_PUBLIC_FIREBASE_API_KEY \
+            EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN \
+            EXPO_PUBLIC_FIREBASE_PROJECT_ID \
+            EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET \
+            EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID \
+            EXPO_PUBLIC_FIREBASE_APP_ID \
+            EXPO_PUBLIC_DEFAULT_ORG_SLUG
+          do
+            if [ -z "${!NOM}" ]; then
+              MANQUANTES="$MANQUANTES $NOM"
+            fi
+          done
+
+          if [ -n "$MANQUANTES" ]; then
+            echo "::error::Variables de dépôt manquantes :$MANQUANTES"
+            echo "Settings → Secrets and variables → Actions → onglet Variables."
+            echo "Ces valeurs ne sont pas des secrets : elles sont visibles dans l'application livrée."
+            echo "Console Firebase → Paramètres du projet → Vos applications → SDK setup."
+            exit 1
+          fi
+
+          echo "Configuration Firebase complète (7 valeurs)."
+
+      - name: Installer les dépendances
+        run: npm ci
+
+      - name: Compiler les packages partagés
+        # Metro résout `@fl/shared` et `@fl/firebase` depuis leur `dist/`. Sans
+        # cette étape, le bundle échoue sur un module introuvable.
+        run: npm run build:packages
+
+      - name: Générer le projet Xcode
+        working-directory: apps/mobile
+        # `--clean` : sans lui, une modification de `app.json` — un identifiant,
+        # une permission — peut ne pas être reprise, et le binaire ne correspond
+        # plus au code. `ios/` n'est jamais versionné.
+        run: npx expo prebuild --platform ios --clean
+
+      - name: Repérer le projet et le schéma
+        id: cible
+        # Le nom du projet n'est pas deviné : il dérive du `name` de `app.json`,
+        # qui est accentué (« Frères Lumières »), et la règle de nommage
+        # appliquée par Expo n'est pas un contrat documenté. On lit ce qui a
+        # été produit.
+        #
+        # Le schéma se **déduit du projet**, il ne se choisit pas dans la liste :
+        # sur un espace de travail CocoaPods, `xcodebuild -list` énumère aussi
+        # les schémas des pods, et `EXConstants` arrive alphabétiquement avant
+        # celui de l'application. Prendre le premier compilait un pod — le build
+        # réussissait, et l'empaquetage ne trouvait aucune application.
+        #
+        # La liste ne sert donc qu'à **confirmer**. Son échec ne doit pas
+        # interrompre la compilation : `xcodebuild -list -json` écrit parfois du
+        # bruit autour de son JSON, et un contrôle de confort qui casse un build
+        # valide coûte plus cher que le défaut qu'il surveille.
+        #
+        # `type` et `chemin` sortent séparément, et non concaténés : le nom du
+        # projet peut contenir une espace, et une sortie interpolée sans
+        # guillemets dans l'étape suivante se découperait en deux mots.
+        run: |
+          PROJET_APP=$(find "$IOS_DIR" -maxdepth 1 -name '*.xcodeproj' | head -n 1)
+
+          if [ -z "$PROJET_APP" ]; then
+            echo "::error::Aucun projet Xcode n'a été généré par expo prebuild."
+            ls -la "$IOS_DIR" || true
+            exit 1
+          fi
+
+          SCHEME=$(basename "$PROJET_APP" .xcodeproj)
+          WORKSPACE=$(find "$IOS_DIR" -maxdepth 1 -name '*.xcworkspace' | head -n 1)
+
+          if [ -n "$WORKSPACE" ]; then
+            TYPE=workspace
+            CHEMIN=$WORKSPACE
+          else
+            TYPE=project
+            CHEMIN=$PROJET_APP
+          fi
+
+          # L'extraction vit dans un script, et non dans un one-liner : elle
+          # s'éprouve alors sur un banc, en une seconde, au lieu de ne se
+          # corriger qu'en relançant la compilation.
+          SCHEMAS=$(xcodebuild "-$TYPE" "$CHEMIN" -list -json 2>/dev/null \
+            | node scripts/lire-schemas-xcodebuild.mjs || true)
+
+          echo "projet   : $PROJET_APP"
+          echo "schéma   : $SCHEME"
+          echo "cible    : -$TYPE $CHEMIN"
+
+          if [ -z "$SCHEMAS" ]; then
+            echo "::warning::La liste des schémas n'a pas pu être lue : on compile avec le nom du projet."
+          elif ! printf '%s\n' "$SCHEMAS" | grep -Fxq "$SCHEME"; then
+            echo "::error::Le schéma « $SCHEME » est absent de la liste :"
+            printf '%s\n' "$SCHEMAS"
+            exit 1
+          else
+            echo "liste    : schéma confirmé"
+          fi
+
+          echo "type=$TYPE" >> "$GITHUB_OUTPUT"
+          echo "chemin=$CHEMIN" >> "$GITHUB_OUTPUT"
+          echo "scheme=$SCHEME" >> "$GITHUB_OUTPUT"
+
+      - name: Compiler sans signature
+        # Aucun `working-directory` ici : `chemin` est relatif à la racine du
+        # dépôt. Les quatre réglages de signature sont nécessaires ensemble —
+        # `CODE_SIGNING_ALLOWED=NO` seul suffit la plupart du temps, mais Xcode
+        # retombe parfois sur une identité par défaut, et l'échec est alors un
+        # message de trousseau de clés difficile à relier à sa cause.
+        run: |
+          xcodebuild "-${{ steps.cible.outputs.type }}" "${{ steps.cible.outputs.chemin }}" \
+            -scheme "${{ steps.cible.outputs.scheme }}" \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath "$IOS_DIR/build" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            build
+
+      - name: Empaqueter l'IPA
+        id: ipa
+        # Le chemin parcouru ici doit correspondre exactement au
+        # `-derivedDataPath` de l'étape précédente : ce sont deux endroits
+        # distincts du YAML, et rien ne les relie.
+        run: |
+          APP=$(find "$IOS_DIR/build/Build/Products/Release-iphoneos" -maxdepth 1 -name '*.app' | head -n 1)
+
+          if [ -z "$APP" ]; then
+            echo "::error::Aucune application compilée : le schéma était-il le bon ?"
+            ls -la "$IOS_DIR/build/Build/Products" || true
+            exit 1
+          fi
+
+          IPA="freres-lumieres-non-signe.ipa"
+
+          rm -rf Payload
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          zip -qry "$IPA" Payload
+          rm -rf Payload
+
+          echo "ipa=$IPA" >> "$GITHUB_OUTPUT"
+          echo "taille : $(du -h "$IPA" | cut -f1)"
+
+      - name: Vérifier la configuration dans le paquet
+        # Le contrôle qui empêche de livrer un binaire muet. Il tourne sur le
+        # bundle réellement embarqué, et cherche chaque valeur dans les deux
+        # encodages — Hermes range le non ASCII en UTF-16.
+        run: |
+          BUNDLE="$RUNNER_TEMP/main.jsbundle"
+
+          unzip -p "${{ steps.ipa.outputs.ipa }}" 'Payload/*.app/main.jsbundle' > "$BUNDLE" || true
+
+          if [ ! -s "$BUNDLE" ]; then
+            echo "::error::Le bundle JavaScript est introuvable dans l'IPA."
+            unzip -l "${{ steps.ipa.outputs.ipa }}" | head -20
+            exit 1
+          fi
+
+          node scripts/verify-bundle-config.mjs "$BUNDLE"
+
+      - name: Conserver l'IPA
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ipa-non-signe
+          path: freres-lumieres-non-signe.ipa
+          retention-days: ${{ inputs.retention }}
+          if-no-files-found: error
+
+      - name: Résumé
+        run: |
+          {
+            echo "### IPA non signé"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Fichier | \`freres-lumieres-non-signe.ipa\` |"
+            echo "| Commit | \`${{ github.sha }}\` |"
+            echo "| Schéma | \`${{ steps.cible.outputs.scheme }}\` |"
+            echo "| Configuration | vérifiée dans le bundle |"
+            echo ""
+            echo "#### Cet IPA ne s'installe pas tel quel"
+            echo ""
+            echo "iOS refuse tout ce qui n'est pas signé. Le fichier doit être"
+            echo "**re-signé sur votre machine** avec votre identifiant Apple :"
+            echo "[Sideloadly](https://sideloadly.io/) ou [AltStore](https://altstore.io/)."
+            echo ""
+            echo "#### Trois murs, et aucun message d'erreur ne les nomme"
+            echo ""
+            echo "1. **Mot de passe principal, pas mot de passe d'application.**"
+            echo "   Un mot de passe d'application n'est accepté qu'avec un compte"
+            echo "   développeur payant. Avec un compte gratuit : mot de passe"
+            echo "   principal, puis le code à six chiffres de la double"
+            echo "   authentification."
+            echo "2. **Mode développeur obligatoire depuis iOS 16.** Réglages →"
+            echo "   Confidentialité et sécurité → Mode développeur, puis redémarrer."
+            echo "   Toujours requis : l'application vise iOS 16.4 au minimum."
+            echo "3. **Sous Windows, iTunes doit venir du site d'Apple.** La version"
+            echo "   du Microsoft Store n'installe pas les pilotes Apple Mobile"
+            echo "   Device, et Sideloadly répond « No devices detected »."
+            echo ""
+            echo "Puis, sur l'iPhone : Réglages → Général → VPN et gestion de"
+            echo "l'appareil → votre identifiant → **Faire confiance**."
+            echo ""
+            echo "#### Limites d'un compte Apple gratuit"
+            echo ""
+            echo "7 jours de validité, 3 applications simultanées, 10 identifiants"
+            echo "d'application par tranche de 7 jours. Cocher le rafraîchissement"
+            echo "automatique de Sideloadly évite de resigner à la main chaque semaine."
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -73,6 +73,13 @@ jobs:
         # qui garantit que la CI teste exactement les versions installées.
         run: npm ci
 
+      - name: Vérifier les flux de travail
+        # Placé tôt, et avant les étapes longues : une faute de syntaxe dans un
+        # script `run:` ne se voit qu'à l'exécution du flux concerné, c'est-à-dire
+        # sur un exécuteur macOS réservé pour quinze minutes. Ce contrôle l'attrape
+        # en une seconde, et lit les quatre flux du dépôt.
+        run: npm run workflows:check
+
       - name: Auditer les dépendances
         # Le seuil est `high`, et l'échec est bloquant. Mesuré le jour où cette
         # étape a été écrite : 22 avis, tous `moderate`, donc la porte est

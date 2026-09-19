@@ -68,14 +68,15 @@ partagés depuis leur dossier `dist`. Sans cette étape, `npm run typecheck`
 Toutes ces commandes tournent **sans aucun secret** : c'est une contrainte de
 conception, pas une coïncidence. La CI les exécute à chaque push.
 
-| Commande               | Effet                                                           |
-| ---------------------- | --------------------------------------------------------------- |
-| `npm run typecheck`    | Vérifie les types de tous les workspaces                        |
-| `npm run lint`         | ESLint sur tous les workspaces                                  |
-| `npm run test`         | Tests unitaires (aucun émulateur requis)                        |
-| `npm run format`       | Reformate tout le dépôt                                         |
-| `npm run format:check` | Vérifie le formatage sans modifier                              |
-| `npm run rules:test`   | **Tests des règles de sécurité** sur émulateur (Java 21 requis) |
+| Commande                  | Effet                                                           |
+| ------------------------- | --------------------------------------------------------------- |
+| `npm run typecheck`       | Vérifie les types de tous les workspaces                        |
+| `npm run lint`            | ESLint sur tous les workspaces                                  |
+| `npm run test`            | Tests unitaires (aucun émulateur requis)                        |
+| `npm run format`          | Reformate tout le dépôt                                         |
+| `npm run format:check`    | Vérifie le formatage sans modifier                              |
+| `npm run workflows:check` | Contrôle statique des flux de travail GitHub Actions            |
+| `npm run rules:test`      | **Tests des règles de sécurité** sur émulateur (Java 21 requis) |
 
 ### Amorçage d'un environnement
 
