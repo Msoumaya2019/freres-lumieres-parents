@@ -187,6 +187,73 @@ d'accès n'est nécessaire.
 
 ---
 
+## Installer l'application sur un iPhone
+
+Il n'y a **pas** de compte Apple Developer, donc ni TestFlight ni distribution
+directe. La voie est : produire un **IPA non signé** par GitHub Actions, puis le
+re-signer avec votre propre identifiant Apple.
+
+### 1. Poser les sept variables
+
+`Settings → Secrets and variables → Actions → onglet **Variables**` — l'onglet
+_Variables_, pas _Secrets_. Ces valeurs sont publiques par nature : elles sont
+embarquées en clair dans l'application livrée.
+
+| Variable                                   |
+| ------------------------------------------ |
+| `EXPO_PUBLIC_FIREBASE_API_KEY`             |
+| `EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN`         |
+| `EXPO_PUBLIC_FIREBASE_PROJECT_ID`          |
+| `EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET`      |
+| `EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID` |
+| `EXPO_PUBLIC_FIREBASE_APP_ID`              |
+| `EXPO_PUBLIC_DEFAULT_ORG_SLUG`             |
+
+Les six premières viennent de la console Firebase (voir _Mise en service d'un
+projet Firebase_ ci-dessus) ; la dernière est `fcpe-montmagny`.
+
+### 2. Lancer la compilation
+
+Actions → **Build iOS Unsigned** → _Run workflow_, puis choisir
+**`refonte/npm-workspaces`** dans « Use workflow from ».
+
+**La branche compte** : le dépôt porte deux implémentations, et choisir `main`
+compilerait l'autre. Le flux s'arrête en quelques secondes si une variable
+manque — c'est voulu, un binaire muet qui s'installe coûte plus cher qu'un refus
+immédiat. Comptez une quinzaine de minutes, puis l'IPA à télécharger dans les
+artefacts du run.
+
+### 3. Re-signer sur votre machine
+
+L'IPA produit **ne s'installe pas tel quel** : iOS refuse tout ce qui n'est pas
+signé. Re-signez-le avec [Sideloadly](https://sideloadly.io/) ou
+[AltStore](https://altstore.io/), avec votre identifiant Apple.
+
+Trois murs, et aucun message d'erreur ne les nomme :
+
+1. **Mot de passe principal**, et non mot de passe d'application — un mot de
+   passe d'application n'est accepté qu'avec un compte développeur payant.
+2. **Mode développeur obligatoire** depuis iOS 16 : Réglages → Confidentialité et
+   sécurité → Mode développeur, puis redémarrer.
+3. **Sous Windows, iTunes doit venir du site d'Apple.** La version du Microsoft
+   Store n'installe pas les pilotes Apple Mobile Device, et Sideloadly répond
+   « No devices detected ».
+
+Puis, sur l'iPhone : Réglages → Général → VPN et gestion de l'appareil → votre
+identifiant → **Faire confiance**.
+
+Un compte Apple gratuit limite à **7 jours** de validité, 3 applications
+simultanées et 10 identifiants par tranche de 7 jours. Cocher le rafraîchissement
+automatique de Sideloadly évite de resigner à la main chaque semaine.
+
+**Les notifications n'arriveront pas** dans ce build, pour deux raisons
+distinctes : le client n'enregistre aucun jeton d'appareil (phase 5 de
+`docs/08-roadmap.md`, qui attend un `projectId` EAS), et la capacité Push
+n'existe pas sur un compte Apple gratuit. L'application s'installera, lira les
+données et fonctionnera — ce sont les notifications qui manqueront.
+
+---
+
 ## Structure du monorepo
 
 ```

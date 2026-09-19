@@ -5,10 +5,10 @@
  * ## Pourquoi ce contrôle existe
  *
  * Un flux de travail se teste normalement en le poussant — c'est-à-dire au pire
- * moment. Sur ce dépôt, `ios-unsigned.yml` réserve un exécuteur macOS pendant
- * une quinzaine de minutes : une faute de frappe dans un script `run:` ne se
- * paie pas en secondes, mais en un aller-retour complet, après l'installation
- * de Node et des dépendances.
+ * moment. Sur ce dépôt, `build-ios-unsigned.yml` réserve un exécuteur macOS
+ * pendant une quinzaine de minutes : une faute de frappe dans un script `run:`
+ * ne se paie pas en secondes, mais en un aller-retour complet, après
+ * l'installation de Node et des dépendances.
  *
  * Deux familles de défauts, très inégales en coût :
  *
@@ -66,7 +66,7 @@ const DOSSIER = '.github/workflows';
  * il force à se demander si le nouveau flux doit tourner dans les trois chaînes
  * ou seulement dans une.
  */
-const FLUX_ATTENDUS = ['ci.yml', 'codeql.yml', 'ios-unsigned.yml', 'mobile-build.yml'];
+const FLUX_ATTENDUS = ['build-ios-unsigned.yml', 'ci.yml', 'codeql.yml', 'mobile-build.yml'];
 
 /** Préfixes de chemins locaux cités par un script, à vérifier sur le disque. */
 const RACINES_DE_CHEMIN = ['scripts/', '.github/'];

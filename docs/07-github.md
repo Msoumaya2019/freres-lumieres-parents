@@ -295,11 +295,33 @@ visant `main`**, et une fois par semaine — une nouvelle règle d'analyse peut
 détecter un problème dans du code ancien. Signale les motifs dangereux —
 injection, données non validées, usage incorrect de la cryptographie.
 
-### `ios-unsigned.yml`
+### `build-ios-unsigned.yml`
 
 **Déclenchement manuel uniquement** (`workflow_dispatch`) : un build natif iOS
 occupe un exécuteur macOS une quinzaine de minutes, et la majorité des commits ne
 mérite pas un binaire.
+
+**Pour le lancer :** Actions → « Build iOS Unsigned » → Run workflow, puis
+`refonte/npm-workspaces` dans « Use workflow from ». **La branche compte** : en
+choisir une autre compilerait l'autre implémentation.
+
+Ce nom de fichier n'est pas celui qu'on aurait choisi spontanément. GitHub résout
+le nom d'un `workflow_dispatch` **sur la branche par défaut, et sur elle seule** :
+la barre latérale des Actions ne liste que les flux de `main`, et un envoi échoue
+pour un flux qui n'y vit pas. Mesuré :
+
+```
+gh workflow run ios-unsigned.yml --ref refonte/npm-workspaces
+→ HTTP 404: workflow ios-unsigned.yml not found on the default branch
+```
+
+`GET /actions/workflows/<fichier>` répond de même **404**, y compris avec
+`?ref=<branche>`. Comme `main` a déjà un `build-ios-unsigned.yml`, prendre le
+même nom de fichier est ce qui rend celui-ci lançable depuis l'interface.
+L'entrée de la barre latérale porte donc le nom de `main` (« Build iOS
+Unsigned ») tandis que l'exécution s'intitule « IPA iOS » — le titre du run dit
+lequel des deux fichiers a tourné. La collision disparaît quand la refonte
+remplace `main`.
 
 Il produit un **IPA non signé**, et c'est le point à comprendre avant de le
 lancer : iOS refuse d'installer ce qui n'est pas signé. Le fichier est un
@@ -311,7 +333,7 @@ dépôt public.
 **Pourquoi ce flux existe à côté de `mobile-build.yml` :** celui-ci passe par
 EAS, qui demande un compte Expo, un jeton et un `projectId` renseigné dans
 `app.json` — trois choses à obtenir avant de produire quoi que ce soit.
-`ios-unsigned.yml` n'en demande **aucune** : il génère le projet Xcode avec
+`build-ios-unsigned.yml` n'en demande **aucune** : il génère le projet Xcode avec
 `expo prebuild`, compile sans signature, et empaquette.
 
 Il exige en revanche **sept variables de dépôt** — les six
@@ -373,8 +395,8 @@ La liste des flux attendus est **fermée dans les deux sens** : un flux supprim�
 du dépôt dont l'absence d'un sujet produirait un vert trompeur — rien d'autre
 dans la chaîne ne lit `.github/workflows`.
 
-Les quatre workflows du dépôt sont `ci.yml`, `codeql.yml`, `ios-unsigned.yml`
-et `mobile-build.yml`.
+Les quatre workflows du dépôt sont `ci.yml`, `codeql.yml`,
+`build-ios-unsigned.yml` et `mobile-build.yml`.
 
 ---
 

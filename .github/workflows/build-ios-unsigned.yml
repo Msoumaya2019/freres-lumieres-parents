@@ -9,7 +9,36 @@
 #  mérite pas un binaire. `ci.yml` vérifie déjà, à chaque pull request, que le
 #  bundle se construit.
 #
-#  Utilisation : Actions → IPA iOS → Run workflow
+#  Utilisation : Actions → « Build iOS Unsigned » → Run workflow, puis choisir
+#  `refonte/npm-workspaces` dans « Use workflow from ». **La branche compte** :
+#  en choisir une autre compilerait l'autre implémentation.
+#
+#  ## Pourquoi ce fichier porte le nom d'un flux déjà présent sur `main`
+#
+#  Ce n'est pas une étourderie, et c'est le seul moyen de le rendre lançable.
+#
+#  GitHub résout le **nom de fichier** d'un `workflow_dispatch` sur la branche
+#  par défaut, et sur elle seule. Mesuré :
+#
+#      gh workflow run ios-unsigned.yml --ref refonte/npm-workspaces
+#      → HTTP 404: workflow ios-unsigned.yml not found on the default branch
+#
+#  `GET /actions/workflows/<fichier>` répond de même **404**, même avec
+#  `?ref=<branche>`. La barre latérale des Actions ne liste donc que les flux de
+#  la branche par défaut — un flux qui ne vit que sur une autre branche est
+#  introuvable, ni dans l'interface ni en ligne de commande.
+#
+#  Or `main`, qui porte encore l'implémentation précédente, a **déjà** un
+#  `build-ios-unsigned.yml`. En prenant le même nom de fichier, celui-ci devient
+#  lançable : la barre latérale l'affiche, le sélecteur de branche propose
+#  `refonte/npm-workspaces`, et c'est bien ce fichier-ci qui s'exécute alors.
+#
+#  Conséquence à connaître : l'entrée de la barre latérale porte le `name:` de
+#  la branche par défaut, donc « Build iOS Unsigned », alors que l'exécution,
+#  elle, s'intitule « IPA iOS ». Deux noms pour une même chose — le titre du
+#  run dit lequel des deux fichiers a tourné.
+#
+#  Cette collision disparaît d'elle-même quand la refonte remplace `main`.
 #
 #  ## Pourquoi ce flux existe à côté de `mobile-build.yml`
 #
