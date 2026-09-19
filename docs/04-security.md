@@ -458,17 +458,18 @@ La colonne « État » n'est pas décorative : ce document est la référence, e
 ligne qui n'est pas marquée **appliqué** ne décrit rien de ce qui protège le
 service aujourd'hui.
 
-| Couche           | Mesure                                                                                                    | État                                                        |
-| ---------------- | --------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| Dépôt            | `.gitignore` strict, `.env.example` sans valeur, aucun secret, Dependabot, CodeQL, secret scanning GitHub | appliqué                                                    |
-| Réseau           | HTTPS obligatoire, App Check en production                                                                | partiel — App Check n'est pas activé (phase 12, § 5)        |
-| Authentification | e-mail vérifié, mot de passe ≥ 10 caractères, réinitialisation par e-mail                                 | partiel — la vérification de l'e-mail est à trancher (§ 10) |
-| Autorisation     | Custom Claims + Security Rules, échec fermé                                                               | appliqué                                                    |
-| Données          | validation Zod côté serveur, champs sensibles figés, tailles bornées                                      | appliqué                                                    |
-| Fichiers         | formats et tailles bornés, compression côté client, chemins cloisonnés par organisation                   | appliqué                                                    |
-| Serveur          | Cloud Functions revalidant tout, journal d'audit immuable                                                 | appliqué                                                    |
-| Anti-abus        | rate limiting, compte `pending`, délai d'édition                                                          | partiel — seul `pending` est appliqué (§ 6)                 |
-| Vie privée       | minimisation, anonymisation, export, suppression                                                          | partiel — export et suppression autonome absents (§ 8)      |
+| Couche           | Mesure                                                                                                    | État                                                                         |
+| ---------------- | --------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Dépôt            | `.gitignore` strict, `.env.example` sans valeur, aucun secret, Dependabot, CodeQL, secret scanning GitHub | appliqué                                                                     |
+| Dépendances      | avis npm mesurés en CI, seuil haut, et tri par artefact réellement livré                                  | partiel — un avis modéré joignable dans le paquet mobile, garde posée (§ 11) |
+| Réseau           | HTTPS obligatoire, App Check en production                                                                | partiel — App Check n'est pas activé (phase 12, § 5)                         |
+| Authentification | e-mail vérifié, mot de passe ≥ 10 caractères, réinitialisation par e-mail                                 | partiel — la vérification de l'e-mail est à trancher (§ 10)                  |
+| Autorisation     | Custom Claims + Security Rules, échec fermé                                                               | appliqué                                                                     |
+| Données          | validation Zod côté serveur, champs sensibles figés, tailles bornées                                      | appliqué                                                                     |
+| Fichiers         | formats et tailles bornés, compression côté client, chemins cloisonnés par organisation                   | appliqué                                                                     |
+| Serveur          | Cloud Functions revalidant tout, journal d'audit immuable                                                 | appliqué                                                                     |
+| Anti-abus        | rate limiting, compte `pending`, délai d'édition                                                          | partiel — seul `pending` est appliqué (§ 6)                                  |
+| Vie privée       | minimisation, anonymisation, export, suppression                                                          | partiel — export et suppression autonome absents (§ 8)                       |
 
 ---
 
@@ -517,6 +518,111 @@ service aujourd'hui.
   nulle part : ni dans le type, ni dans l'écrivain — seule la fixture de
   `firestore.rules.test.ts` en porte un, trace d'une intention jamais suivie.
   À trancher au moment où une seconde organisation devient possible, pas avant.
+
+---
+
+## 11. Les dépendances livrées
+
+Le paquet mobile et l'administration embarquent du code écrit par d'autres. Ce
+qui y est joignable est une surface d'attaque, au même titre qu'une règle.
+
+### Une alerte GitHub ne dit pas ce qui est joignable
+
+Les alertes de sécurité GitHub portent sur les fichiers de verrou **présents
+dans le dépôt**. Elles portent sur `pnpm-lock.yaml` — le verrou de l'**autre
+implémentation**, sur `main`, qui n'est pas celle-ci. Cette branche est en
+npm-workspaces et ne porte que `package-lock.json` : ces alertes concernent
+donc `main`, et non le code livré ici.
+
+C'est une mesure, pas une propriété : une alerte se relit. Mais la leçon est
+générale — **une alerte dit ce qui est déclaré dans un fichier, pas ce qui est
+joignable dans un binaire.** Les deux questions sont différentes, et seule la
+seconde décide.
+
+### Ce qui est joignable, trié par artefact livré
+
+`npm audit` sur cette branche rend **22 avis modérés**, dont 15 comptés « en
+production » — un comptage qui ne distingue pas un outil de construction d'une
+bibliothèque embarquée. Le tri se fait donc en remontant l'arbre
+(`npm ls --json --all`) jusqu'à ce qui part sur un appareil :
+
+| Avis                                                                                     | Chemin                                          | Livré ?                           |
+| ---------------------------------------------------------------------------------------- | ----------------------------------------------- | --------------------------------- |
+| `decode-uri-component@0.2.2`                                                             | `@fl/mobile` → `expo-router` → `query-string@7` | **oui — paquet mobile**           |
+| `gaxios`, `uuid`                                                                         | runtime des Cloud Functions                     | oui, mais avis non joignable      |
+| `firebase-tools`, `vitest`, `esbuild`, `@expo/cli`, `xcode`, `csv-parse`, `stream-json`… | outillage de construction et de CI              | non — ne quitte jamais la machine |
+
+`gaxios` et `uuid` sont joignables comme paquets, mais l'avis ne l'est pas :
+`GHSA-w5hq-g745-h8pq` décrit un débordement de tampon en v3/v5/v6 **quand `buf`
+est fourni**, et les seuls appels sont des `v4()` sans tampon —
+`gaxios.js:417` et `pbxProject.js:90`. Un avis sur un paquet n'est pas un avis
+sur un chemin d'exécution.
+
+### L'avis joignable : un lien profond qui fige l'application
+
+`decode-uri-component@0.2.2` a un repli dont le coût grimpe avec le nombre de
+séquences `%XX` qui ne forment pas d'UTF-8 valide. Mesuré sur le chemin réel —
+`query-string.parse`, celui qu'appelle `expo-router` — pour une valeur de `%C3`
+répété :
+
+| séquences | longueur de la requête | durée    |
+| --------- | ---------------------- | -------- |
+| 32        | 98 caractères          | 47 ms    |
+| 64        | 194 caractères         | 246 ms   |
+| 128       | 386 caractères         | 1 124 ms |
+| 256       | 770 caractères         | 7 308 ms |
+
+C'est `GHSA-vcc3-ghjq-m6fr` (CVE-2026-45822, CVSS 6.6) : vecteur réseau, sans
+privilège ni interaction, impact **disponibilité** seul — ni divulgation, ni
+exécution de code.
+
+Le chemin d'exécution est une **URL entrante** : `getStateFromPath` →
+`parseQueryParams` → `queryString.parse(query)`. Un lien forgé de quelques
+centaines de caractères suffit donc à figer l'application. Rien n'est divulgué,
+rien n'est compromis, et la récupération consiste à la fermer.
+
+**La correction amont n'est pas installable, et c'est mesuré.**
+`decode-uri-component@0.5.0` est un module ESM à export par défaut, et
+`query-string@7` en fait un `require` nu : la surcharge rendrait
+`{__esModule, default}` au lieu d'une fonction, donc un décodage cassé. `npm
+audit fix` ne propose de son côté que des rétrogradations majeures
+(`expo-router` 57 → 5.1.11).
+
+### La garde, et pourquoi elle ne coûte rien
+
+`parseQueryParams` n'appelle `queryString.parse` que si le chemin contient un
+`?`, et il le fait sur le chemin **brut** — un `%3F` encodé ne devient jamais
+une requête. Fermer la requête retire donc le décodeur vulnérable du chemin,
+entièrement.
+
+C'est ce que fait `apps/mobile/app/+native-intent.ts`, branché sur
+`redirectSystemPath` : le seul point qui précède l'analyse, et dont un retour
+falsy **annule** la navigation. La règle est dans
+`apps/mobile/src/lib/incoming-url.ts`, et son raisonnement est celui du lien
+profond — `parseDeeplink` n'accepte déjà aucune requête, donc aucun lien que
+l'application écrit n'en porte. La garde n'est pas un plafond arbitraire :
+c'est la grammaire du lien appliquée un cran plus tôt.
+
+Ce qu'elle ne peut pas casser : elle n'est appelée que pour une URL **venue du
+système**. La navigation interne ne passe pas par là.
+
+**Ce qui reste accepté.** Un avis modéré, de disponibilité seule, sur le chemin
+d'un lien forgé. Ce qui ferait changer la décision : un avis touchant la
+confidentialité ou l'intégrité, ou une version corrigée de `query-string`
+rendant la surcharge possible — auquel cas la garde devient inutile. Elle ne
+gêne pas, mais elle se retire.
+
+### La porte, en CI
+
+Le travail `quality` exécute `npm audit --audit-level=high`, et l'échec est
+bloquant. Vert au moment de l'écrire — les 22 avis sont modérés. Une exception
+se justifie par écrit, comme `TYPES_SANS_ROUTE` le fait pour les types sans
+écran.
+
+Le seuil est haut parce que les avis modérés de cet arbre sont, pour l'essentiel,
+de l'outillage. Mais **la porte ne remplace pas la lecture** : l'avis le plus
+grave trouvé ici était modéré. Un seuil ne dit pas ce qui est joignable.
+
 - **Rattachement des enfants : la branche de modération n'est pas cloisonnée.**
   `users/{uid}/children/{childId}` autorise `read` à `isActive() && isModerator()`
   sans comparer l'organisation, alors que le document ne porte **aucun `orgId`** —

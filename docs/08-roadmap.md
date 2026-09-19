@@ -1280,6 +1280,82 @@ même par requête directe.
 - [ ] Couverture de tests complète des Security Rules
 - [ ] Tests d'intégration sur émulateur
 - [ ] Vérification : aucune permission accordée sans être déclarée
+- [x] **Avis de dépendances : un lien profond forgé figeait l'application** —
+      les cinq alertes de sécurité GitHub portent sur `pnpm-lock.yaml`, le verrou
+      de **l'autre implémentation**, sur `main` : cette branche est en
+      npm-workspaces et ne porte que `package-lock.json`. Elles concernent donc
+      `main`, pas le code livré ici — et elles disent ce qui est **déclaré dans
+      un fichier**, jamais ce qui est **joignable dans un binaire**.
+      **Le tri se fait par artefact livré**, en remontant l'arbre
+      (`npm ls --json --all`) : sur les **22 avis modérés** de cette branche
+      (dont 15 comptés « en production », un comptage qui ne distingue pas un
+      outil de construction d'une bibliothèque embarquée), **un seul** est
+      joignable dans ce qui part sur un appareil — `decode-uri-component@0.2.2`,
+      par `@fl/mobile` → `expo-router` → `query-string@7`. `gaxios` et `uuid`
+      sont dans le runtime des Functions, mais leur avis ne l'est pas :
+      `GHSA-w5hq-g745-h8pq` décrit un débordement **quand `buf` est fourni**, et
+      les seuls appels sont des `v4()` sans tampon (`gaxios.js:417`,
+      `pbxProject.js:90`). Le reste est de l'outillage qui ne quitte jamais la
+      machine.
+      **Le chemin d'exécution est une URL entrante** : `getStateFromPath` →
+      `parseQueryParams` → `queryString.parse(query)`. Le repli de
+      `decode-uri-component@0.2.2` grimpe avec le nombre de séquences `%XX` qui
+      ne forment pas d'UTF-8 valide ; mesuré sur le chemin réel, pour une valeur
+      de `%C3` répété : **98 caractères → 47 ms, 194 → 246 ms, 386 → 1 124 ms,
+      770 → 7 308 ms**. Un lien forgé suffit donc à figer l'application
+      (`GHSA-vcc3-ghjq-m6fr`, CVE-2026-45822, CVSS 6.6 : réseau, sans privilège
+      ni interaction, **disponibilité seule** — ni divulgation, ni exécution de
+      code). L'avis dit « exponentiel » : à ces tailles le coût est
+      super-quadratique, mais la conclusion pratique est la même, et c'est la
+      mesure qui la porte, pas l'adjectif.
+      **La correction amont n'est pas installable, et c'est mesuré.**
+      `decode-uri-component@0.5.0` corrige réellement (12 288 caractères en
+      13,9 ms, un scan linéaire), mais c'est un module **ESM à export par
+      défaut** : `require()` rend `{__esModule, default}` — un objet, pas une
+      fonction — et `query-string@7` fait un `require` nu. La surcharge casserait
+      le décodage des requêtes. `npm audit fix` ne propose de son côté que des
+      rétrogradations majeures (`expo-router` 57 → 5.1.11).
+      **La garde est la grammaire du lien, un cran plus tôt.**
+      `parseQueryParams` n'appelle `queryString.parse` que si le chemin contient
+      un `?`, et sur le chemin **brut** — un `%3F` encodé ne devient jamais une
+      requête. Fermer la requête retire donc le décodeur du chemin, entièrement ;
+      et cela ne coûte rien, parce que `parseDeeplink` n'accepte déjà aucune
+      requête : aucun lien que l'application écrit n'en porte. Le branchement est
+      `apps/mobile/app/+native-intent.ts`, sur `redirectSystemPath` — le seul
+      point qui précède l'analyse, et dont un retour **falsy annule** la
+      navigation (`if (href) listener(href)`). La règle est dans
+      `apps/mobile/src/lib/incoming-url.ts`, pure et sans appareil.
+      **Ce que la garde ne peut pas casser** : elle n'est appelée que pour une
+      URL **venue du système** — les deux seuls appels vivent dans `subscribe`
+      et dans `getInitialURL` —, la navigation interne ne passe pas par là.
+      **Deux preuves, et non une déduction** : les contextes Metro Android et iOS
+      incluent bien `+native-intent.ts` (`_ctx.android.js`, `_ctx.ios.js` ; seul
+      `_ctx.web.js` l'exclut, le crochet étant natif), l'export Android réussit,
+      et le paquet Hermes livré **contient** `redirectSystemPath` et
+      `filtreUrlEntrante`. **Dix tests** dans l'application mobile, dont trois
+      qui importent le fichier de branchement **pour de vrai** : le supprimer ou
+      l'inverser fait rougir la suite, alors qu'un contrôle qui n'appellerait que
+      la fonction resterait vert sans plus rien mesurer. L'application n'avait
+      aucun test avant ce lot, et sa configuration vitest ne connaissait pas
+      l'alias `@/` — elle le déclare désormais, et la duplication avec
+      `tsconfig.json` est rendue bruyante : si l'un des deux change, l'import
+      cesse d'être résolu et la suite échoue.
+      **Éprouvé par cinq mutations** (`.workbuddy-ai/falsifier-garde-url.py`),
+      chacune tombant sur ses tests **et sur eux seuls**, restauration vérifiée
+      par empreinte SHA-256 : la règle qui ne filtre plus rien, celle qui refuse
+      tout, celle qui refuse le pour-cent au lieu de la requête, et — les deux
+      qui comptent — le branchement qui ne filtre plus rien et celui qui annule
+      tout. Ces deux-là ne touchent que `+native-intent.ts` : ils seraient
+      passés inaperçus d'un contrôle qui n'éprouverait que la fonction.
+      **La porte est désormais en CI** : `npm audit --audit-level=high`, bloquant,
+      dans le travail `quality`. Vert au moment de l'écrire — les 22 avis sont
+      modérés. Le nom du travail reste `quality` : il deviendra un contrôle requis
+      par la protection de branche, et le renommer ferait disparaître le contrôle
+      attendu sans que rien ne le signale.
+      **Reste accepté** : un avis modéré, de disponibilité seule, sur le chemin
+      d'un lien forgé. Ce qui ferait changer la décision — un avis touchant la
+      confidentialité ou l'intégrité, ou une version corrigée de `query-string`
+      rendant la surcharge possible — est écrit dans `docs/04-security.md` § 11.
 - [ ] Déploiement automatisé des règles et des Functions
 
 **Critère de sortie :** la matrice TypeScript et `firestore.rules` sont

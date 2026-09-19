@@ -20,6 +20,12 @@
 #  Dependabot (`.github/dependabot.yml`, écosystème `github-actions`) de
 #  proposer la mise à jour du SHA comme celle du commentaire.
 # =============================================================================
+#
+#  Le nom du travail `quality` est **stable**. Il est le point dont dépendent
+#  les quatre autres, et il deviendra un contrôle requis par la protection de
+#  branche. Le renommer ferait disparaître le contrôle attendu sans que rien
+#  ne le signale — une étape ajoutée ne justifie donc pas de le renommer.
+# =============================================================================
 
 name: CI
 
@@ -66,6 +72,27 @@ jobs:
         # `npm ci` exige un lockfile à jour et ne le modifie jamais : c'est ce
         # qui garantit que la CI teste exactement les versions installées.
         run: npm ci
+
+      - name: Auditer les dépendances
+        # Le seuil est `high`, et l'échec est bloquant. Mesuré le jour où cette
+        # étape a été écrite : 22 avis, tous `moderate`, donc la porte est
+        # verte. Un avis `high` ou `critical` fait échouer la CI.
+        #
+        # Le seuil est haut parce que les avis modérés de cet arbre sont, pour
+        # l'essentiel, des outils de construction — `firebase-tools`, `vitest`,
+        # `esbuild`, `@expo/cli`, `xcode` — qui ne quittent jamais la machine.
+        #
+        # Mais la porte ne remplace pas la lecture : un avis réellement
+        # joignable dans le paquet livré n'est pas forcément « haut ». C'est
+        # arrivé, et c'est écrit dans `docs/04-security.md` — un avis modéré
+        # joignable depuis un lien profond forgé. Une exception à cette étape
+        # se justifie par écrit, comme `TYPES_SANS_ROUTE` le fait pour les
+        # types sans écran ; la faire taire sans raison serait la première
+        # chose à refuser dans une revue.
+        #
+        # Un registre injoignable fait aussi échouer l'étape, avec un message
+        # npm explicite : ce n'est pas un avis, et cela se lit.
+        run: npm audit --audit-level=high
 
       - name: Compiler les packages partagés
         # Indispensable avant le typecheck : les applications importent les
