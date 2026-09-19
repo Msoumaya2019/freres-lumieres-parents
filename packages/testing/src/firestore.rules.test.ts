@@ -517,6 +517,23 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
           order: 2,
         }),
       );
+      // Un canal en lecture seule, et un message déjà dedans. Le drapeau est
+      // appliqué par la **règle** : masquer la zone de saisie ne protège rien,
+      // et c'est précisément ce que ces deux fixtures servent à mesurer.
+      await setDoc(
+        doc(db, 'channels', 'channel-lecture-seule'),
+        channelDocument({
+          id: 'channel-lecture-seule',
+          name: 'Annonces',
+          type: 'theme',
+          readOnly: true,
+          order: 3,
+        }),
+      );
+      await setDoc(
+        doc(db, 'channels', 'channel-lecture-seule', 'messages', 'message-archive'),
+        messageDocument({ channelId: 'channel-lecture-seule' }),
+      );
       await setDoc(
         doc(db, 'channels', 'channel-1', 'messages', 'message-du-parent'),
         messageDocument(),
@@ -3220,6 +3237,31 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
         updateDoc(
           doc(parent.firestore(), 'channels', 'channel-1', 'messages', 'message-de-la-fcpe'),
           { status: 'hidden' },
+        ),
+      );
+    });
+
+    // Le drapeau `readOnly` d'un canal. Sans ces deux tests, il n'était qu'un
+    // réglage d'affichage : l'écran cachait sa zone de saisie, et la règle
+    // laissait écrire. Un parent pouvait donc publier dans un canal annoncé
+    // comme fermé, sans même contourner l'interface.
+    it('un parent n’écrit pas dans un canal en lecture seule', async () => {
+      await assertFails(
+        setDoc(
+          doc(parent.firestore(), 'channels', 'channel-lecture-seule', 'messages', 'message-nouveau'),
+          messageDocument({ channelId: 'channel-lecture-seule' }),
+        ),
+      );
+    });
+
+    it('un parent ne modifie pas son message dans un canal en lecture seule', async () => {
+      // La borne opposée de la même décision : `create` refusé ne suffit pas,
+      // un message déjà présent resterait corrigible — et la fermeture d'un
+      // canal après coup ne fermerait donc rien.
+      await assertFails(
+        updateDoc(
+          doc(parent.firestore(), 'channels', 'channel-lecture-seule', 'messages', 'message-archive'),
+          { body: 'Texte réécrit.' },
         ),
       );
     });

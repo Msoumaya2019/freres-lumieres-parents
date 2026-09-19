@@ -280,7 +280,7 @@ supprime que la sienne — c'est ce qui suffit à afficher l'état du bouton.
 | `level`                    | `ClassLevel?`                                         |                                                                              |
 | `audience`, `audienceKeys` |                                                       | un canal `fcpe` n'est visible que des membres                                |
 | `order`                    | number                                                | ordre d'affichage                                                            |
-| `readOnly`                 | boolean                                               | canaux d'archives                                                            |
+| `readOnly`                 | boolean                                               | canaux d'archives, **appliqué par la règle**                                 |
 | `stats`                    | map                                                   | `{ messageCount, lastMessageAt, lastMessagePreview, lastMessageAuthorName }` |
 
 > `stats` évite une requête par canal pour afficher l'aperçu du dernier
@@ -310,6 +310,19 @@ supprime que la sienne — c'est ce qui suffit à afficher l'état du bouton.
 > et ne pose `stats` qu'à la création : une fusion Firestore descend dans les
 > objets imbriqués, donc réécrire `stats` remettrait `messageCount` à zéro à
 > chaque exécution.
+>
+> **`readOnly` est tenu par les règles, pas par l'écran.** Un message ne porte
+> ni l'organisation ni ce drapeau, donc la règle d'écriture **relit le canal
+> parent** (`canalEnLectureSeule()`, dans `firestore.rules`) : sans cela, masquer
+> la zone de saisie n'aurait rien empêché, et un parent aurait publié dans un
+> canal annoncé comme fermé. Le repli est fermé — canal absent, écriture
+> refusée — et `'readOnly' in data` est testé avant d'être lu, parce que lire un
+> champ absent **lève**, et qu'un refus qui ne nomme aucune clause ne se
+> diagnostique pas. Le prix est une lecture par écriture.
+>
+> Corollaire pour les règles voisines : la lecture d'un message ne vérifie pas
+> l'organisation, faute de champ où l'écrire. C'est consigné dans
+> `docs/04-security.md` § 10.
 
 #### `channels/{channelId}/messages/{messageId}`
 

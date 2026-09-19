@@ -801,6 +801,27 @@ service cloud.firestore {
             && d.reportCount == 0;
         }
 
+        // Le canal parent est-il en lecture seule ?
+        //
+        // Un message ne porte ni l'organisation ni ce drapeau : la règle doit
+        // donc relire le parent. `get()` sur un document absent rend `null`, et
+        // lire un champ de `null` **lève** — un refus, mais qui ne nomme aucune
+        // clause. L'existence est donc testée d'abord, et le repli est fermé :
+        // pas de canal, pas d'écriture.
+        //
+        // `'readOnly' in data` avant de le lire, pour la même raison : un canal
+        // écrit avant que le champ n'existe ferait lever la comparaison, et le
+        // refus ne dirait pas pourquoi.
+        //
+        // Ce `get()` coûte une lecture par écriture — une seule, pour un geste
+        // qui en coûte déjà une. Le refuser aurait voulu dire laisser le
+        // drapeau `readOnly` purement décoratif, c'est-à-dire afficher une
+        // interdiction que rien n'applique.
+        function canalEnLectureSeule() {
+          let canal = /databases/$(database)/documents/channels/$(channelId);
+          return !exists(canal) || ('readOnly' in get(canal).data && get(canal).data.readOnly == true);
+        }
+
         // Même correctif que pour les commentaires, et pour la même raison :
         // une mise à jour est validée sur le **document entier** après fusion,
         // donc une règle qui n'exige rien autorise la réécriture de tout. La
@@ -844,9 +865,10 @@ service cloud.firestore {
         }
 
         allow read: if isActive() && resource.data.status == 'visible';
-        allow create: if isActive() && validMessage();
+        allow create: if isActive() && validMessage() && !canalEnLectureSeule();
         allow update: if (isActive()
             && resource.data.authorId == request.auth.uid
+            && !canalEnLectureSeule()
             && validOwnMessageEdit())
           || (isModerator() && validModerationEdit());
         allow delete: if isAdmin();

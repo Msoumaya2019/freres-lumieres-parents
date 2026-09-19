@@ -518,6 +518,28 @@ service aujourd'hui.
   nulle part : ni dans le type, ni dans l'écrivain — seule la fixture de
   `firestore.rules.test.ts` en porte un, trace d'une intention jamais suivie.
   À trancher au moment où une seconde organisation devient possible, pas avant.
+- **Lecture d'un message de canal, et la frontière d'organisation.** La règle de
+  lecture d'un message est `isActive() && resource.data.status == 'visible'` :
+  elle ne regarde **pas** l'organisation, alors que celle du canal, juste
+  au-dessus, l'exige (`resource.data.orgId == orgId()`). Or une sous-collection
+  n'hérite de rien : `channels/{id}/messages/{mid}` s'atteint directement. Un
+  parent d'une organisation lirait donc les messages d'un canal d'une autre, à
+  condition d'en connaître l'identifiant — et les identifiants sont devinables,
+  `general` étant le premier des treize canaux par défaut.
+  Le correctif n'est pas une ligne : un message ne porte **aucun** champ
+  `orgId`, donc la comparaison demande soit un `get()` sur le canal parent, soit
+  un champ recopié. Les deux coûts ne se comparent pas. Un `get()` dans une règle
+  de **lecture** est évalué par document renvoyé : un fil de trente messages
+  paierait trente lectures supplémentaires, et Firestore ne sait pas démontrer
+  la condition à partir des contraintes d'une requête, donc rien ne la rendrait
+  gratuite. Un champ recopié coûte une écriture de plus par message, mais il
+  crée une seconde source pour l'organisation, qu'aucun test ne tiendrait
+  d'accord avec le parent.
+  Même arbitrage, et même moment, que pour `AdminLog` ci-dessus : sans
+  conséquence tant qu'une seule organisation existe.
+  **Ce qui est mesuré, en revanche :** `readOnly` est désormais appliqué par la
+  règle (`canalEnLectureSeule()`, qui relit le parent à l'écriture), et non plus
+  seulement par l'écran qui masquait sa zone de saisie.
 
 ---
 
