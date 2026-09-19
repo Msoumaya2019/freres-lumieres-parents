@@ -160,35 +160,33 @@ de vérifier réellement les règles de sécurité avant la production.
 ### Un document qui ne bloque pas l'étape de formatage
 
 L'étape 6 — le formatage — échoue parfois pour une raison qui n'a rien à voir
-avec le contenu. Le déclencheur, **mesuré**, est un **span de code coupé par un
-retour à la ligne** à l'intérieur d'une entrée de liste :
+avec le contenu. Deux constructions, et deux seulement, ont été trouvées et
+mesurées — **toutes deux à l'intérieur d'une entrée de liste**, et **toutes deux
+seulement au retrait six**, celui des documents de ce dépôt :
 
-```markdown
-- une entrée de liste
-  la phrase cite un message `qui se poursuit
-sur la ligne suivante`, puis elle finit ici.
-```
+| Construction, sous une puce indentée de six espaces | Effet d'une passe                  | Converge ?                   |
+| --------------------------------------------------- | ---------------------------------- | ---------------------------- |
+| deux blocs de paragraphe de plusieurs lignes        | le second bloc **gagne** 4 espaces | non — 10, 14, 18, 22         |
+| un span de code coupé par un retour à la ligne      | la ligne **perd** 2 espaces        | oui — 6, 4, 2, 0, hors liste |
 
-À chaque `prettier --write`, la ligne de continuation **perd deux espaces** de
-tête. La convergence finit donc par arriver — mais à la colonne 0, c'est-à-dire
-**hors de l'entrée de liste**, où la ligne devient un paragraphe de premier
-niveau et **rompt la phrase**. Mesuré à une entrée indentée de six espaces :
-6 → 4 → 2 → 0, trois passes, puis stable. À deux espaces, une seule passe suffit.
+La première est la plus mauvaise : `format:check` la signale à chaque exécution,
+quoi qu'on écrive, et `prettier --write` annonce pourtant avoir réécrit le
+fichier à chaque passage. Le symptôme est trompeur — ni les fins de ligne, ni
+l'encodage, ni une liste imbriquée ne sont en cause.
 
-Deux conséquences qui comptent. `format:check` échoue tant que la convergence
-n'est pas atteinte, et `prettier --write` annonce avoir réécrit le fichier à
-chaque fois — le symptôme est donc trompeur, et il se reproduit à l'identique
-tant qu'on n'a pas corrigé la coupure. Mais surtout, la convergence **modifie le
-document** : ce n'est pas un désaccord cosmétique qu'on peut laisser passer,
-c'est une phrase qui sort de sa liste.
+La seconde converge, mais à la colonne 0, c'est-à-dire **hors de l'entrée de
+liste**, où la ligne devient un paragraphe de premier niveau et **rompt la
+phrase**. La convergence n'est donc pas une bonne nouvelle : elle **modifie le
+document**.
 
-Deux pistes ont été **écartées par la mesure**, et il vaut mieux le savoir avant
-de les chercher : une ligne commençant par une ellipse, et une entrée contenant
-deux blocs de paragraphe de plusieurs lignes. Les deux sont restées stables sur
-quatre passes.
+**Aux deux espaces de retrait, aucune des deux ne se déclenche** — mesuré, les
+deux restent stables sur quatre passes. Une sonde écrite trop haut dans la marge
+ne prouve donc rien sur ces documents, et c'est l'erreur qui a été commise une
+fois ici.
 
-La règle qui en découle est donc étroite : **dans une entrée de liste, ne pas
-couper un span de code en fin de ligne.** Un paragraphe long ne craint rien.
+La convention qui tient est double : **un seul bloc par entrée**, et **ne pas
+couper un span de code en fin de ligne**. Un paragraphe long ne craint rien, et
+deux paragraphes d'une ligne chacun non plus.
 
 ### La porte se lance sur l'état final
 
