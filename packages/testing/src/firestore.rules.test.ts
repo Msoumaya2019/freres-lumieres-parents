@@ -3248,7 +3248,13 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
     it('un parent n’écrit pas dans un canal en lecture seule', async () => {
       await assertFails(
         setDoc(
-          doc(parent.firestore(), 'channels', 'channel-lecture-seule', 'messages', 'message-nouveau'),
+          doc(
+            parent.firestore(),
+            'channels',
+            'channel-lecture-seule',
+            'messages',
+            'message-nouveau',
+          ),
           messageDocument({ channelId: 'channel-lecture-seule' }),
         ),
       );
@@ -3260,7 +3266,13 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
       // canal après coup ne fermerait donc rien.
       await assertFails(
         updateDoc(
-          doc(parent.firestore(), 'channels', 'channel-lecture-seule', 'messages', 'message-archive'),
+          doc(
+            parent.firestore(),
+            'channels',
+            'channel-lecture-seule',
+            'messages',
+            'message-archive',
+          ),
           { body: 'Texte réécrit.' },
         ),
       );
