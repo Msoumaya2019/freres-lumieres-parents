@@ -387,6 +387,83 @@ que les publications de son audience.
 - [x] Gestion des utilisateurs : fiche d'un compte — route imbriquée `utilisateurs/[uid]`, atteignable en cliquant le nom depuis la file. Elle montre l'identité, le rattachement déclaré, les consentements et l'historique du compte, lu dans `adminLogs` par `targetType + targetId` : le second des trois index composites, jusqu'ici déclaré sans consommateur. **En lecture seule** — les décisions d'autorisation restent dans la file, qui les présente avec leur motif obligatoire ; les dupliquer ici donnerait deux implémentations d'une même règle.
 - [ ] Gestion des utilisateurs : recherche — la file se parcourt par statut. Chercher par nom ou par adresse demande de choisir un mécanisme, Firestore n'offrant ni recherche insensible à la casse ni recherche par sous-chaîne : voir `docs/04-security.md` § 10.
 - [x] Journal d'audit (`adminLogs`) : consultation — lecture seule, filtre par type d'action, pagination. Les règles réservent la lecture à `isAdmin()` et refusent toute écriture cliente, administrateur compris : l'écran n'offre donc aucune modification, et ce n'est pas un oubli. Le filtre n'a qu'une dimension parce que Firestore exige un index composite par combinaison — `actorId` et `targetType + targetId` sont prêts pour les fiches de détail.
+- [x] Journal d'audit : **le filtre n'offrait que des actions qui n'existent pas** —
+      dix-sept proposées, sept écrites. Les dix autres (`post.create`,
+      `post.update`, `post.delete`, `post.pin`, `content.hide`,
+      `content.restore`, `report.update`, `poll.close`, `user.export_data`,
+      `settings.update`) étaient offertes par le `<select>` et interrogées par
+      `where('action','==',…)` : **elles ne pouvaient rien retourner**. Dans un
+      outil d'investigation, une page vide se lit « il ne s'est jamais rien
+      passé », pas « ce filtre ne désigne aucune entrée possible » — c'est une
+      fausse réponse, et non une absence de réponse.
+      **Pourquoi les dix ne sont pas écrites** : `adminLogs` refuse toute
+      écriture cliente, à raison, donc seule une Cloud Function peut journaliser,
+      et un `AuditEntry` exige un acteur. Or ces gestes-là sont des écritures
+      **clientes** — épingler, clore, masquer — et le document ne porte aucun
+      champ nommant leur auteur : un déclencheur verrait le champ changer sans
+      savoir qui l'a changé. `settings.update` est un cas à part : c'est un nom de
+      **permission** (`PERMISSION_MATRIX`), recopié dans le vocabulaire par
+      confusion, et la chaîne existant des deux côtés, rien ne signalait
+      l'emprunt. Un droit n'est pas un fait.
+      **Le correctif est une liste plus courte, et un type dérivé d'elle.**
+      `AUDITED_ACTIONS` (sept valeurs) vit dans `@fl/shared` ; `AuditedAction` en
+      est **dérivé** (`(typeof AUDITED_ACTIONS)[number]`) et non écrit à côté, si
+      bien qu'une faute de frappe ne compile pas. `AuditEntry.action` est rétréci
+      à ce type : **écrire une action non auditée ne compile plus**. Le filtre de
+      l'écran lit la même liste, et la table serveur
+      `functions/src/lib/paths.ts` est ramenée de neuf clés à sept.
+      **Le dépôt, lui, n'a pas été rétréci — et c'est le compilateur qui l'a
+      montré.** `AdminLogFilter.action` avait d'abord été ramené à
+      `AuditedAction` ; la porte a échoué sur
+      `packages/testing/src/admin-logs.test.ts`, qui filtre légitimement sur
+      `post.create` et `poll.close` pour prouver que le `where` est **paramétré**
+      et qu'une action sans entrée rend une page vide. Le repository décrit une
+      **collection**, et un journal est un relevé historique : une entrée écrite
+      par une version antérieure, par un script ou par une version future doit
+      rester interrogeable. Rétrécir ce type-là aurait rendu le repository
+      incapable de décrire ses propres données — le défaut qu'on corrige,
+      retourné. La restriction appartient donc à l'**écran**, et le test de
+      conversion la tient **action par action**.
+      **Le type est étroit à l'écriture et large à la lecture** : `AdminLog.action`
+      comme `AdminLogFilter.action` restent des `AdminAction`, parce qu'**un
+      journal survit au code qui l'a écrit** — une action introduite demain doit
+      rester affichable et interrogeable, et `adminActionLabel` a déjà son repli.
+      **L'autre moitié du défaut était silencieuse** : si le menu proposait une
+      action que la conversion ne reconnaît pas, `toFilter` retombait sur « tout
+      le journal » et l'écran affichait le journal entier **sous l'étiquette d'un
+      filtre**. La conversion a donc été **sortie de l'écran**
+      (`apps/admin/src/lib/audit-filter.ts`) pour être éprouvée sans DOM — le
+      paquet n'a ni jsdom ni bibliothèque de rendu, et en ajouter deux pour une
+      assertion serait disproportionné.
+      **Cinq tests** dans l'administration, **quatre** dans les fonctions et
+      **un** net dans `@fl/shared` : chaque action auditée est reconnue, une
+      action du vocabulaire mais non auditée retombe sur tout le journal, le menu
+      est rempli à partir de la liste **en entier**, et l'écran ne redéclare pas
+      la sienne. `functions/src/lib/audited-actions.test.ts` lit la source et
+      exige l'égalité des deux tables **dans les deux sens**, puis que **chaque
+      clé soit réellement employée** ailleurs que dans le fichier qui la déclare —
+      c'est cette seconde moitié qui aurait attrapé `userExportData` et
+      `settingsUpdate`, une valeur déclarée se trouvant toujours elle-même.
+      **Éprouvé par cinq mutations** (`.workbuddy-ai/falsifier-audit.py`), chacune
+      tombant sur son test et **seule** : la mutation C ajoute une clé morte des
+      **deux** côtés, si bien que l'égalité tient et que seul le contrôle
+      d'emploi la voit. Les **deux verrous de compilation** sont falsifiés
+      séparément, en compilant ce qu'ils doivent refuser
+      (`.workbuddy-ai/eprouver-type-audit.py`) : `poll.close` est refusé, et
+      `ADMIN_ACTIONS` n'est plus importable. TypeScript **développe l'alias** en
+      l'union de ses littéraux — l'erreur ne nomme donc pas `AuditedAction`, et
+      l'exiger aurait été une fausse alerte.
+      **Trois affirmations fausses corrigées au passage** : `docs/04-security.md`
+      promettait que « toute action sensible écrit dans `adminLogs` » ;
+      `docs/03-roles-permissions.md` n'attribuait `writeAuditLog` qu'à
+      `admin-users.ts`, en oubliant `send-notification.ts`, et faisait dire au
+      script d'amorçage qu'il « journalise l'opération » — il ne le fait pas.
+      Ouvert : **l'amorçage est la seule action d'administration sans auteur** —
+      l'Admin SDK contourne les règles, donc il pourrait écrire, mais il n'a
+      personne à nommer. À trancher, pas à oublier. Ouvert aussi : les dix actions
+      restent au vocabulaire, et les journaliser demanderait de nommer l'auteur de
+      gestes qui sont des écritures clientes — un changement de modèle, pas de
+      liste.
 - [ ] Paramètres de l'organisation — **reporté sur décision**, pour la raison exacte qui a fait reporter `highlights` : `reportRetentionDays` et `collectiveIssueThreshold` ne sont lus par **aucun** code — les seules occurrences sont le type, le script d'amorçage et le `dist` compilé. Les rendre éditables afficherait « durée de conservation : 365 jours » comme une garantie RGPD alors que rien ne purge : la promesse serait fausse, de la même famille que celle de l'audience `fcpe`. À construire quand chaque réglage aura son consommateur, en phase 7.
       **`urgentAlwaysNotifies` a été retiré**, et non construit : la question qu'il posait — les alertes urgentes peuvent-elles être coupées ? — a reçu une réponse négative en phase 5, donc un booléen qui n'accepte qu'une valeur aurait laissé croire qu'un administrateur pouvait affaiblir l'exception. Elle vit dans `MANDATORY_NOTIFICATION_CATEGORIES`, dans le code. La section reste déclarée dans `lib/sections.ts` avec `implemented: false`, donc le menu dit déjà la vérité.
 
@@ -1072,8 +1149,11 @@ audienceKeys, startsAt)` ne couvre pas `where orgId orderBy startsAt` —
       **republicrait** en `closed`. Aucun code ne pose `archived` aujourd'hui :
       c'est latent, et c'est la même famille que « clore un brouillon le
       publierait ». Ouvert aussi : rien n'écrit de **journal d'audit** pour un
-      sondage, alors que `poll.close` est déclaré dans `AdminAction` et porte un
-      libellé — un vocabulaire que personne n'emploie.
+      sondage. `poll.close` reste au vocabulaire (`AdminAction`) et porte un
+      libellé, mais il n'est plus proposé par le filtre de l'écran et
+      `AuditEntry.action` refuse désormais de l'écrire — voir l'entrée
+      « Journal d'audit : le filtre n'offrait que des actions qui n'existent
+      pas », en phase 4.
 - [x] `posts` : fermer `notifiedAt` à la création — **le même défaut que sur
       `polls`, trouvé sur l'autre collection**, et c'est ce qui en fait un lot à
       part plutôt qu'un oubli de la veille. `Post` portait la clause de gel

@@ -612,6 +612,22 @@ avec le même code.
 ni suppression, même pour un administrateur. C'est la condition pour que le
 journal ait une valeur en cas de litige.
 
+**Le champ `action` a deux listes, et les confondre est un piège.** Le
+vocabulaire — `AdminAction`, dix-sept valeurs — est tout ce qu'une entrée peut
+porter : il doit rester large, parce qu'**un journal survit au code qui l'a
+écrit**. Ce que le serveur écrit réellement est plus court : `AUDITED_ACTIONS`,
+**sept valeurs**, dont le type `AuditedAction` est dérivé. C'est cette seconde
+liste qui remplit le filtre de l'écran, et la seule qu'`AuditEntry.action`
+accepte — écrire une action non auditée ne compile pas.
+
+Dix valeurs du vocabulaire ne sont écrites par personne : `post.create`,
+`post.update`, `post.delete`, `post.pin`, `content.hide`, `content.restore`,
+`report.update`, `poll.close`, `user.export_data` et `settings.update`. Les
+journaliser demanderait de savoir **qui** a agi, et `adminLogs` ne l'apprend que
+d'une Cloud Function : ces gestes-là sont des écritures clientes, dont le
+document ne porte aucun champ nommant l'auteur. `settings.update` est un cas à
+part — c'est un nom de **permission**, recopié ici par confusion.
+
 ### `fcpeTasks/{taskId}`
 
 `title`, `description?`, `status`, `priority`, `assigneeId?`, `assigneeName?`,

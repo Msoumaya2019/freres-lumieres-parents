@@ -375,25 +375,57 @@ export const MODERATION_ACTIONS = [
   'suspended',
 ] as const satisfies readonly ModerationAction[];
 
-export const ADMIN_ACTIONS = [
+/**
+ * Actions **réellement écrites** dans le journal d'audit, dans l'ordre où le
+ * filtre de l'écran les propose — groupées par domaine.
+ *
+ * ## Pourquoi cette liste est plus courte que `AdminAction`
+ *
+ * Les deux ne répondent pas à la même question. `AdminAction` est le
+ * **vocabulaire** : tout ce qu'une entrée de journal peut porter, y compris ce
+ * qu'une version future écrira. Il doit rester large, parce qu'**un journal
+ * survit au code qui l'a écrit** — une action retirée doit continuer de
+ * s'afficher, et `adminActionLabel` a un repli pour cela.
+ *
+ * `AUDITED_ACTIONS` est ce que **le serveur écrit aujourd'hui**, et rien
+ * d'autre. La distinction n'est pas cosmétique : c'est cette liste qui remplit
+ * le filtre de l'écran d'audit, et une option qui ne peut rien retourner est un
+ * mensonge dans un outil d'investigation. La page vide se lit « il ne s'est
+ * jamais rien passé », alors qu'elle dit seulement « ce filtre n'existe pas ».
+ *
+ * ## Pourquoi les dix autres ne sont pas écrites
+ *
+ * `post.create`, `post.update`, `post.delete`, `post.pin`, `content.hide`,
+ * `content.restore`, `report.update`, `poll.close`, `user.export_data` et
+ * `settings.update` étaient déclarées et jamais écrites. Les journaliser
+ * demanderait de savoir **qui** a agi, et `adminLogs` ne l'apprend que d'une
+ * Cloud Function : ces gestes-là sont des écritures clientes, et le document ne
+ * porte aucun champ nommant leur auteur. Un déclencheur ne peut pas le
+ * deviner — il verrait un champ changer sans savoir qui l'a changé.
+ *
+ * `settings.update` mérite une mention à part : c'est un nom de **permission**
+ * (`PERMISSION_MATRIX`), recopié ici par confusion. Un droit n'est pas un fait,
+ * et la chaîne existant des deux côtés, rien ne signalait l'emprunt.
+ *
+ * ## Le type en découle, il n'est pas écrit à côté
+ *
+ * `AuditedAction` est **dérivé** du tableau : ajouter une valeur ici l'ajoute
+ * au type, et une faute de frappe ne compile pas (`satisfies`). Le compilateur
+ * refuse donc d'écrire une entrée d'audit pour une action absente de la liste —
+ * c'est ce qui empêche la liste de redevenir fausse par omission.
+ */
+export const AUDITED_ACTIONS = [
   'user.approve',
   'user.reject',
   'user.suspend',
   'user.reactivate',
   'user.role_change',
   'user.delete',
-  'user.export_data',
-  'post.create',
-  'post.update',
-  'post.delete',
-  'post.pin',
-  'content.hide',
-  'content.restore',
   'notification.send',
-  'settings.update',
-  'report.update',
-  'poll.close',
 ] as const satisfies readonly AdminAction[];
+
+/** Action d'audit réellement écrite par le serveur, dérivée de la liste. */
+export type AuditedAction = (typeof AUDITED_ACTIONS)[number];
 
 export const FCPE_TASK_STATUSES = [
   'todo',

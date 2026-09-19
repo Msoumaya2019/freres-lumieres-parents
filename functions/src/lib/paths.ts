@@ -90,7 +90,27 @@ export const paths = {
   channelDigest: (channelId: string) => `${COLLECTIONS.channelDigests}/${channelId}`,
 } as const;
 
-/** Noms d'action journalisés dans `adminLogs`. */
+/**
+ * Noms d'action journalisés dans `adminLogs`.
+ *
+ * Cette table est **exactement** `AUDITED_ACTIONS` de `@fl/shared`, et elle est
+ * recopiée plutôt qu'importée pour la raison qui vaut déjà pour les collections
+ * ci-dessus — sauf que cette raison ne s'applique pas : `@fl/shared` est une
+ * dépendance des fonctions, et l'importer serait légitime. La forme gardée est
+ * un choix de lisibilité : `ADMIN_ACTIONS.userApprove` nomme l'action, là où un
+ * index de tableau ne dit rien.
+ *
+ * La contrepartie est la même que pour les collections : **une table recopiée
+ * diverge en silence**. Deux clés l'ont fait — `userExportData` et
+ * `settingsUpdate`, déclarées et jamais écrites ; la seconde est un nom de
+ * **permission** (`PERMISSION_MATRIX`), recopié par confusion, et la chaîne
+ * existant des deux côtés, rien ne signalait l'emprunt.
+ *
+ * `audited-actions.test.ts` tient les deux tables d'accord **dans les deux
+ * sens**, et vérifie en plus que chaque clé est réellement utilisée ailleurs
+ * que dans ce fichier — c'est cette seconde moitié qui aurait attrapé les deux
+ * clés mortes, puisqu'une valeur déclarée ici se trouve toujours elle-même.
+ */
 export const ADMIN_ACTIONS = {
   userApprove: 'user.approve',
   userReject: 'user.reject',
@@ -98,7 +118,5 @@ export const ADMIN_ACTIONS = {
   userReactivate: 'user.reactivate',
   userRoleChange: 'user.role_change',
   userDelete: 'user.delete',
-  userExportData: 'user.export_data',
   notificationSend: 'notification.send',
-  settingsUpdate: 'settings.update',
 } as const;

@@ -40,7 +40,25 @@ import { COLLECTIONS } from '../paths.js';
 /** Entrées par page. Le journal est dense : une page courte reste lisible. */
 const ADMIN_LOGS_PAGE_SIZE = 25;
 
-/** Filtre du journal. Chaque variante correspond à un index composite déclaré. */
+/**
+ * Filtre du journal. Chaque variante correspond à un index composite déclaré.
+ *
+ * ## Pourquoi `action` accepte tout le vocabulaire
+ *
+ * `action` est un `AdminAction` — les dix-sept valeurs —, et non les sept que le
+ * serveur écrit. C'est délibéré, et c'est l'inverse de la restriction appliquée
+ * à l'écran : **ce repository décrit une collection**, et un journal est un
+ * relevé historique. Une entrée écrite par une version antérieure, par un script
+ * ou par une version future porte une action que plus aucun code n'écrit, et
+ * elle doit rester interrogeable. Rétrécir ce type-ci rendrait le repository
+ * incapable de décrire les données qu'il sert — le défaut qu'on corrige,
+ * retourné.
+ *
+ * C'est donc l'**écran** qui restreint ce qu'il propose, à `AUDITED_ACTIONS` :
+ * une option de filtre qui ne peut rien retourner est une fausse réponse, alors
+ * qu'un filtre de dépôt qui ne retourne rien dit simplement la vérité sur la
+ * collection.
+ */
 export type AdminLogFilter =
   /** Tout le journal, de la plus récente entrée à la plus ancienne. */
   | { readonly kind: 'all' }

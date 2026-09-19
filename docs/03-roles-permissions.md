@@ -200,7 +200,7 @@ revalide tout :
 | Envoyer une notification ciblée                  | l'API d'envoi détient une clé privée                    |
 | Incrémenter les compteurs d'un sondage           | le client ne doit pas pouvoir écrire un résultat        |
 | Supprimer un compte (RGPD)                       | opération multi-collections + suppression Auth          |
-| Exporter les données d'un utilisateur            | nécessite l'Admin SDK                                   |
+| Exporter les données d'un utilisateur            | nécessite l'Admin SDK — **pas encore écrit**            |
 | Journaliser une action sensible dans `adminLogs` | le journal doit être non falsifiable                    |
 | Écrire dans `counters`                           | sinon les chiffres du tableau de bord sont manipulables |
 
@@ -259,9 +259,11 @@ suspendus en détail, et la lecture reste cloisonnée à son organisation.
 
 **La journalisation des consultations n'existe pas.** Une version antérieure de
 ce paragraphe affirmait que « chaque consultation est journalisée ». C'était
-faux : `writeAuditLog` n'est appelé que par les trois actions de
-`functions/src/callable/admin-users.ts` — changement de statut, de rôle,
-suppression — et consulter une fiche n'écrit rien. Elle ne _peut_ rien écrire
+faux : `writeAuditLog` n'est appelé que par **deux** fichiers —
+`functions/src/callable/admin-users.ts`, dont trois appels produisent les six
+actions de compte, et `functions/src/callable/send-notification.ts`, dont deux
+appels produisent `notification.send` — soit **sept actions**, la liste
+`AUDITED_ACTIONS`. Consulter une fiche n'écrit rien. Elle ne _peut_ rien écrire
 depuis le client, puisque les règles réservent l'écriture de `adminLogs` au
 serveur, administrateur compris. Rendre la phrase vraie demande une Cloud
 Function appelée à chaque consultation : la décision est portée avec celle de
@@ -288,7 +290,10 @@ node scripts/bootstrap-admin.mjs --email administrateur@exemple.fr
 # Le script :
 #   - refuse de s'exécuter si le projet cible n'est pas explicitement nommé
 #   - écrit role=admin, status=active dans Firestore ET dans les claims
-#   - journalise l'opération dans adminLogs
+#   - n'écrit **pas** dans adminLogs, contrairement à ce que ce paragraphe
+#     affirmait : l'Admin SDK contourne les règles, donc il le pourrait, mais
+#     l'amorçage n'a aucun acteur à nommer — c'est la seule action
+#     d'administration dans ce cas. À trancher, pas à oublier.
 #   - affiche un rappel : « supprimez ce script ou protégez-le »
 ```
 

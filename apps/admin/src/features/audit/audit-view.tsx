@@ -19,6 +19,26 @@
  * quel index manque. Le repository n'expose donc que des variantes couvertes ;
  * ici, « tout » ou « un type d'action ».
  *
+ * ## Pourquoi le menu propose `AUDITED_ACTIONS`, et pas tout le vocabulaire
+ *
+ * Le vocabulaire des actions (`AdminAction`) compte dix-sept valeurs ; sept
+ * seulement sont écrites par le serveur. Proposer les dix autres serait un
+ * mensonge propre à ce genre d'écran : elles ne peuvent **rien** retourner, et
+ * une page vide se lit « il ne s'est jamais rien passé » — pas « ce filtre ne
+ * désigne aucune entrée possible ». Dans un outil d'investigation, c'est la
+ * différence entre une réponse et une fausse réponse.
+ *
+ * Le menu ne recopie donc pas la liste : il **est** `AUDITED_ACTIONS`, la même
+ * que celle dont `AuditEntry.action` dérive son type. Le compilateur tient un
+ * sens — on ne peut pas écrire une entrée d'audit pour une action absente de la
+ * liste — et l'autre tient parce que le menu **est** la liste : il ne peut pas
+ * proposer une action qu'elle ignore. `audited-actions.test.ts` tient l'accord
+ * entre la liste partagée et la table du serveur.
+ *
+ * Le dépôt, lui, accepte tout le vocabulaire : il décrit la collection, pas ce
+ * que cet écran propose. Un journal peut porter une action qu'aucun code
+ * n'écrit plus, et elle doit rester interrogeable.
+ *
  * ## Pourquoi la liste se recharge au lieu de se mettre à jour localement
  *
  * Le journal est écrit par une Cloud Function, pas par cet écran. Après une
@@ -36,7 +56,7 @@ import {
   type AdminLogFilter,
 } from '@fl/firebase';
 import {
-  ADMIN_ACTIONS,
+  AUDITED_ACTIONS,
   USER_ROLE_LABELS,
   adminActionLabel,
   formatDateTime,
@@ -44,6 +64,7 @@ import {
 } from '@fl/shared';
 import type { AdminLog } from '@fl/types';
 
+import { toFilter } from '@/lib/audit-filter';
 import { initializeFirebase } from '@/lib/firebase';
 import { useAdminAuth } from '@/providers/auth-provider';
 
@@ -59,19 +80,6 @@ interface JournalPage {
 /** Empreinte d'un filtre, utilisée pour apparier une page à sa demande. */
 function fingerprint(filter: AdminLogFilter): string {
   return filter.kind === 'action' ? `action:${filter.action}` : 'all';
-}
-
-/**
- * Traduit la valeur brute d'un `<select>` en filtre.
- *
- * La valeur vient du DOM, donc d'une chaîne quelconque : on la confronte à la
- * liste des actions connues au lieu de la transtyper. Une valeur inattendue —
- * champ modifié à la main, version future de l'interface — retombe sur « tout
- * le journal » plutôt que de construire un filtre invalide.
- */
-function toFilter(value: string): AdminLogFilter {
-  const action = ADMIN_ACTIONS.find((candidate) => candidate === value);
-  return action ? { kind: 'action', action } : { kind: 'all' };
 }
 
 export function AuditView(): React.JSX.Element {
@@ -215,10 +223,10 @@ export function AuditView(): React.JSX.Element {
             className="min-h-11 rounded-md border border-border bg-surface-muted px-3 text-foreground"
           >
             <option value="">Toutes les actions</option>
-            {/* L'ordre suit `ADMIN_ACTIONS`, groupé par domaine — comptes,
-                publications, contenus… — plutôt que l'ordre alphabétique des
-                clés, qui mélangerait les domaines. */}
-            {ADMIN_ACTIONS.map((action) => (
+            {/* L'ordre suit `AUDITED_ACTIONS`, groupé par domaine — les comptes,
+                puis les notifications — plutôt que l'ordre alphabétique, qui
+                mélangerait les domaines. */}
+            {AUDITED_ACTIONS.map((action) => (
               <option key={action} value={action}>
                 {adminActionLabel(action)}
               </option>

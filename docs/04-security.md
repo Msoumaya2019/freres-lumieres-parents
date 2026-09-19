@@ -356,7 +356,7 @@ Trois mesures complémentaires, dans le même état :
 | Vérification du jeton | `request.auth` contrôlé systématiquement, plus relecture de `users/{uid}.status` en base                            |
 | Validation            | **le même schéma Zod** que le client, rejoué côté serveur                                                           |
 | Rôle                  | vérifié via `hasPermission()` importé de `@fl/shared`, puis relu en base pour les actions critiques                 |
-| Journalisation        | toute action sensible écrit dans `adminLogs` avec acteur, cible, avant/après                                        |
+| Journalisation        | **seules les actions auditées** (`AUDITED_ACTIONS`) écrivent dans `adminLogs`, avec acteur, cible, avant/après      |
 | Moindre privilège     | le compte de service des Functions n'a que les rôles nécessaires                                                    |
 
 Point clé : **les Cloud Functions rejouent les mêmes schémas Zod que le
