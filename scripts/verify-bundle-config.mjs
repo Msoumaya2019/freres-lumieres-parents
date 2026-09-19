@@ -22,6 +22,24 @@
  * conclut donc à tort à l'absence — et l'absence, ici, est précisément ce qu'on
  * refuse.
  *
+ * Mesuré sur un bundle de production de ce dépôt (Hermes, 5 657 313 octets) :
+ * « ère » 0 fois en UTF-8 contre 21 en UTF-16LE, « école » 0 contre 20,
+ * « Paramètres » 0 contre 3. La branche UTF-16LE n'est pas un filet théorique :
+ * « EXPO_PUBLIC_ » y apparaît deux fois, et les deux contextes sont de vrais
+ * messages français — « configurée pour cette application
+ * (EXPO_PUBLIC_DEFAULT_ORG_SLUG … » et « … ne peuvent pas être activés avec
+ * EXPO_PUBLIC_APP_ENV=production ». Une valeur peut donc ne vivre que dans une
+ * chaîne accentuée.
+ *
+ * ## Où ce contrôle s'arrête
+ *
+ * Il cherche des **sous-chaînes**. Or `projectId` est, par construction,
+ * contenu dans `authDomain` (`<projectId>.firebaseapp.com`) et dans
+ * `storageBucket` : si l'un est présent et l'autre non, le contrôle ne les
+ * distingue pas. Le cas n'est pas atteignable depuis le flux — l'étape qui
+ * vérifie les variables refuse avant le build si l'une des sept est vide — mais
+ * la limite est réelle, et mieux vaut la lire ici qu'ailleurs.
+ *
  * ## Un témoin, parce qu'une absence ne prouve rien
  *
  * Une recherche qui ne trouve rien ne dit pas si la valeur manque ou si la
