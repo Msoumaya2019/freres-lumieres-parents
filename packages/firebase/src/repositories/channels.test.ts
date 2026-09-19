@@ -374,4 +374,22 @@ describe('listChannels', () => {
   it('ne propose jamais fcpe parmi les types visibles', () => {
     expect(VISIBLE_CHANNEL_TYPES).not.toContain('fcpe');
   });
+
+  it('range les canaux par ordre d’affichage, pour un parent', () => {
+    // Le tri est fait par Firestore, pas par l'écran. Sans cette contrainte,
+    // les treize canaux sortiraient dans l'ordre des identifiants — `general`,
+    // qui doit ouvrir la liste, pourrait arriver dernier.
+    depot.listChannels({ orgId: 'fcpe-montmagny', isFcpe: false });
+
+    expect(derniereRequete.champs).toContainEqual({ type: 'orderBy', args: ['order', 'asc'] });
+  });
+
+  it('range les canaux par ordre d’affichage, pour un membre FCPE', () => {
+    // Les deux rôles construisent leur requête séparément : une régression
+    // peut n'en toucher qu'une, et la liste ne changerait d'ordre que pour
+    // l'un des deux. C'est le même invariant, mais pas le même chemin.
+    depot.listChannels({ orgId: 'fcpe-montmagny', isFcpe: true });
+
+    expect(derniereRequete.champs).toContainEqual({ type: 'orderBy', args: ['order', 'asc'] });
+  });
 });

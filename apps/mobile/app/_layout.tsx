@@ -38,8 +38,12 @@ void SplashScreen.preventAutoHideAsync();
  * la feuille est remplacée par l'écran, donc `create` quitte l'historique et
  * le segment courant devient `publier`. Sans cette entrée, le formulaire de
  * publication serait refermé à l'instant où il s'ouvre.
+ *
+ * `discussion` est le fil d'un canal, ouvert depuis l'onglet Discussions. Il
+ * est atteint par un `push` et non par un remplacement, donc la liste reste
+ * dans l'historique — mais le segment courant devient bien `discussion`.
  */
-const DETAIL_ROUTES: readonly string[] = ['post', 'publier', 'sondage'];
+const DETAIL_ROUTES: readonly string[] = ['post', 'publier', 'sondage', 'discussion'];
 
 export default function RootLayout(): React.JSX.Element {
   return (
@@ -126,6 +130,17 @@ function RootNavigator(): React.JSX.Element {
           options={{
             headerShown: true,
             title: 'Sondage',
+            headerStyle: { backgroundColor: theme.colors.surface },
+            headerTintColor: theme.colors.textPrimary,
+          }}
+        />
+        <Stack.Screen
+          name="discussion/[id]"
+          options={{
+            // Le titre réel est posé par l'écran, une fois le canal lu : ici
+            // ce n'est qu'un repli pour le premier rendu.
+            headerShown: true,
+            title: 'Discussion',
             headerStyle: { backgroundColor: theme.colors.surface },
             headerTintColor: theme.colors.textPrimary,
           }}

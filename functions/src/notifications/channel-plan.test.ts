@@ -19,15 +19,16 @@
  * fenêtre ne compte plus : annoncer « 3 nouveaux messages » sous un canal qui
  * n'en montre que deux enverrait les parents chercher ce qui n'est pas là.
  *
- * **Aucun lien profond.** Le type `channel` existe mais n'a pas d'écran — il
- * est déclaré dans `TYPES_SANS_ROUTE`. Un lien de ce type serait reconnu par
- * l'analyse puis refusé à l'ouverture : le tap laisserait l'application où elle
- * est. Le test vérifie l'**absence**, et c'est le seul endroit où l'absence est
- * la bonne réponse.
+ * **Le lien profond ouvre le canal.** Le transport n'en emportait aucun tant
+ * que l'écran n'existait pas : un lien reconnu puis refusé à l'ouverture laisse
+ * le tap sans effet, ce qui se lit comme une application cassée. L'écran existe
+ * depuis la phase 6, et le lien est vérifié **de bout en bout** — écrit par le
+ * déclencheur, relu par l'analyse, routé vers le chemin de l'écran. Vérifier la
+ * seule présence d'une chaîne ne dirait rien du chemin obtenu.
  */
 import { describe, expect, it } from 'vitest';
 
-import { DEEPLINK_TARGET_TYPES, TYPES_SANS_ROUTE } from '@fl/shared';
+import { parseDeeplink, routeForDeeplink } from '@fl/shared';
 
 import { DIGEST_WINDOW_MINUTES, channelDigestPlan, digestNotification } from './channel-plan.js';
 
@@ -247,15 +248,14 @@ describe('digestNotification — l’annonce du lot', () => {
     expect(plan?.authorName).toBe('Anne Dupont');
   });
 
-  it('n’emporte aucun lien profond, parce qu’aucun écran ne l’ouvrirait', () => {
+  it('emporte un lien qui rouvre le canal annoncé', () => {
     const plan = digestNotification('ce1', canal, [message]);
+    const deeplink = plan?.message.data.deeplink;
 
-    expect(plan?.message.data.deeplink).toBeUndefined();
-
-    // Ce que le test protège : `channel` est un type de cible connu, mais il
-    // n'a pas de route. Le jour où l'écran existera, `TYPES_SANS_ROUTE` perdra
-    // sa ligne et c'est ici qu'il faudra écrire le lien.
-    expect(DEEPLINK_TARGET_TYPES).toContain('channel');
-    expect(TYPES_SANS_ROUTE.channel).toBeDefined();
+    // Écrit par le déclencheur, relu par l'analyse, routé vers l'écran : les
+    // trois étapes sont vérifiées, parce qu'un lien juste à l'écriture et faux
+    // à la lecture enverrait le parent sur l'écran « introuvable ».
+    expect(parseDeeplink(deeplink)).toEqual({ type: 'channel', id: 'ce1' });
+    expect(routeForDeeplink(deeplink)).toBe('/discussion/ce1');
   });
 });

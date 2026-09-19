@@ -1,47 +1,53 @@
 /**
- * Discussions entre parents.
+ * Discussions — la liste des canaux.
  *
- * ⚠️ ÉTAT : Phase 1 (fondations).
+ * ## Ce qui a changé depuis la maquette
  *
- * La liste des canaux est affichée à partir de la constante de référence, ce
- * qui permet de valider la mise en page et la lisibilité. Le chargement réel
- * depuis Firestore, les messages et la modération arrivent en Phase 6.
+ * L'écran affichait la constante de référence en dur, pour valider la mise en
+ * page. Il lit maintenant Firestore, et la liste vient de `DEFAULT_CHANNELS` par
+ * l'intermédiaire du script d'amorçage — une seule source pour les deux.
  *
- * Rappel d'architecture : aucune messagerie privée 1-à-1 n'est prévue. Tous
- * les échanges sont collectifs et modérables, ce qui est le bon compromis
- * entre utilité et responsabilité pour une association de parents.
+ * ## L'aperçu peut être absent, et ce n'est pas une erreur
+ *
+ * Un canal neuf n'a pas de dernier message. L'écran retombe alors sur la
+ * description du canal, et non sur une ligne vide : une ligne vide se lirait
+ * comme un chargement qui n'a pas abouti. `messageCount` n'est jamais affiché —
+ * il n'a aucun écrivain, et un « 0 » permanent donnerait l'impression que
+ * personne n'écrit.
+ *
+ * ## La liste ne s'abonne pas
+ *
+ * Elle se relit au geste de rafraîchissement. Un onglet ne se démonte pas quand
+ * on le quitte : sans ce geste, l'écran resterait figé sur ses données jusqu'au
+ * redémarrage de l'application.
  */
 import { Ionicons } from '@expo/vector-icons';
-import { View } from 'react-native';
+import { useRouter } from 'expo-router';
+import { useCallback } from 'react';
+import { FlatList, RefreshControl, View } from 'react-native';
 
-import { CHANNEL_TYPE_LABELS } from '@fl/shared';
-import type { ChannelType } from '@fl/types';
+import { CHANNEL_TYPE_LABELS, appErrorMessage, formatRelative } from '@fl/shared';
+import type { Channel } from '@fl/types';
 
 import { AppText, Card, Screen } from '@/components/ui';
+import { EmptyState, ErrorState, LoadingView } from '@/components/ui/state-views';
+import { useChannels } from '@/hooks/use-channels';
 import { useTheme } from '@/providers/theme-provider';
-
-/** Canaux créés par défaut pour une nouvelle organisation (Phase 6). */
-const PLANNED_CHANNELS: { name: string; type: ChannelType; description: string }[] = [
-  { name: 'Général', type: 'general', description: 'Échanges tous publics' },
-  { name: 'Maternelle', type: 'school', description: 'Parents de la maternelle' },
-  { name: 'Élémentaire', type: 'school', description: 'Parents de l’élémentaire' },
-  { name: 'CP', type: 'level', description: 'Parents des CP' },
-  { name: 'CE1', type: 'level', description: 'Parents des CE1' },
-  { name: 'CE2', type: 'level', description: 'Parents des CE2' },
-  { name: 'CM1', type: 'level', description: 'Parents des CM1' },
-  { name: 'CM2', type: 'level', description: 'Parents des CM2' },
-  { name: 'Cantine', type: 'theme', description: 'Menus et retours sur la cantine' },
-  { name: 'Périscolaire', type: 'theme', description: 'Accueil du matin et du soir' },
-  { name: 'Entraide', type: 'theme', description: 'Coup de main entre parents' },
-  { name: 'Objets perdus', type: 'theme', description: 'Trouvé ou perdu à l’école' },
-  { name: 'Sorties et événements', type: 'theme', description: 'Organisation des sorties' },
-];
 
 export default function DiscussionsScreen(): React.JSX.Element {
   const { theme } = useTheme();
+  const router = useRouter();
+  const { channels, status, error, refreshError, refreshing, retry, refresh } = useChannels();
+
+  const handlePressChannel = useCallback(
+    (channel: Channel) => {
+      router.push(`/discussion/${channel.id}`);
+    },
+    [router],
+  );
 
   return (
-    <Screen scroll>
+    <Screen>
       <View style={{ marginTop: theme.spacing.lg, gap: theme.spacing.xs }}>
         <AppText variant="display">Discussions</AppText>
         <AppText variant="body" color="secondary">
@@ -49,34 +55,108 @@ export default function DiscussionsScreen(): React.JSX.Element {
         </AppText>
       </View>
 
-      <Card
-        style={{
-          marginTop: theme.spacing.lg,
-          backgroundColor: theme.colors.infoSoft,
-          borderColor: theme.colors.info,
-        }}
-      >
-        <AppText variant="body" color="secondary">
-          Les {PLANNED_CHANNELS.length} canaux ci-dessous seront créés automatiquement. Ils ne sont
-          pas encore reliés à Firestore : c’est l’objet de la Phase 6.
-        </AppText>
-      </Card>
-
-      <View style={{ marginTop: theme.spacing.lg, gap: theme.spacing.sm }}>
-        {PLANNED_CHANNELS.map((channel) => (
-          <Card key={channel.name}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.spacing.md }}>
-              <Ionicons name="chatbubble-ellipses-outline" size={22} color={theme.colors.primary} />
-              <View style={{ flex: 1, gap: 2 }}>
-                <AppText variant="bodyStrong">{channel.name}</AppText>
-                <AppText variant="caption" color="muted">
-                  {CHANNEL_TYPE_LABELS[channel.type]} · {channel.description}
-                </AppText>
-              </View>
-            </View>
-          </Card>
-        ))}
-      </View>
+      {error ? (
+        <ErrorState
+          message={appErrorMessage(error)}
+          technicalDetail={error.message}
+          onRetry={retry}
+        />
+      ) : status === 'ready' ? (
+        <FlatList
+          style={{ flex: 1, marginTop: theme.spacing.md }}
+          data={channels}
+          keyExtractor={(channel) => channel.id}
+          renderItem={({ item }) => (
+            <ChannelRow channel={item} onPress={() => handlePressChannel(item)} />
+          )}
+          ItemSeparatorComponent={() => <View style={{ height: theme.spacing.sm }} />}
+          contentContainerStyle={{
+            // Sans `flexGrow`, une liste vide n'offre rien à tirer, et le geste
+            // de rafraîchissement ne prend pas là où il sert le plus.
+            flexGrow: 1,
+            paddingBottom: theme.spacing.xxxl,
+          }}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={refresh}
+              tintColor={theme.colors.primary}
+              colors={[theme.colors.primary]}
+            />
+          }
+          ListFooterComponent={
+            refreshError ? (
+              <AppText
+                variant="caption"
+                color="danger"
+                align="center"
+                style={{ marginTop: theme.spacing.md }}
+              >
+                {appErrorMessage(refreshError)}
+              </AppText>
+            ) : null
+          }
+          ListEmptyComponent={
+            <EmptyState
+              icon={<Ionicons name="chatbubbles-outline" size={40} color="#9AA3B2" />}
+              title="Aucun canal pour le moment"
+              description="Les canaux de discussion sont créés par la FCPE. Ils apparaîtront ici."
+            />
+          }
+        />
+      ) : (
+        <LoadingView message="Chargement des canaux…" />
+      )}
     </Screen>
+  );
+}
+
+/** Une ligne de la liste : le canal, son dernier message, ou sa description. */
+function ChannelRow({
+  channel,
+  onPress,
+}: {
+  channel: Channel;
+  onPress: () => void;
+}): React.JSX.Element {
+  const { theme } = useTheme();
+
+  const preview = channel.stats?.lastMessagePreview;
+  const author = channel.stats?.lastMessageAuthorName;
+  const when = formatRelative(channel.stats?.lastMessageAt);
+
+  return (
+    <Card onPress={onPress} accessibilityLabel={`Ouvrir le canal ${channel.name}`}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.spacing.md }}>
+        <Ionicons name="chatbubble-ellipses-outline" size={22} color={theme.colors.primary} />
+
+        <View style={{ flex: 1, gap: 2 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.spacing.sm }}>
+            <AppText variant="bodyStrong" style={{ flex: 1 }}>
+              {channel.name}
+            </AppText>
+            {/* Le drapeau existe pour les archives et les annonces : aucun
+                canal par défaut ne l'utilise, mais l'afficher évite qu'il
+                devienne un réglage sans effet. */}
+            {channel.readOnly ? (
+              <Ionicons name="lock-closed-outline" size={13} color={theme.colors.textMuted} />
+            ) : null}
+            {preview && when ? (
+              <AppText variant="caption" color="muted">
+                {when}
+              </AppText>
+            ) : null}
+          </View>
+
+          <AppText variant="caption" color={preview ? 'secondary' : 'muted'} numberOfLines={1}>
+            {preview
+              ? author
+                ? `${author} : ${preview}`
+                : preview
+              : `${CHANNEL_TYPE_LABELS[channel.type]} · ${channel.description ?? ''}`}
+          </AppText>
+        </View>
+      </View>
+    </Card>
   );
 }

@@ -1,5 +1,12 @@
 /**
- * Zone de saisie d'un commentaire.
+ * Zone de saisie d'un texte court : un commentaire, un message de canal.
+ *
+ * ## Un seul composeur pour les deux
+ *
+ * Un commentaire et un message de canal demandent exactement la même chose :
+ * un champ multiligne, une réponse citée, un bouton d'envoi, une erreur. Seul
+ * le mot employé change, et il est porté par `noun` — deux composants
+ * divergeraient au premier correctif appliqué à un seul.
  *
  * ## Le champ reste rempli en cas d'échec
  *
@@ -16,6 +23,9 @@
  * « permission denied » — incompréhensible pour un parent. Le compteur
  * n'apparaît qu'à l'approche de la limite : affiché en permanence, il
  * inquiéterait sans raison.
+ *
+ * La borne est celle du commentaire **et** du message : les deux règles
+ * Firestore portent le même 2000, et `messageInputSchema` le revalide.
  */
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
@@ -33,8 +43,10 @@ const MAX_LENGTH = 2000;
 /** Seuil à partir duquel le compteur de caractères devient utile. */
 const COUNTER_THRESHOLD = MAX_LENGTH - 200;
 
-export interface CommentComposerProps {
-  /** Commentaire auquel on répond, ou `null` pour un commentaire racine. */
+export interface ComposerProps {
+  /** Ce que l'on écrit, au singulier : « commentaire », « message ». */
+  noun?: string;
+  /** Texte auquel on répond, ou `null` pour un texte racine. */
   replyTo: { readonly id: string; readonly authorName: string } | null;
   onCancelReply: () => void;
   /** Renvoie `true` si l'écriture a réussi ; le champ est alors vidé. */
@@ -43,13 +55,14 @@ export interface CommentComposerProps {
   error: AppError | null;
 }
 
-export function CommentComposer({
+export function Composer({
+  noun = 'commentaire',
   replyTo,
   onCancelReply,
   onSubmit,
   submitting,
   error,
-}: CommentComposerProps): React.JSX.Element {
+}: ComposerProps): React.JSX.Element {
   const { theme } = useTheme();
   const [body, setBody] = useState('');
 
@@ -110,9 +123,9 @@ export function CommentComposer({
           onChangeText={setBody}
           multiline
           maxLength={MAX_LENGTH}
-          placeholder={replyTo ? 'Écrire une réponse…' : 'Écrire un commentaire…'}
+          placeholder={replyTo ? 'Écrire une réponse…' : `Écrire un ${noun}…`}
           placeholderTextColor={theme.colors.textMuted}
-          accessibilityLabel={replyTo ? 'Votre réponse' : 'Votre commentaire'}
+          accessibilityLabel={replyTo ? 'Votre réponse' : `Votre ${noun}`}
           style={[
             styles.input,
             {
@@ -133,7 +146,7 @@ export function CommentComposer({
           onPress={() => void send()}
           disabled={!canSend}
           accessibilityRole="button"
-          accessibilityLabel={replyTo ? 'Envoyer la réponse' : 'Envoyer le commentaire'}
+          accessibilityLabel={replyTo ? 'Envoyer la réponse' : `Envoyer le ${noun}`}
           accessibilityState={{ disabled: !canSend, busy: submitting }}
           style={({ pressed }) => [
             styles.send,

@@ -34,7 +34,7 @@ import { appErrorMessage, pluralize } from '@fl/shared';
 import type { AppError, Comment } from '@fl/types';
 
 import { CommentCard } from '@/components/post/comment-card';
-import { CommentComposer } from '@/components/post/comment-composer';
+import { Composer } from '@/components/ui/composer';
 import { PostDetailCard } from '@/components/post/post-detail-card';
 import { AppText, Button, Screen } from '@/components/ui';
 import { EmptyState, ErrorState, LoadingView } from '@/components/ui/state-views';
@@ -186,7 +186,7 @@ export default function PostDetailScreen(): React.JSX.Element {
 
         {commentsOpen ? (
           <View style={{ paddingHorizontal: theme.spacing.lg }}>
-            <CommentComposer
+            <Composer
               replyTo={replyTo}
               onCancelReply={cancelReply}
               onSubmit={(body) => detail.submitComment(body, replyTo?.id)}

@@ -902,38 +902,59 @@ et uniquement celles-là ; les préférences sont respectées, sauf pour `urgent
 
 ## Phase 6 — Discussions
 
-- [ ] Liste des canaux avec aperçu du dernier message
-- [ ] Fil de discussion paginé (30 messages)
+- [x] Liste des canaux avec aperçu du dernier message
+- [x] Fil de discussion paginé (30 messages)
 - [ ] Envoi de message, réponse, réaction, pièce jointe
 - [ ] Signalement d'un message
 - [x] Création des 13 canaux par défaut (script d'amorçage)
-- [ ] Canaux en lecture seule
+- [x] Canaux en lecture seule
 - [ ] Modération : masquer un message
 
 **Critère de sortie :** un seul listener temps réel dans toute l'application,
 celui du canal ouvert.
 
-**État au 19 septembre 2026.** Le socle serveur est en place et mesuré : la liste
-`DEFAULT_CHANNELS` dans `@fl/shared`, le dépôt `createChannelRepository`, le
-script `scripts/seed-channels.mjs` — exécuté contre l'émulateur, relancé, et
-vérifié —, le déclencheur `onChannelMessageActivity` qui tient l'aperçu du
-dernier message, et huit tests de règles qui fixent la frontière de lecture des
-canaux.
+**État au 19 septembre 2026.** Les deux écrans sont branchés. La liste lit
+`DEFAULT_CHANNELS` par Firestore en **une passe** (`getDocs`, sans abonnement),
+et le fil est le **seul** listener temps réel de l'application — le critère de
+sortie est donc tenu. Le socle serveur est en place et mesuré : le dépôt
+`createChannelRepository`, le script `scripts/seed-channels.mjs` — exécuté contre
+l'émulateur, relancé, et vérifié —, et le déclencheur `onChannelMessageActivity`
+qui tient l'aperçu du dernier message.
 
-Deux points restent ouverts, et aucun n'est du travail d'écran :
+Trois cases restent ouvertes, et chacune pour une raison écrite :
 
-- **La réaction sur un message n'a aucun support.** Il n'existe ni chemin ni
-  règle pour `channels/{id}/messages/{mid}/reactions` ; l'écriture serait refusée
-  par défaut. `ChannelMessage.reactions` existe et les règles le figent, mais
-  rien ne l'alimente. La case « réaction » de cette phase demande donc d'abord
-  des règles, pas un bouton.
+- **« Envoi de message, réponse » est fait ; « réaction » et « pièce jointe » ne
+  le sont pas.** La case reste donc décochée. La réaction n'a **aucun support** :
+  il n'existe ni chemin ni règle pour
+  `channels/{id}/messages/{mid}/reactions`, et l'écriture serait refusée par
+  défaut. `ChannelMessage.reactions` existe et les règles le figent, mais rien ne
+  l'alimente. La pièce jointe demanderait un sélecteur et un envoi vers Storage,
+  qui n'existent pas non plus — le dépôt écrit `attachments: []`, et c'est le
+  schéma qui le veut ainsi.
 - **Le signalement d'un message dépend de la phase 7.** `ModerationTargetType`
-  accepte déjà `'message'`, ce qui n'est pas la même chose qu'un dépôt capable
-  de l'écrire.
+  accepte déjà `'message'`, ce qui n'est pas la même chose qu'un dépôt capable de
+  l'écrire.
+- **La modération est en place dans les règles, pas dans un écran.** Le
+  modérateur peut masquer un message (`validModerationEdit`, et deux tests de
+  règles le mesurent), mais l'application d'administration n'a **aucune section
+  « discussions »** : les cinq sections existantes sont le journal, les
+  notifications, les publications, les sondages et les utilisateurs. Masquer un
+  message demande donc aujourd'hui la console Firebase.
 
-Le reste est du travail d'écran : brancher la liste et le fil, et respecter
-`readOnly`. `stats.messageCount` reste à zéro, faute d'écrivain — voir
+`stats.messageCount` reste à zéro, faute d'écrivain — voir
 `docs/02-data-model.md`, où la raison est écrite.
+
+**Deux corrections faites en chemin, et qui n'étaient pas des cases du plan.**
+`readOnly` n'était appliqué par **aucune règle** : l'écran masquait sa zone de
+saisie, et un parent pouvait publier dans un canal annoncé comme fermé. La règle
+relit maintenant le canal parent (`canalEnLectureSeule()`), et deux tests de
+règles la mesurent. Par ailleurs, `channel` était déclaré dans `TYPES_SANS_ROUTE`
+avec la raison « l'écran des discussions n'existe pas encore » : cette raison est
+devenue fausse le jour où l'écran a existé, et la notification de canal emporte
+désormais un lien profond — vérifié de bout en bout, écrit puis relu puis routé.
+
+Reste ouvert, et consigné dans `docs/04-security.md` § 10 : la règle de lecture
+d'un message ne vérifie pas l'organisation, alors que celle du canal l'exige.
 
 ---
 

@@ -34,17 +34,17 @@
  * enverrait les parents chercher ce qui n'est pas là. Si plus rien n'est
  * visible, le lot disparaît sans un mot.
  *
- * ## Pas de lien profond, et c'est délibéré
+ * ## Le lien profond, maintenant que l'écran existe
  *
- * `DEEPLINK_TARGET_TYPES` connaît le type `channel`, mais
- * `TYPES_SANS_ROUTE` l'excuse : l'écran des discussions n'existe pas encore.
- * Un tel lien serait reconnu par l'analyse puis refusé à l'ouverture — le tap
- * laisserait l'application où elle est. Le transport n'emporte donc **aucun
- * lien** plutôt qu'un lien que rien n'honore. Le jour où l'écran existera, la
- * ligne d'excuse devra disparaître, et c'est ce lien qu'il faudra écrire.
+ * Le transport a longtemps n'emporté **aucun lien** : `channel` était un type
+ * de cible connu, mais `TYPES_SANS_ROUTE` l'excusait faute d'écran pour
+ * l'ouvrir. Un lien reconnu puis refusé à l'ouverture laisse le tap sans
+ * effet, ce qui se lit comme une application cassée — pire que pas de lien du
+ * tout. L'écran de discussion existe depuis la phase 6 : la ligne d'excuse a
+ * disparu, et c'est ici que le lien s'écrit.
  */
 import type { Audience } from '@fl/types';
-import type { PushMessage } from '@fl/shared';
+import { buildDeeplink, type PushMessage } from '@fl/shared';
 
 import { clesAudience } from './recipients.js';
 
@@ -215,6 +215,7 @@ export function digestNotification(
 
   const count = visibles.length;
   const audience = channel.audience;
+  const deeplink = buildDeeplink({ type: 'channel', id: channelId });
 
   return {
     orgId,
@@ -232,9 +233,9 @@ export function digestNotification(
       body: count === 1 ? 'Nouveau message' : `${count} nouveaux messages`,
       category: 'discussions',
       audienceKeys: clesAudience(channel.audienceKeys),
-      // Pas de `deeplink` : voir l'en-tête. Le type est celui du domaine, et
-      // `new_message` est le seul qui décrive un message de canal.
-      data: { type: 'new_message', orgId, sourceId: channelId },
+      // Le tap ouvre le canal, et non l'onglet Discussions : le parent qui
+      // reçoit « 3 nouveaux messages » doit arriver sur ces messages.
+      data: { type: 'new_message', orgId, sourceId: channelId, deeplink },
     },
   };
 }
