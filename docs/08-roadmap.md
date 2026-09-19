@@ -638,8 +638,10 @@ false`) : c'est le seul endroit où « ce qui a déjà été annoncé » est éc
       écrire le champ sur le document qu'il venait de créer et **faire taire la
       notification de son propre sondage**. Le champ est désormais fermé des deux
       côtés — `absent()` à la création, `unchangedOptional()` ensuite — et le
-      banc des sondages porte une mutation pour chacune des deux clauses : 33 au
-      total.
+      banc des sondages porte une mutation pour chacune des deux clauses. Le
+      compte exact est celui de l'en-tête du banc, et il n'est pas recopié ici :
+      il a déjà bougé deux fois, et une valeur recopiée dans un document est une
+      valeur qui ment dès la fois suivante.
       Au passage, **deux affirmations fausses** ont été corrigées, toutes deux
       trouvées en écrivant ce déclencheur : le commentaire de `close()` annonçait
       une renotification de l'audience à la clôture — impossible, le plan ne part
@@ -1072,17 +1074,53 @@ audienceKeys, startsAt)` ne couvre pas `where orgId orderBy startsAt` —
       publierait ». Ouvert aussi : rien n'écrit de **journal d'audit** pour un
       sondage, alors que `poll.close` est déclaré dans `AdminAction` et porte un
       libellé — un vocabulaire que personne n'emploie.
+- [x] `posts` : fermer `notifiedAt` à la création — **le même défaut que sur
+      `polls`, trouvé sur l'autre collection**, et c'est ce qui en fait un lot à
+      part plutôt qu'un oubli de la veille. `Post` portait la clause de gel
+      depuis longtemps (`unchangedOptional('notifiedAt')`, dans
+      `validOwnPostEdit()` comme dans `validModerationEdit()`), mais un gel ne
+      dit rien d'une **création** : il n'y a pas de `resource` à comparer, donc
+      rien à figer, et le chemin le plus simple — poser le champ sur le document
+      qu'on vient d'écrire — restait ouvert. `onPostPublished` le lit pour
+      décider, donc un membre de la FCPE pouvait **faire taire la notification
+      de sa propre publication**. `absent('notifiedAt')` ferme ce chemin, comme
+      sur `polls`.
+      **L'affirmation fausse qui a mené au défaut** : le docblock de
+      `Post.notifiedAt` tenait en une ligne, quand celui de `Poll` en portait
+      cinq, et c'est le second qui décrivait l'écart — comme « porté par la
+      feuille de route ». `grep` sur la feuille de route n'en trouve aucune
+      entrée. La phrase a été rendue vraie par le travail, et non l'inverse :
+      c'est le trou qui a été fermé, puis la phrase corrigée.
+      **La mise à jour était écrite mais pas mesurée** : les deux clauses de
+      `validOwnPostEdit()` et `validModerationEdit()` n'étaient couvertes par
+      **aucun** test. Cinq tests sont donc ajoutés — deux à la création (le refus
+      et son témoin sur la même charge à un champ près), trois à la mise à jour
+      (les deux moitiés du helper, plus le témoin qui corrige le texte d'une
+      publication déjà notifiée). Le banc passe à **trente-sept** mutations et
+      `TESTS_ATTENDUS` à **239** ; la 36 retire `absent()` de `posts`, la 37
+      retire le gel de la branche « auteur ».
+      **Le banc ne voyait pas les publications**, et c'est un défaut de
+      l'instrument, pas de la règle : il ne retenait que les noms de tests
+      contenant `Sondages > ` ou `Résultats de sondage > `. La 36 est tombée sur
+      le bon test, mais le nom était filtré — le banc a donc annoncé INATTENDU
+      alors qu'il mesurait juste. Les blocs reconnus sont désormais nommés
+      (`BLOCS`) et incluent les deux blocs d'écriture des publications. C'est le
+      même piège que `RESULTATS` avait déjà posé : **un filtre par préfixe cache
+      exactement ce qu'il ne nomme pas**.
 - [x] Tests : double vote refusé, brouillon illisible, cloisonnement
       d'organisation, création refusée à un parent, et le vote — dont, pour
       chaque refus, **un témoin qui réussit**. Les trois visibilités ont leurs
       tests, et leurs témoins sont le **même document** lu par la FCPE, ou un
-      second parent qui a voté. **Trente et une** mutations couvrent l'ensemble des
-      règles de sondage ; **une** d'entre elles a un ensemble attendu vide — la
+      second parent qui a voté. **Trente-sept** mutations couvrent l'ensemble des
+      règles de sondage **et les deux clauses de `notifiedAt` sur les
+      publications** ; **une** d'entre elles a un ensemble attendu vide — la
       mutation de diagnostic qui retire `exists()`, dont on veut vérifier qu'elle
       ne fait rien tomber — et c'est consigné : voir l'en-tête du banc. **Cinq**
       visent l'échéance, et leur jeu témoin **est** le sujet : chacune doit tomber
       sans qu'un cron soit passé, sinon la preuve porterait sur le planificateur au
-      lieu de la règle.
+      lieu de la règle. Le compte exact vit dans l'en-tête du banc et dans
+      `TESTS_ATTENDUS`, pas ici : il a déjà bougé deux fois, et une valeur
+      recopiée dans un document ment dès la fois suivante.
 
 **Critère de sortie :** un compte ne peut voter qu'une fois, y compris en
 appelant Firestore directement.

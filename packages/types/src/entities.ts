@@ -306,7 +306,26 @@ export interface Post extends Auditable, OrganizationScoped {
   publishedAt: DateLike;
   /** Compteurs dénormalisés, maintenus par Cloud Functions. */
   stats: PostStats;
-  /** Horodatage du dernier envoi de notification, pour éviter les doublons. */
+  /**
+   * Horodatage du dernier envoi de notification, pour éviter les doublons.
+   *
+   * Écrit **par le déclencheur** `onPostPublished`, jamais par un client : les
+   * règles le ferment des deux côtés (`absent('notifiedAt')` à la création,
+   * `unchangedOptional('notifiedAt')` ensuite). Sans ce gel, un membre de la
+   * FCPE pouvait le poser sur sa propre publication et **faire taire la
+   * notification** — le déclencheur le lit pour décider, et aurait conclu à un
+   * envoi déjà fait.
+   *
+   * C'est la règle de `Poll.notifiedAt`, à l'identique. Les deux collections
+   * ont eu le **même** défaut, à quelques jours d'écart : seule la mise à jour
+   * était fermée, et la création — le chemin le plus simple, poser le champ sur
+   * le document qu'on vient d'écrire — restait ouverte. Un gel ne dit rien
+   * d'une création, faute de `resource` à comparer.
+   *
+   * Le champ avait ici un docblock d'une ligne, quand celui de `Poll` en
+   * portait cinq : c'est en le lisant qu'on a découvert que l'écart annoncé
+   * comme « porté par la feuille de route » ne l'était par rien.
+   */
   notifiedAt?: DateLike;
   /** Épinglage programmé : date de fin d'épinglage automatique. */
   pinnedUntil?: DateLike;
@@ -487,10 +506,13 @@ export interface Poll extends Auditable, OrganizationScoped {
    * notification** — le déclencheur le lit pour décider, et aurait conclu à un
    * envoi déjà fait.
    *
-   * C'est la même règle que sur `Post`, appliquée au même champ — à une
-   * différence près, et elle n'est pas cosmétique : `Post` ne l'interdit qu'à
-   * la mise à jour. La création y reste ouverte, et c'est un écart connu, non
-   * une décision ; il est porté par la feuille de route.
+   * C'est la même règle que sur `Post`, appliquée au même champ — et les deux
+   * le sont désormais **à l'identique**. `Post` a porté le même trou plus
+   * longtemps : il ne l'interdisait qu'à la mise à jour, et la création y
+   * restait ouverte. Le docblock de `Post.notifiedAt` disait de cet écart qu'il
+   * était « porté par la feuille de route » ; c'était faux — aucune entrée ne
+   * le portait, et aucun test ne le couvrait. La phrase a été corrigée en même
+   * temps que le trou, et non l'inverse.
    *
    * Posé **après** l'envoi, et non avant : marquer d'abord puis échouer
    * perdrait la notification en silence, ce qui est pire qu'un doublon.

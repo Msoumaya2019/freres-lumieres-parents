@@ -136,8 +136,15 @@ service cloud.firestore {
     // C'est le complément de `unchangedOptional()`, et il ne le remplace pas :
     // à la **création** il n'y a pas de `resource` à comparer, donc figer n'a
     // rien à quoi s'accrocher et la clause laisse passer n'importe quelle
-    // valeur. Un champ que le serveur seul écrit — `notifiedAt` sur un sondage
-    // — se protège donc des deux côtés : interdit à la création, figé ensuite.
+    // valeur. Un champ que le serveur seul écrit — `notifiedAt`, sur un sondage
+    // comme sur une publication — se protège donc des deux côtés : interdit à la
+    // création, figé ensuite.
+    //
+    // Les deux collections ont eu le même défaut, à quelques jours d'écart, et
+    // dans le même ordre : la clause de gel a été écrite à la mise à jour, un
+    // test de mise à jour est passé au vert, et le chemin de création est resté
+    // ouvert sans que rien ne le dise. C'est ce qui justifie la règle générale
+    // ci-dessous — et le fait que les deux soient corrigés, plutôt qu'un seul.
     //
     // Le raisonnement vaut pour tout champ de décision posé par le serveur, et
     // pas seulement pour celui-ci : `unchangedOptional()` seul donne
@@ -534,9 +541,27 @@ service cloud.firestore {
       // qu'elle compare une valeur écrite au jeton de l'appelant : à la mise à
       // jour, `authorRole` est figé, et un membre promu entre-temps doit pouvoir
       // corriger ses anciennes publications.
+      //
+      // ## `notifiedAt` est absent à la création, comme sur un sondage
+      //
+      // C'est la troisième condition, et elle a manqué pendant longtemps. Le
+      // champ appartient au serveur : `onPostPublished` le lit pour décider
+      // s'il envoie, donc un membre de la FCPE qui peut l'écrire **fait taire
+      // la notification de sa propre publication** — le déclencheur conclut à
+      // un envoi déjà fait et s'arrête.
+      //
+      // Les deux branches de mise à jour le figeaient déjà
+      // (`unchangedOptional('notifiedAt')`, dans `validOwnPostEdit()` comme dans
+      // `validModerationEdit()`), mais un gel ne dit rien d'une **création** :
+      // il n'y a pas de `resource` à comparer, donc rien à figer, et le chemin
+      // le plus simple — poser le champ sur le document qu'on vient d'écrire —
+      // restait ouvert. C'est le même défaut que sur `polls`, et la même
+      // correction : `absent()` refuse le champ, `unchangedOptional()` refuse
+      // son déplacement.
       allow create: if isFcpe() && validPost()
         && request.resource.data.authorRole == role()
-        && (request.resource.data.pinned == false || isModerator());
+        && (request.resource.data.pinned == false || isModerator())
+        && absent('notifiedAt');
 
       // -----------------------------------------------------------------------
       //  Mise à jour — deux branches, un seul motif

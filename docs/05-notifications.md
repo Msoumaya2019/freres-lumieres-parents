@@ -581,6 +581,14 @@ il n'y a pas de `resource` à comparer, donc rien à figer, et un membre de la F
 pouvait poser le champ sur le document qu'il venait d'écrire — donc **faire taire
 la notification de son propre sondage**, puisque le plan le lit pour décider.
 
+**Le même défaut existait sur les publications**, et il y est resté plus
+longtemps. `Post` portait la clause de gel depuis le début, mais seulement à la
+mise à jour : la création y était ouverte, et `onPostPublished` lit `notifiedAt`
+de la même façon. Son docblock annonçait cet écart comme « porté par la feuille
+de route » ; aucune entrée ne le portait, et aucun test ne le couvrait — la phrase
+décrivait une intention, pas un état. Les deux collections portent désormais la
+même règle, mesurée par les mêmes tests dans les deux blocs d'écriture.
+
 > **Prérequis de déploiement.** Le projet a désormais **deux** fonctions
 > planifiées — `onReceiptsDue` (toutes les heures) et `onChannelDigestsDue`
 > (toutes les cinq minutes). Leur déploiement demande l'**API Cloud Scheduler**,

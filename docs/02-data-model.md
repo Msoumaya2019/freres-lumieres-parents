@@ -218,23 +218,23 @@ on ne sait rien ne doit rien recevoir.
 
 ### `posts/{postId}`
 
-| Champ                                  | Type            | Note                                                            |
-| -------------------------------------- | --------------- | --------------------------------------------------------------- |
-| `orgId`, `schoolId?`                   | string          |                                                                 |
-| `title`, `body`                        | string          |                                                                 |
-| `category`                             | `PostCategory`  | 11 catégories                                                   |
-| `audience`                             | map             | `{ type, schoolId?, level?, classId? }`                         |
-| `audienceKeys`                         | string[]        | **requêté** — voir § 4                                          |
-| `attachments`                          | map[]           | `{ storagePath, contentType, fileName, size, width?, height? }` |
-| `linkUrl`                              | string?         |                                                                 |
-| `authorId`, `authorName`, `authorRole` |                 | dénormalisé pour éviter une lecture par publication             |
-| `commentsEnabled`                      | boolean         |                                                                 |
-| `pinned`                               | boolean         |                                                                 |
-| `pinnedUntil`                          | timestamp?      | fin d'épinglage automatique                                     |
-| `status`                               | `ContentStatus` | `draft` \| `published` \| `hidden` \| `deleted` \| `archived`   |
-| `publishedAt`                          | timestamp       | **clé de tri du fil**                                           |
-| `stats`                                | map             | `{ commentCount, reactionCount, notifiedCount? }`               |
-| `notifiedAt`                           | timestamp?      | garde-fou anti-doublon d'envoi                                  |
+| Champ                                  | Type            | Note                                                                   |
+| -------------------------------------- | --------------- | ---------------------------------------------------------------------- |
+| `orgId`, `schoolId?`                   | string          |                                                                        |
+| `title`, `body`                        | string          |                                                                        |
+| `category`                             | `PostCategory`  | 11 catégories                                                          |
+| `audience`                             | map             | `{ type, schoolId?, level?, classId? }`                                |
+| `audienceKeys`                         | string[]        | **requêté** — voir § 4                                                 |
+| `attachments`                          | map[]           | `{ storagePath, contentType, fileName, size, width?, height? }`        |
+| `linkUrl`                              | string?         |                                                                        |
+| `authorId`, `authorName`, `authorRole` |                 | dénormalisé pour éviter une lecture par publication                    |
+| `commentsEnabled`                      | boolean         |                                                                        |
+| `pinned`                               | boolean         |                                                                        |
+| `pinnedUntil`                          | timestamp?      | fin d'épinglage automatique                                            |
+| `status`                               | `ContentStatus` | `draft` \| `published` \| `hidden` \| `deleted` \| `archived`          |
+| `publishedAt`                          | timestamp       | **clé de tri du fil**                                                  |
+| `stats`                                | map             | `{ commentCount, reactionCount, notifiedCount? }`                      |
+| `notifiedAt`                           | timestamp?      | **serveur seul** — garde-fou anti-doublon d'envoi, gelé des deux côtés |
 
 > Les pièces jointes ne stockent **jamais** d'URL signée : une URL signée
 > expire, et la stocker oblige à réécrire le document. On stocke le chemin,
@@ -351,14 +351,21 @@ Le point délicat est le **vote unique par compte**.
   notifient pas. Sa propre écriture ne le relance pas non plus : elle trouve le
   statut déjà `open` en base. Le document chaud est désormais `pollResults`, que
   personne n'écoute.
-- **`notifiedAt` appartient au serveur, et il est fermé des deux côtés.** C'est
-  la même règle que sur `Post`, à une clause près : `absent('notifiedAt')` à la
-  **création**, `unchangedOptional('notifiedAt')` ensuite. Les deux sont
-  nécessaires, et la première manquait — le test de création l'a montrée.
-  `unchangedOptional()` ne dit rien d'une création : il n'y a pas de `resource` à
+- **`notifiedAt` appartient au serveur, et il est fermé des deux côtés.** Sur
+  `polls` **comme** sur `posts` : `absent('notifiedAt')` à la **création**,
+  `unchangedOptional('notifiedAt')` ensuite. Les deux clauses sont nécessaires, et
+  la première manquait — sur les **deux** collections, à quelques jours d'écart.
+  Le test de création d'un sondage l'a montrée la première fois :
+  `unchangedOptional()` ne dit rien d'une création, faute de `resource` à
   comparer, donc rien à figer, et un membre de la FCPE pouvait poser le champ sur
-  le document qu'il venait d'écrire. Comme `pollNotificationPlan` le lit pour
-  décider, cela **faisait taire la notification de son propre sondage**.
+  le document qu'il venait d'écrire. Comme `pollNotificationPlan` — et
+  `postNotificationPlan` — le lisent pour décider, cela **faisait taire la
+  notification de son propre sondage**, et de sa propre publication.
+  Le second cas est instructif : `Post` portait la clause de gel depuis
+  longtemps, et son docblock annonçait l'écart comme « porté par la feuille de
+  route ». Aucune entrée ne le portait, et aucun test ne le couvrait. Un renvoi
+  vers un travail à faire n'est pas un travail fait, et il ne se vérifie pas tout
+  seul.
 - **`startsAt` est écrit deux fois, et jamais après publication.** `create` y met
   l'instant de création, quel que soit le statut — un brouillon en porte donc une,
   et c'est elle qui le place dans la liste d'administration. `open()` la

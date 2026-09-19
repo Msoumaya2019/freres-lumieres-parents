@@ -447,6 +447,15 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
         postDocument({ pinned: true, pinnedUntil: new Date('2026-10-01T00:00:00Z') }),
       );
 
+      // Publication déjà notifiée : le cas « champ présent des deux côtés » de
+      // `unchangedOptional('notifiedAt')`. Sans elle, seul le cas « absent »
+      // serait exercé, et une règle qui refuserait d'ajouter le champ sans
+      // refuser de le déplacer passerait pour correcte.
+      await setDoc(
+        doc(db, 'posts', 'post-notifiee'),
+        postDocument({ notifiedAt: new Date('2026-09-10T08:00:00Z') }),
+      );
+
       await setDoc(
         doc(db, 'posts', 'post-own-published', 'comments', 'comment-du-parent'),
         commentDocument(),
@@ -1429,6 +1438,48 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
         ),
       );
     });
+
+    // -----------------------------------------------------------------------
+    // `notifiedAt`, le champ que le serveur seul écrit
+    //
+    // Le déclencheur `onPostPublished` le lit pour décider s'il envoie, donc un
+    // client qui peut l'écrire **fait taire la notification**. Le gel à la mise
+    // à jour ne suffisait pas : à la création il n'y a pas de `resource` à
+    // comparer, donc `unchangedOptional()` n'a rien à quoi s'accrocher et
+    // laissait passer n'importe quelle valeur. C'est `absent()` qui ferme ce
+    // chemin, et c'est le seul que ces deux tests mesurent.
+    //
+    // Le témoin **réussit** sur la même charge à un champ près — sans quoi
+    // `assertFails` serait satisfait par n'importe quelle raison de refuser,
+    // y compris une règle qui refuserait toute création.
+    //
+    // Le pendant existe déjà côté sondage ; les deux collections ont eu le même
+    // défaut, et il est corrigé des deux côtés.
+    // -----------------------------------------------------------------------
+
+    it('la FCPE ne peut pas poser notifiedAt en créant une publication', async () => {
+      // Le chemin le plus simple : écrire le champ sur le document qu'on vient
+      // de créer, pour que le déclencheur le croie déjà notifié.
+      const db = fcpe.firestore();
+      await assertFails(
+        setDoc(
+          doc(db, 'posts', 'post-fcpe-notifie'),
+          postDocument({
+            authorId: UID.fcpe,
+            notifiedAt: new Date('2026-09-10T08:00:00Z'),
+          }),
+        ),
+      );
+    });
+
+    it('la FCPE publie la même charge sans notifiedAt', async () => {
+      // Le témoin du refus ci-dessus : charge identique, champ en moins, et un
+      // identifiant distinct pour ne pas dépendre de l'ordre des tests.
+      const db = fcpe.firestore();
+      await assertSucceeds(
+        setDoc(doc(db, 'posts', 'post-fcpe-sans-notifie'), postDocument({ authorId: UID.fcpe })),
+      );
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -1505,6 +1556,47 @@ describe.skipIf(!EMULATOR_AVAILABLE)('Règles de sécurité Firestore', () => {
       const db = fcpe.firestore();
       await assertSucceeds(
         updateDoc(doc(db, 'posts', 'post-epinglee'), { body: 'Texte corrigé.' }),
+      );
+    });
+
+    // `notifiedAt` est le second champ facultatif figé, et le seul dont le gel
+    // protège une décision du **serveur** plutôt qu'un compteur d'affichage.
+    // Les trois tests ci-dessous couvrent ses deux moitiés — champ absent en
+    // base, champ présent — et le témoin qui doit continuer de passer.
+    it('l’auteur ne peut pas ajouter notifiedAt à sa publication', async () => {
+      // La moitié « absent en base, présent dans la requête ». Sans elle, un
+      // membre de la FCPE pourrait marquer sa publication comme déjà notifiée
+      // et `onPostPublished` conclurait à un envoi déjà fait.
+      const db = fcpe.firestore();
+      await assertFails(
+        updateDoc(doc(db, 'posts', 'post-own-published'), {
+          notifiedAt: new Date('2026-09-10T08:00:00Z'),
+        }),
+      );
+    });
+
+    it('l’auteur ne peut pas déplacer notifiedAt sur une publication notifiée', async () => {
+      // La moitié « présent des deux côtés », avec une valeur différente : le
+      // gel doit porter sur la valeur, pas seulement sur la présence.
+      const db = fcpe.firestore();
+      await assertFails(
+        updateDoc(doc(db, 'posts', 'post-notifiee'), {
+          notifiedAt: new Date('2026-09-11T08:00:00Z'),
+        }),
+      );
+    });
+
+    it('l’auteur corrige le texte d’une publication déjà notifiée', async () => {
+      // Le témoin des deux refus, et il porte sur le **même document** que le
+      // second : le gel doit interdire de toucher au champ, pas d'écrire dans
+      // le document. Il exerce la moitié « présent des deux côtés » de
+      // `unchangedOptional` — la moitié « absent » l'est déjà par les tests
+      // ci-dessus, qui corrigent `post-own-published`, lequel ne porte pas le
+      // champ. Une règle qui refuserait toute mise à jour passerait pour
+      // correcte sans ce témoin.
+      const db = fcpe.firestore();
+      await assertSucceeds(
+        updateDoc(doc(db, 'posts', 'post-notifiee'), { body: 'Texte corrigé.' }),
       );
     });
 
