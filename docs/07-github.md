@@ -103,22 +103,49 @@ sensible.
 
 ## 3. Le workflow `ci.yml`
 
-Déclenché sur **push** et **pull request**. Il doit être rapide (objectif :
-moins de 5 minutes) et échouer clairement.
+Déclenché sur **push** (toutes les branches) et sur **pull request** visant
+`main`. Il doit être rapide (objectif : moins de 5 minutes) et échouer
+clairement.
 
-| Étape                  | Commande                               | Bloque la PR |
-| ---------------------- | -------------------------------------- | ------------ |
-| 1. Checkout            | `actions/checkout`                     | oui          |
-| 2. Node 22 + cache npm | `actions/setup-node` avec `cache: npm` | oui          |
-| 3. Installation        | `npm ci` (lockfile strict)             | oui          |
-| 4. Build des packages  | `npm run build:packages`               | oui          |
-| 5. Formatage           | `npm run format:check`                 | oui          |
-| 6. ESLint              | `npm run lint`                         | oui          |
-| 7. TypeScript          | `npm run typecheck`                    | oui          |
-| 8. Tests unitaires     | `npm run test`                         | oui          |
-| 9. Build admin         | `npm run build -w @fl/admin`           | oui          |
-| 10. Export Expo        | `npx expo export --platform android`   | oui          |
-| 11. Règles Firebase    | `firebase emulators:exec` + tests      | oui          |
+Le workflow n'est pas une suite linéaire : **un travail `quality` commande
+quatre travaux parallèles**. Chacun déclare `needs: quality`, donc un échec de
+formatage, de lint, de types ou de tests les **annule tous** — au lieu de les
+laisser tourner pour rien.
+
+| Travail (nom affiché)                     | Contenu                                                | Dépend de |
+| ----------------------------------------- | ------------------------------------------------------ | --------- |
+| `quality` — Format · Lint · Types · Tests | audit, packages, formatage, ESLint, types, tests       | —         |
+| `build-admin` — Build Web Admin           | build Next.js de production, archivé en artefact       | `quality` |
+| `mobile-check` — Vérification Expo        | `expo config`, puis `expo export --platform android`   | `quality` |
+| `build-functions` — Build Cloud Functions | compilation TypeScript des Cloud Functions             | `quality` |
+| `rules` — Tests des règles Firebase       | émulateur Firestore sous Java 21, `npm run rules:test` | `quality` |
+
+Le travail `quality`, lui, est bien une suite d'étapes :
+
+| Étape                    | Commande                               | Bloque la PR |
+| ------------------------ | -------------------------------------- | ------------ |
+| 1. Checkout              | `actions/checkout`                     | oui          |
+| 2. Node 22 + cache npm   | `actions/setup-node` avec `cache: npm` | oui          |
+| 3. Installation          | `npm ci` (lockfile strict)             | oui          |
+| 4. Audit des dépendances | `npm audit --audit-level=high`         | oui          |
+| 5. Build des packages    | `npm run build:packages`               | oui          |
+| 6. Formatage             | `npm run format:check`                 | oui          |
+| 7. ESLint                | `npm run lint`                         | oui          |
+| 8. TypeScript            | `npm run typecheck`                    | oui          |
+| 9. Tests unitaires       | `npm run test`                         | oui          |
+
+L'étape 4 est bloquante et son seuil est `high`. Il est haut parce que les avis
+modérés de cet arbre sont, pour l'essentiel, des outils de construction qui ne
+quittent jamais la machine. Mais **la porte ne remplace pas la lecture** : un
+avis réellement joignable dans le paquet livré n'est pas forcément « haut », et
+c'est arrivé — voir `docs/04-security.md` § 11.
+
+Chaque travail refait `npm ci` et le build des packages : deux travaux GitHub
+Actions ne partagent pas de système de fichiers, et transporter un artefact
+coûterait plus cher que reconstruire. Les exécutions précédentes sur la même
+branche sont **annulées** (`concurrency`), et les actions tierces sont
+**épinglées à un SHA de commit**, jamais à un tag — un tag est mutable, et le
+dépôt est public.
 
 **Pourquoi `expo export` et pas un build natif :** exporter le bundle
 JavaScript vérifie que **tout se résout** (imports, monorepo, TypeScript,
@@ -132,20 +159,36 @@ de vérifier réellement les règles de sécurité avant la production.
 
 ### Un document qui ne bloque pas l'étape de formatage
 
-L'étape 5 est celle qui échoue pour une raison qui n'a rien à voir avec le
-contenu : Prettier **ne converge pas** sur une entrée de liste qui contient
-**deux blocs de paragraphe de plusieurs lignes**. Il réclame alors une
-indentation toujours plus profonde pour le second bloc — 10 espaces, puis 14 au
-passage suivant — et `format:check` la signale à chaque exécution, quoi qu'on
-écrive.
+L'étape 6 — le formatage — échoue parfois pour une raison qui n'a rien à voir
+avec le contenu. Le déclencheur, **mesuré**, est un **span de code coupé par un
+retour à la ligne** à l'intérieur d'une entrée de liste :
 
-Le symptôme est trompeur : `prettier --write` annonce avoir réécrit le fichier,
-et `format:check` le signale aussitôt après. Ni les fins de ligne, ni l'encodage,
-ni une liste imbriquée ne sont en cause.
+```markdown
+- une entrée de liste
+  la phrase cite un message `qui se poursuit
+sur la ligne suivante`, puis elle finit ici.
+```
 
-La convention des documents de ce dépôt — **un seul bloc par entrée** — est donc
-aussi la seule qui tienne. Un paragraphe long est sans danger, et deux
-paragraphes d'une ligne chacun également.
+À chaque `prettier --write`, la ligne de continuation **perd deux espaces** de
+tête. La convergence finit donc par arriver — mais à la colonne 0, c'est-à-dire
+**hors de l'entrée de liste**, où la ligne devient un paragraphe de premier
+niveau et **rompt la phrase**. Mesuré à une entrée indentée de six espaces :
+6 → 4 → 2 → 0, trois passes, puis stable. À deux espaces, une seule passe suffit.
+
+Deux conséquences qui comptent. `format:check` échoue tant que la convergence
+n'est pas atteinte, et `prettier --write` annonce avoir réécrit le fichier à
+chaque fois — le symptôme est donc trompeur, et il se reproduit à l'identique
+tant qu'on n'a pas corrigé la coupure. Mais surtout, la convergence **modifie le
+document** : ce n'est pas un désaccord cosmétique qu'on peut laisser passer,
+c'est une phrase qui sort de sa liste.
+
+Deux pistes ont été **écartées par la mesure**, et il vaut mieux le savoir avant
+de les chercher : une ligne commençant par une ellipse, et une entrée contenant
+deux blocs de paragraphe de plusieurs lignes. Les deux sont restées stables sur
+quatre passes.
+
+La règle qui en découle est donc étroite : **dans une entrée de liste, ne pas
+couper un span de code en fin de ligne.** Un paragraphe long ne craint rien.
 
 ### La porte se lance sur l'état final
 
@@ -160,40 +203,57 @@ entier a été perdu ainsi, pour un seul fichier.
 À activer dans `Settings → Branches → Branch protection rules` pour `main` :
 
 - ✅ Require a pull request before merging
-- ✅ Require status checks to pass : `ci` / `lint`, `typecheck`, `test`, `build-admin`, `rules`
+- ✅ Require status checks to pass : `Format · Lint · Types · Tests`, `Build Web Admin`, `Vérification Expo`, `Build Cloud Functions`, `Tests des règles Firebase`
 - ✅ Require branches to be up to date before merging
 - ✅ Require conversation resolution
 
-Une PR ne peut pas être fusionnée si le typage, ESLint, les tests ou le build
-admin échouent.
+Ces cinq noms sont ceux des travaux de `ci.yml` : GitHub propose le `name:` du
+travail, pas son identifiant. C'est pourquoi l'en-tête de `ci.yml` qualifie le
+nom de `quality` de **stable** — le renommer ferait disparaître le contrôle
+attendu sans que rien ne le signale.
+
+Une PR ne peut pas être fusionnée si le formatage, ESLint, le typage, les tests,
+le build admin, le bundle Expo, les Cloud Functions ou les règles échouent.
 
 ---
 
 ## 4. Le workflow `mobile-build.yml`
 
-**Déclenchement manuel uniquement** (`workflow_dispatch`), avec deux choix :
+**Déclenchement manuel** (`workflow_dispatch`), avec trois entrées :
 
 | Entrée     | Valeurs                 | Défaut    |
 | ---------- | ----------------------- | --------- |
 | `platform` | `android`, `ios`, `all` | `android` |
 | `profile`  | `preview`, `production` | `preview` |
+| `submit`   | booléen                 | `false`   |
 
 ```
 Actions → Mobile Build → Run workflow
    platform: [android ▾]
    profile:  [preview ▾]
+   submit:   [ ] Soumettre aux stores après le build
 ```
 
-Puis `eas build --platform ${{ inputs.platform }} --profile ${{ inputs.profile }} --non-interactive`.
+Puis `eas build --platform … --profile … --non-interactive --no-wait`.
+`--no-wait` est volontaire : un build EAS dure des dizaines de minutes, et le
+workflow rend la main avec un lien de suivi plutôt que d'immobiliser un
+exécuteur pour rien.
+
+**Un second déclenchement est déjà en place : le tag de version.** Pousser un
+tag `v*` construit **les deux plateformes en profil `production`**, sans passer
+par les entrées manuelles. C'est la voie recommandée pour une publication
+réelle.
 
 **Aucun build natif automatique à chaque push.** Un build iOS + Android
 consomme du quota EAS et de la file d'attente pour rien si le code n'est pas
-encore relu. Les déclenchements possibles :
+encore relu. Le troisième déclenchement possible — sur `main` après un merge —
+n'est **pas** activé, et ne le sera que quand le rythme de publication le
+justifiera.
 
-- manuellement, depuis l'interface GitHub ;
-- automatiquement sur un **tag** de version (`v*`) ;
-- optionnellement, sur `main` après un merge — à activer quand le rythme de
-  publication le justifiera.
+Un second travail, `submit`, soumet aux stores. Il ne tourne que sur un tag, ou
+si l'entrée `submit` a été cochée. Il s'arrête proprement, en avertissement, si
+aucun identifiant de soumission n'est configuré : une publication sur les
+stores doit rester un acte délibéré.
 
 ### Profils EAS
 
@@ -206,21 +266,37 @@ encore relu. Les déclenchements possibles :
 Le profil `production` a `autoIncrement: true` : EAS gère `versionCode` et
 `buildNumber` automatiquement, sans intervention manuelle.
 
+### Où vit `eas.json`
+
+Dans **`apps/mobile/`**, et pas à la racine du dépôt. EAS cherche le fichier à
+`join(projectDir, 'eas.json')` — sans remonter les répertoires parents — et
+`projectDir` est le dossier du `package.json` le plus proche, donc
+`apps/mobile`. Un `eas.json` posé à la racine est **invisible** : le build
+échoue sur `eas.json could not be found at …/apps/mobile/eas.json`, et il
+échoue là **avant** de parler d'authentification.
+
+C'est la règle d'Expo pour un monorepo : les commandes EAS se lancent depuis le
+dossier de l'application, et les fichiers EAS y vivent. Le workflow s'y tient
+déjà (`working-directory: apps/mobile`), le fichier doit donc y être.
+
 ---
 
 ## 5. Les autres workflows
 
 ### `codeql.yml`
 
-Analyse de sécurité statique sur JavaScript/TypeScript. Tourne sur push vers
-`main` et une fois par semaine. Signale les motifs dangereux — injection,
-données non validées, usage incorrect de la cryptographie.
+Analyse de sécurité statique sur JavaScript/TypeScript (`javascript-typescript`,
+requêtes `security-extended`). Tourne sur push vers `main`, **sur pull request
+visant `main`**, et une fois par semaine — une nouvelle règle d'analyse peut
+détecter un problème dans du code ancien. Signale les motifs dangereux —
+injection, données non validées, usage incorrect de la cryptographie.
 
-### `rules-tests.yml`
+### Les tests de règles ne sont pas un workflow à part
 
-Exécute les tests des Security Rules sur émulateur, en isolation, pour qu'un
-échec soit immédiatement identifiable. (Peut aussi tourner dans `ci.yml` ; les
-deux options sont prévues.)
+Ils forment le travail `rules` de `ci.yml`. Il n'existe **aucun**
+`rules-tests.yml` : un workflow séparé n'apporterait rien, puisqu'il faudrait le
+déclencher en plus pour obtenir un résultat déjà visible. Les trois workflows du
+dépôt sont `ci.yml`, `codeql.yml` et `mobile-build.yml`.
 
 ---
 
@@ -229,21 +305,26 @@ deux options sont prévues.)
 `Settings → Code security → Dependabot`
 
 ```yaml
-# .github/dependabot.yml
+# .github/dependabot.yml — extrait : les deux écosystèmes surveillés
 updates:
   - package-ecosystem: npm # dépendances JavaScript
   - package-ecosystem: github-actions # actions des workflows
 ```
 
-Configuration retenue :
+La configuration complète vit dans `.github/dependabot.yml`. Ce qui est retenu :
 
-| Réglage                              | Valeur                                                   | Raison                                           |
-| ------------------------------------ | -------------------------------------------------------- | ------------------------------------------------ |
-| Fréquence                            | hebdomadaire, lundi matin                                | on traite les mises à jour une fois par semaine  |
-| Mises à jour majeures                | **PR séparées, jamais automatiques**                     | React Native et Next.js cassent sur les majeures |
-| Mises à jour mineures et correctives | groupées                                                 | moins de bruit                                   |
-| Limite de PR ouvertes                | 5                                                        | évite l'engorgement                              |
-| Groupes                              | `expo`, `react-native`, `firebase`, `next`, `typescript` | chaque écosystème est mis à jour ensemble        |
+| Réglage                              | Valeur                                                    | Raison                                                                                      |
+| ------------------------------------ | --------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Fréquence                            | hebdomadaire, lundi matin (Europe/Paris)                  | on traite les mises à jour une fois par semaine                                             |
+| Mises à jour majeures                | `expo`, `react-native`, `react`, `next` : **ignorées**    | ces montées exigent de lire les notes de version et souvent de reconstruire les profils EAS |
+| Mises à jour mineures et correctives | groupées par écosystème                                   | moins de bruit                                                                              |
+| Limite de PR ouvertes                | 5 pour npm, 3 pour les actions                            | évite l'engorgement                                                                         |
+| Groupes                              | `expo`, `firebase`, `next`, `tailwind`, `tests`, `outils` | chaque écosystème est mis à jour ensemble                                                   |
+
+Les groupes suivent les **écosystèmes qui doivent monter ensemble**, pas les
+noms de paquets : `react-native` est un motif du groupe `expo`, et `typescript`
+un motif du groupe `outils`. Le groupe `outils` est en outre restreint aux
+mineures et correctives — une majeure de TypeScript mérite sa propre PR.
 
 **Toute PR Dependabot passe par la même CI.** Aucune fusion automatique.
 
@@ -371,7 +452,8 @@ manifestement fictifs.
   commit · push GitHub
           │
           ▼
-  GitHub Actions : lint · typecheck · tests · build admin · règles
+  GitHub Actions : audit · formatage · lint · types · tests
+                   puis admin · Expo · functions · règles
           │
      ┌────┴────┐
      ▼         ▼

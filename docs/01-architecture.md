@@ -66,10 +66,10 @@ pénibles, Turborepo s'ajoute en une ligne sans rien casser.
 /
 ├── .github/
 │   ├── workflows/
-│   │   ├── ci.yml                 # lint · typecheck · tests · build admin · règles
-│   │   ├── mobile-build.yml       # builds EAS déclenchés manuellement
-│   │   ├── codeql.yml             # analyse de sécurité statique
-│   │   └── rules-tests.yml        # tests des Security Rules sur émulateur
+│   │   ├── ci.yml                 # audit · formatage · lint · types · tests,
+│   │   │                          # puis admin · Expo · functions · règles
+│   │   ├── mobile-build.yml       # builds EAS (manuel, ou sur un tag v*)
+│   │   └── codeql.yml             # analyse de sécurité statique
 │   └── dependabot.yml             # veille npm + GitHub Actions
 │
 ├── apps/
@@ -77,24 +77,26 @@ pénibles, Turborepo s'ajoute en une ligne sans rien casser.
 │   │   ├── app/                   # routes (expo-router)
 │   │   │   ├── _layout.tsx        # providers : thème, auth, requêtes
 │   │   │   ├── (auth)/            # connexion, inscription, en attente
+│   │   │   ├── (pending)/         # compte créé, profil non encore résolu
 │   │   │   ├── (tabs)/            # Accueil · Discussions · + · Agenda · Profil
+│   │   │   ├── +native-intent.ts  # filtre des liens entrants
 │   │   │   └── +not-found.tsx
 │   │   ├── src/
 │   │   │   ├── components/        # composants réutilisables
-│   │   │   ├── features/          # logique métier par domaine
 │   │   │   ├── hooks/             # hooks dédiés (useAuth, useFeed, …)
 │   │   │   ├── providers/         # contextes React
 │   │   │   └── lib/               # config Firebase, helpers
 │   │   ├── assets/
-│   │   ├── app.config.ts          # configuration Expo dynamique
-│   │   └── eas.json               # hérité de la racine via EAS
+│   │   ├── app.json               # configuration Expo
+│   │   └── eas.json               # profils EAS — dans le dossier de l'app
 │   │
 │   └── admin/                     # Next.js 16 · App Router · Tailwind 4
 │       ├── src/
 │       │   ├── app/               # routes et layouts
 │       │   ├── components/        # composants de tableau de bord
 │       │   ├── features/          # écrans par domaine
-│       │   └── lib/               # config Firebase, garde d'accès
+│       │   ├── lib/               # config Firebase, garde d'accès
+│       │   └── providers/         # contextes React
 │       └── next.config.ts
 │
 ├── packages/
@@ -118,7 +120,6 @@ pénibles, Turborepo s'ajoute en une ligne sans rien casser.
 ├── docs/                          # cette documentation
 ├── .env.example                   # modèle de configuration (aucune valeur)
 ├── .gitignore                     # strict — voir § Sécurité
-├── eas.json                       # profils de build mobile
 ├── firebase.json                  # émulateurs, déploiement
 ├── package.json                   # workspaces + scripts racine
 ├── tsconfig.base.json             # options TypeScript communes

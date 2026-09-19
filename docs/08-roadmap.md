@@ -544,6 +544,20 @@ ordinateur ; un parent qui tente d'y accéder est refusé.
       `extra.eas.projectId`, **vide** dans `app.json`, sans lequel
       `getExpoPushTokenAsync` ne peut rien obtenir ; et la désactivation du jeton
       à la déconnexion.
+      **Un second blocage, trouvé depuis, empêchait de toute façon tout build :
+      `eas.json` vivait à la racine du dépôt.** EAS cherche le fichier à
+      `join(projectDir, 'eas.json')`, sans remonter les répertoires parents, et
+      `projectDir` est le dossier du `package.json` le plus proche — donc
+      `apps/mobile`. Le workflow lançait bien `eas build` depuis là
+      (`working-directory: apps/mobile`), mais le fichier n'y était pas : le
+      build échouait, avant même de parler d'authentification, en nommant le
+      chemin où il cherchait le fichier — `apps/mobile/eas.json`.
+      Prouvé en exécutant l'EAS CLI depuis `apps/mobile` : sans le fichier
+      l'erreur porte sur `eas.json`, avec le fichier elle porte sur le compte
+      Expo. Le refus change de nature quand on déplace le fichier — donc il
+      portait bien sur l'emplacement, et non sur autre chose. Le fichier est
+      maintenant dans `apps/mobile/`, et la règle est écrite dans
+      `docs/07-github.md` § 4.
       **Le déclencheur sur `users/{uid}/children` est fait** :
       `onUserChildrenWritten` recalcule les clés du parent quand son école, son
       niveau ou sa classe change. Il manquait, et le formulaire d'inscription
