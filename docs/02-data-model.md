@@ -287,11 +287,23 @@ supprime que la sienne — c'est ce qui suffit à afficher l'état du bouton.
 > message. Sur 13 canaux, c'est 13 lectures économisées à chaque ouverture
 > de l'écran Discussions.
 >
-> **Ces trois champs n'ont encore aucun écrivain.** `messageCount` est posé à
-> zéro par `scripts/seed-channels.mjs`, et `lastMessageAt`,
-> `lastMessagePreview` et `lastMessageAuthorName` ne sont renseignés par
-> personne : il faut un déclencheur d'activité, qui reste à écrire. L'écran
-> doit donc traiter un aperçu **absent**, et non un aperçu vide.
+> **Les trois champs d'aperçu sont écrits par `onChannelMessageActivity`**, un
+> déclencheur **distinct** de `notifyChannelAudience`. Ce n'est pas un doublon :
+> celui du lot d'annonce s'arrête quand le canal n'a pas d'audience, donc un
+> canal sans audience n'aurait jamais d'aperçu. Le déclencheur d'activité
+> compare les dates avant d'écrire — Firestore garantit « au moins une fois » et
+> **pas** l'ordre, donc sans ce garde l'aperçu reculerait, et la liste
+> annoncerait un dernier message qui n'est pas le dernier.
+>
+> L'écran doit malgré tout traiter un aperçu **absent**, et non un aperçu vide :
+> un canal neuf n'en a pas, et un message sans nom d'auteur efface
+> `lastMessageAuthorName` plutôt que de laisser celui du message précédent.
+>
+> **`messageCount` n'a aucun écrivain, et c'est délibéré.** Compter les messages
+> **visibles** demande de suivre la modération — masquer un message doit
+> décrémenter — et ce suivi n'existe pas encore. Un compteur qui dérive sans que
+> rien ne le signale est pire qu'un compteur absent : le champ reste à zéro
+> jusqu'à ce que la modération des messages soit écrite.
 >
 > Les 13 canaux viennent de `DEFAULT_CHANNELS` (`@fl/shared`), écrits par
 > `scripts/seed-channels.mjs`. Le script relit chaque document avant d'écrire

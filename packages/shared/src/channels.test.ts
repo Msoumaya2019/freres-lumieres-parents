@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { buildAudienceKeys } from './audience.js';
-import { DEFAULT_CHANNELS } from './channels.js';
+import { DEFAULT_CHANNELS, MESSAGE_PREVIEW_LENGTH, messagePreview } from './channels.js';
 import { REFERENCE_SCHOOLS, schoolForLevel } from './reference.js';
 
 const ORG = 'fcpe-montmagny';
@@ -59,5 +59,45 @@ describe('DEFAULT_CHANNELS', () => {
       expect(channel.name.trim(), `canal « ${channel.id} »`).not.toBe('');
       expect(channel.description.trim(), `canal « ${channel.id} »`).not.toBe('');
     }
+  });
+});
+
+describe('messagePreview', () => {
+  it('laisse intact un message qui tient déjà sur une ligne', () => {
+    expect(messagePreview('Bonjour à tous.')).toBe('Bonjour à tous.');
+  });
+
+  it('ramène les blancs à une seule espace', () => {
+    // Un aperçu tient sur une ligne, alors qu'un message en porte plusieurs.
+    expect(messagePreview('Première ligne\n\nSeconde   ligne')).toBe(
+      'Première ligne Seconde ligne',
+    );
+  });
+
+  it('retire les blancs de bord', () => {
+    expect(messagePreview('   Bonjour.   ')).toBe('Bonjour.');
+  });
+
+  it('coupe à la longueur annoncée, ellipse comprise', () => {
+    const apercu = messagePreview('a'.repeat(500));
+
+    expect(apercu.length).toBe(MESSAGE_PREVIEW_LENGTH);
+    expect(apercu.endsWith('…')).toBe(true);
+  });
+
+  it('ne laisse pas d’espace avant l’ellipse', () => {
+    // Sans le retrait, la coupe au milieu d'un mot laisse un blanc, et
+    // l'ellipse flotterait après un trou.
+    const apercu = messagePreview(`${'mot '.repeat(40)}fin`);
+
+    expect(apercu.endsWith(' …')).toBe(false);
+    expect(apercu.endsWith('…')).toBe(true);
+  });
+
+  it('ne coupe pas un message de la longueur exacte', () => {
+    const exact = 'a'.repeat(MESSAGE_PREVIEW_LENGTH);
+
+    expect(messagePreview(exact)).toBe(exact);
+    expect(messagePreview(exact)).not.toContain('…');
   });
 });

@@ -98,3 +98,31 @@ export const DEFAULT_CHANNELS: readonly DefaultChannel[] = [
   themeChannel('objets-perdus', 'Objets perdus', 'Trouvé ou perdu à l’école', 12),
   themeChannel('sorties', 'Sorties et événements', 'Organisation des sorties', 13),
 ];
+
+/**
+ * Longueur d'un aperçu de message.
+ *
+ * Une seule valeur pour les deux usages : l'aperçu d'un message cité en
+ * réponse, et celui du dernier message dans la liste des canaux. Deux longueurs
+ * produiraient deux aperçus différents du même message.
+ */
+export const MESSAGE_PREVIEW_LENGTH = 120;
+
+/**
+ * Aperçu d'un message : une ligne, coupée si elle est trop longue.
+ *
+ * Les blancs sont ramenés à une espace, et pas seulement par goût : un aperçu
+ * tient sur une ligne, alors qu'un message en porte souvent plusieurs. Sans
+ * cela, la liste des canaux afficherait des retours à la ligne au milieu d'une
+ * ligne.
+ *
+ * La coupe retire l'espace que laisse un mot tronqué : sans cela l'ellipse
+ * flotterait après un blanc, et l'aperçu afficherait un trou.
+ */
+export function messagePreview(body: string): string {
+  const propre = body.replace(/\s+/g, ' ').trim();
+
+  return propre.length <= MESSAGE_PREVIEW_LENGTH
+    ? propre
+    : `${propre.slice(0, MESSAGE_PREVIEW_LENGTH - 1).trimEnd()}…`;
+}

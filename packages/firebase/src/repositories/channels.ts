@@ -57,7 +57,7 @@ import {
   type QueryDocumentSnapshot,
 } from 'firebase/firestore';
 
-import { CHANNEL_TYPES, messageInputSchema } from '@fl/shared';
+import { CHANNEL_TYPES, messageInputSchema, messagePreview } from '@fl/shared';
 import type { MessageInput } from '@fl/shared';
 import type { Channel, ChannelMessage, ChannelType, UserRole } from '@fl/types';
 
@@ -66,9 +66,6 @@ import { paths } from '../paths.js';
 
 /** Messages chargés à l'ouverture d'un canal, et à chaque élargissement. */
 export const MESSAGE_WINDOW_SIZE = 30;
-
-/** Longueur de l'aperçu conservé d'un message cité. */
-const REPLY_PREVIEW_LENGTH = 120;
 
 /** Auteur d'un message : le strict nécessaire pour écrire le document. */
 export interface MessageAuthor {
@@ -225,9 +222,7 @@ export function createChannelRepository(db: Firestore): ChannelRepository {
         ...(data.replyToId
           ? {
               replyToId: data.replyToId,
-              ...(replyToPreview
-                ? { replyToPreview: truncate(replyToPreview, REPLY_PREVIEW_LENGTH) }
-                : {}),
+              ...(replyToPreview ? { replyToPreview: messagePreview(replyToPreview) } : {}),
             }
           : {}),
         status: 'visible',
@@ -283,7 +278,3 @@ export function channelsQuery(db: Firestore, params: { orgId: string; isFcpe: bo
 export const VISIBLE_CHANNEL_TYPES: readonly ChannelType[] = CHANNEL_TYPES.filter(
   (type) => type !== 'fcpe',
 );
-
-function truncate(value: string, max: number): string {
-  return value.length <= max ? value : `${value.slice(0, max - 1).trimEnd()}…`;
-}

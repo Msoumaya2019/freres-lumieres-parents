@@ -70,6 +70,10 @@ export { onDeviceTokenCreated, onDeviceTokenOwnerChanged } from './triggers/devi
 export { onPostPublished } from './triggers/post-notifications.js';
 export { notifyCommentAuthor } from './triggers/comment-notifications.js';
 export { notifyChannelAudience } from './triggers/channel-notifications.js';
+// Deux déclencheurs sur la même écriture, et non un seul étendu : celui du lot
+// s'arrête quand le canal n'a pas d'audience, donc il ne peut pas tenir
+// l'aperçu affiché. Voir `triggers/channel-activity.ts`.
+export { onChannelMessageActivity } from './triggers/channel-activity.js';
 // Le sondage notifie à l'**ouverture**, et pas à la clôture : `new_poll` est le
 // seul type qu'il produise, et annoncer une clôture sous ce type ferait mentir
 // l'historique des envois. Voir `notifications/poll-plan.ts`.

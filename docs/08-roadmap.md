@@ -916,12 +916,12 @@ celui du canal ouvert.
 **État au 19 septembre 2026.** Le socle serveur est en place et mesuré : la liste
 `DEFAULT_CHANNELS` dans `@fl/shared`, le dépôt `createChannelRepository`, le
 script `scripts/seed-channels.mjs` — exécuté contre l'émulateur, relancé, et
-vérifié —, et huit tests de règles qui fixent la frontière de lecture des canaux.
+vérifié —, le déclencheur `onChannelMessageActivity` qui tient l'aperçu du
+dernier message, et huit tests de règles qui fixent la frontière de lecture des
+canaux.
 
-Trois points restent ouverts, et deux ne sont pas du travail d'écran :
+Deux points restent ouverts, et aucun n'est du travail d'écran :
 
-- **L'aperçu du dernier message n'a aucun écrivain.** Rien ne renseigne
-  `lastMessagePreview` ni `lastMessageAt` : il faut un déclencheur d'activité.
 - **La réaction sur un message n'a aucun support.** Il n'existe ni chemin ni
   règle pour `channels/{id}/messages/{mid}/reactions` ; l'écriture serait refusée
   par défaut. `ChannelMessage.reactions` existe et les règles le figent, mais
@@ -930,6 +930,10 @@ Trois points restent ouverts, et deux ne sont pas du travail d'écran :
 - **Le signalement d'un message dépend de la phase 7.** `ModerationTargetType`
   accepte déjà `'message'`, ce qui n'est pas la même chose qu'un dépôt capable
   de l'écrire.
+
+Le reste est du travail d'écran : brancher la liste et le fil, et respecter
+`readOnly`. `stats.messageCount` reste à zéro, faute d'écrivain — voir
+`docs/02-data-model.md`, où la raison est écrite.
 
 ---
 
