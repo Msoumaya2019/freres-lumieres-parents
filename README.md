@@ -78,6 +78,65 @@ conception, pas une coïncidence. La CI les exécute à chaque push.
 | `npm run workflows:check` | Contrôle statique des flux de travail GitHub Actions            |
 | `npm run rules:test`      | **Tests des règles de sécurité** sur émulateur (Java 21 requis) |
 
+### Mise en service d'un projet Firebase
+
+À faire **une fois par environnement**. Les six premières étapes ne se font
+**qu'en console** : aucun script du dépôt ne peut les remplacer, et c'est la
+partie qu'on ne peut pas deviner en lisant le code.
+
+| #   | Où                                                | Quoi                                                                                                                                                                                    |
+| --- | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | _Créer un projet_                                 | `freres-lumieres-prod` ou `freres-lumieres-dev` — le nom doit correspondre à l'alias de `.firebaserc`.                                                                                  |
+| 2   | _Créer une base de données_ → Firestore           | Mode **production**. Le mode « test » ouvrirait la base, et les règles ne sont déployées qu'à la section suivante.                                                                      |
+| 3   | _Storage_ → Commencer                             | Nécessaire aux pièces jointes.                                                                                                                                                          |
+| 4   | _Authentication_ → Méthode de connexion           | Activer **E-mail/Mot de passe**, et lui seul : l'application n'emploie aucune autre méthode (`signInWithEmailAndPassword`, `createUserWithEmailAndPassword`, `sendPasswordResetEmail`). |
+| 5   | _Paramètres du projet_ → _Vos applications_ → iOS | Identifiant de bundle `fr.fcpe.frereslumieres`, celui de `app.json`. La console produit les six valeurs `EXPO_PUBLIC_FIREBASE_*`.                                                       |
+| 6   | _Paramètres du projet_ → _Comptes de service_     | **Générer une nouvelle clé privée** : le JSON de `GOOGLE_APPLICATION_CREDENTIALS`, utilisé par `seed:reference` et `bootstrap:admin`. Ne jamais le commiter.                            |
+
+Puis, en ligne de commande :
+
+```bash
+npx firebase login
+npx firebase use prod            # les alias vivent dans .firebaserc
+npm run build:packages           # requis par les scripts d'amorçage
+npm run deploy:rules             # règles Firestore, Storage et index
+npm run deploy:functions
+
+export GOOGLE_APPLICATION_CREDENTIALS=/chemin/compte-de-service.json
+npm run seed:reference -- --confirm-production
+```
+
+> **`--confirm-production` est exigé** dès que l'identifiant de projet contient
+> « prod » — et `freres-lumieres-prod` en contient un. C'est un garde-fou, pas
+> un oubli : ces scripts écrivent avec les droits de l'Admin SDK, donc **sans
+> aucune règle de sécurité pour les arrêter**.
+
+Enfin, la configuration de l'application — **sept valeurs**, qui sont les six
+champs exigés par `validateFirebaseConfig` plus le slug d'organisation
+(`fcpe-montmagny`, celui que crée `seed:reference`).
+
+Pour `npm run dev:mobile`, elles vont dans un fichier `.env` local, jamais
+commité :
+
+```
+EXPO_PUBLIC_FIREBASE_API_KEY=…
+EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN=…
+EXPO_PUBLIC_FIREBASE_PROJECT_ID=…
+EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET=…
+EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=…
+EXPO_PUBLIC_FIREBASE_APP_ID=…
+EXPO_PUBLIC_DEFAULT_ORG_SLUG=fcpe-montmagny
+```
+
+Pour un binaire construit en intégration continue, les **mêmes sept** vont dans
+`Settings → Secrets and variables → Actions → onglet Variables` — en variables,
+pas en secrets : elles sont embarquées en clair dans l'application livrée, et
+les mettre en secret donnerait une fausse impression de protection. Détail et
+justification : `docs/07-github.md` § 5.
+
+`EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID` est lu par `env.ts` mais **facultatif** :
+son absence ne bloque rien.
+
 ### Amorçage d'un environnement
 
 À exécuter une fois par environnement (développement, recette, production),
