@@ -21,6 +21,7 @@
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,mjs,cjs,json,md,yml,yaml}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,mjs,cjs,json,md,yml,yaml}\"",
     "workflows:check": "node scripts/check-workflows.mjs",
+    "schema:check": "node scripts/verifier-schema-supabase.mjs",
     "dev:mobile": "npm run start -w @fl/mobile",
     "dev:admin": "npm run dev -w @fl/admin",
     "dev:emulators": "firebase emulators:start --only auth,firestore,storage,functions",
@@ -34,6 +35,7 @@
     "deploy:admin": "npm run build -w @fl/admin"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.3.16",
     "@types/node": "^22.10.2",
     "eslint": "^9.17.0",
     "firebase-admin": "^14.4.0",

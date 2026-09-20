@@ -80,6 +80,15 @@ jobs:
         # en une seconde, et lit les quatre flux du dépôt.
         run: npm run workflows:check
 
+      - name: Vérifier le schéma Supabase
+        # Les migrations SQL s'appliquent sur un Postgres compilé en WebAssembly
+        # (`@electric-sql/pglite`), donc sans Docker et sans projet distant. Ce
+        # contrôle attrape deux fautes qu'aucun autre ne voit : une migration qui
+        # ne s'applique pas, et une énumération Postgres qui a divergé de son
+        # homologue TypeScript — du code qui compile, et une écriture refusée à
+        # l'exécution.
+        run: npm run schema:check
+
       - name: Auditer les dépendances
         # Le seuil est `high`, et l'échec est bloquant. Mesuré le jour où cette
         # étape a été écrite : 22 avis, tous `moderate`, donc la porte est
