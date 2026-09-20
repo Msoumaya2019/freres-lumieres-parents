@@ -189,9 +189,49 @@ Dès que vous avez les **six valeurs** et la **clé de compte de service**, il :
    l'assistant peut écrire ces variables lui-même, ce qui a été vérifié ;
 2. **lance la compilation de l'IPA** ; elle dure une quinzaine de minutes ;
 3. pendant ce temps :
-   `npm run build:packages`, `npm run deploy:rules`, `npm run deploy:functions`,
-   puis
-   `node scripts/seed-reference-data.mjs --project freres-lumieres-prod --confirm-production --yes`.
+
+```bash
+npm run build:packages
+npm run deploy:rules
+npm run deploy:functions
+node scripts/seed-reference-data.mjs --project freres-lumieres-prod --confirm-production --yes
+```
+
+4. puis crée **le premier administrateur** — l'étape qui rend l'application
+   réellement utilisable (voir juste en dessous).
+
+### Pourquoi un premier administrateur est indispensable
+
+Ce n'est pas une étape de confort. Un compte créé par l'application l'est avec
+`status: 'pending'` (`functions/src/auth/user-triggers.ts`), et un compte en
+attente **ne peut lire que son propre profil**. Le passer à `active` est une
+action réservée aux rôles `fcpe`, `moderateur` et `admin`.
+
+Sur une base vide, personne ne détient ces rôles. **Sans ce script, chaque parent
+qui s'inscrit reste en attente pour toujours, et l'application ne sert à rien.**
+C'est aussi la seule opération de tout le projet qui contourne volontairement les
+règles de sécurité — il n'existe aucun autre moyen d'amorcer le système.
+
+Il faut donc préparer, de votre côté :
+
+- une **adresse e-mail** (la vôtre convient) ;
+- un **prénom** et un **nom** ;
+- un **mot de passe** solide : il est validé par le même schéma que le formulaire
+  d'inscription, donc un mot de passe que le client refuserait est refusé ici
+  aussi. Il n'est **affiché nulle part** — conservez-le.
+
+```bash
+export GOOGLE_APPLICATION_CREDENTIALS=/chemin/compte-de-service.json
+export BOOTSTRAP_ADMIN_PASSWORD='…'      # préférable à --password, qui reste
+                                          # dans l'historique du shell
+node scripts/bootstrap-admin.mjs \
+  --project freres-lumieres-prod --confirm-production --yes \
+  --email direction@exemple.fr --first-name Camille --last-name Durand
+```
+
+Le script est **idempotent** : le relancer sur une adresse existante répare le
+profil et les droits sans créer de doublon. Il sert donc aussi à rétablir un
+administrateur dont les claims auraient été perdus.
 
 Donnez-lui la clé **au format texte** (le contenu du fichier JSON) ou son chemin.
 Le compte de service sert **aussi** à `firebase deploy` : `firebase-tools` passe
@@ -231,18 +271,58 @@ de Sideloadly évite de resigner chaque semaine.
 
 ---
 
+## À préparer pendant que le reste avance
+
+Ces tâches ne dépendent **ni** de Firebase **ni** de l'assistant. Les faire
+pendant les temps d'attente — téléchargements, compilation de quinze minutes — ne
+coûte rien, et évite de les découvrir au moment où tout est prêt.
+
+### Sur l'ordinateur
+
+- **iTunes, depuis le site d'Apple** (<https://www.apple.com/itunes/>). La version
+  du Microsoft Store n'installe pas les pilotes Apple Mobile Device, et Sideloadly
+  répond alors « No devices detected ». C'est un téléchargement de plusieurs
+  centaines de mégaoctets : le lancer tôt.
+- **Sideloadly** (<https://sideloadly.io/>).
+
+### Sur l'iPhone
+
+- **Vérifier la version d'iOS** : Réglages → Général → Informations → Version.
+  L'application vise **iOS 16.4 au minimum**.
+- **Brancher l'iPhone à l'ordinateur** et accepter « Faire confiance à cet
+  ordinateur ». C'est un prérequis de Sideloadly, et cela se fait à froid.
+- **Vérifier l'absence de supervision** : Réglages → Général → VPN et gestion de
+  l'appareil. Un appareil géré par une organisation refuse les applications
+  signées avec un compte personnel.
+- **Avoir sous la main** le **mot de passe principal** de l'identifiant Apple —
+  pas un mot de passe d'application — et l'iPhone, pour le code à six chiffres de
+  la double authentification.
+
+> Le **mode développeur** ne peut pas être préparé à l'avance : le réglage
+> n'apparaît qu'**après** l'installation d'une application de développement. Il
+> faudra y revenir, et redémarrer le téléphone.
+
+### Les informations du premier administrateur
+
+Voir la partie C : une adresse e-mail, un prénom, un nom, et un mot de passe
+solide. Autant les choisir maintenant — sans cet administrateur, personne ne peut
+valider les inscriptions.
+
+---
+
 ## L'ordre le plus rapide
 
-Firebase est long à cliquer, la compilation aussi. Les mener de front fait gagner
-un quart d'heure :
+Firebase est long à cliquer, la compilation aussi, et les préparatifs de la partie
+précédente ne dépendent de rien. Les mener de front fait gagner un quart d'heure :
 
-| #   | Qui       | Quoi                                                     |
-| --- | --------- | -------------------------------------------------------- |
-| 1   | vous      | A1 à A7 — projet, services, application iOS, six valeurs |
-| 2   | assistant | poser les variables, **lancer la compilation**           |
-| 3   | vous      | A8 — la clé de compte de service, pendant que ça compile |
-| 4   | assistant | règles, fonctions, données de référence                  |
-| 5   | vous      | D — re-signer et installer                               |
+| #   | Qui       | Quoi                                                                |
+| --- | --------- | ------------------------------------------------------------------- |
+| 1   | vous      | **En parallèle :** iTunes + Sideloadly, vérifier l'iPhone           |
+| 2   | vous      | A1 à A7 — projet, services, application iOS, six valeurs            |
+| 3   | assistant | poser les variables, **lancer la compilation**                      |
+| 4   | vous      | A8 — la clé de compte de service, pendant que ça compile            |
+| 5   | assistant | règles, fonctions, données de référence, **premier administrateur** |
+| 6   | vous      | D — re-signer et installer                                          |
 
 ---
 
