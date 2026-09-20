@@ -66,28 +66,54 @@ reste comme fonctions _edge_ que ce qui doit parler au monde extérieur.
 
 **Comment on teste sans Docker.** C'est le point qui décide de la viabilité du
 projet, puisque la discipline de ce dépôt est de tout vérifier avant de pousser.
-La réponse tient en une technique : les tests RLS s'exécutent **contre le projet
-distant**, dans une transaction **annulée à la fin**, en simulant le jeton par
-`set local` :
+La réponse tient en deux couches.
+
+**Couche 1 — en local, sur un Postgres compilé en WebAssembly.**
+`@electric-sql/pglite` est un Postgres complet qui tourne dans Node : rôles,
+`GRANT`, `ENABLE ROW LEVEL SECURITY`, politiques, transactions. Aucune
+installation système, aucun service. Le jeton se simule par une variable de
+session :
 
 ```sql
 begin;
   set local role authenticated;
-  set local request.jwt.claims = '{"sub":"…","role":"authenticated","app_role":"admin","status":"active","org_id":"…"}';
+  set local request.jwt.claims = '{"sub":"…","org_id":"…","app_role":"admin"}';
   -- assertions
 rollback;
 ```
 
-Deux conséquences, toutes deux favorables :
+Trois conséquences, toutes mesurées :
 
 - **Aucun serveur d'authentification n'est nécessaire** pour éprouver une
   politique : `request.jwt.claims` est une variable de session que l'on pose
   soi-même. Les tests restent donc rapides et déterministes.
 - **Rien n'est écrit durablement** : la transaction est annulée, donc un seul
-  projet suffit pour production _et_ tests. Pas besoin d'un second projet.
+  projet suffit pour production _et_ tests.
+- **La sonde est concluante** : 10 cas sur 10, y compris le refus quand la
+  revendication manque et quand elle est nulle.
 
-Le pilote `pg` de Node remplace `psql`. Le banc devient donc du Node ordinaire,
-comme les autres bancs du dépôt.
+**Couche 2 — contre le projet distant, avant de s'y fier.** PGlite ne fournit ni
+`auth.users`, ni les droits par défaut de Supabase, ni les extensions `pg_net` et
+`pg_cron`, et Realtime n'est pas du SQL. Il prouve la **logique** des politiques ;
+il ne dispense pas d'un essai réel. La méthode complète et les pièges sont dans
+la skill `eprouver-des-politiques-rls-supabase-sans-docker`.
+
+**Un piège mesuré, à retenir avant d'écrire la première politique.**
+`current_setting('request.jwt.claims', true)` rend une **chaîne vide**, pas
+`NULL`, quand la revendication est absente — et `''::jsonb` **lève** au lieu de
+rendre `NULL`. Une politique écrite naïvement ne refuse donc pas : elle **casse
+la requête**. C'est la raison pour laquelle le `auth.jwt()` de Supabase s'enveloppe
+lui-même d'un `nullif(…, '')`. La fonction du projet doit porter **deux** gardes :
+
+```sql
+select nullif(
+  nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'org_id',
+  ''
+)::uuid
+```
+
+`psql` reste absent, mais il n'est plus nécessaire : le pilote `pg` de Node, et
+PGlite pour la couche locale, couvrent le besoin.
 
 ---
 
