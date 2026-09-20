@@ -230,7 +230,7 @@ vert à la fin de chacune.
 | --- | ------------------ | ---------------------------------------------------------------------- | ----------------------------------------------- |
 | 0   | **Vous**           | créer le projet Supabase (voir § 6)                                    | URL, clés et chaîne de connexion en main        |
 | 0b  | **Vous + moi**     | répétition de la chaîne d'installation (§ 7)                           | un IPA s'installe sur l'iPhone                  |
-| 1   | Le schéma          | `supabase/migrations/*.sql` : tables, types, index, index uniques      | la migration s'applique, les tables existent    |
+| 1   | Le schéma ✅       | `supabase/migrations/*.sql` : tables, types, index, index uniques      | la migration s'applique, les tables existent    |
 | 2   | Les politiques     | RLS sur chaque table, `auth_org_id()`, le _hook_ de jeton              | `rls-coverage` vert, et chaque refus éprouvé    |
 | 3   | La couche d'accès  | `packages/supabase` avec **les mêmes interfaces** de dépôt             | les tests de dépôt passent contre la vraie base |
 | 4   | La logique serveur | déclencheurs SQL, `pg_cron`, les quatre fonctions _edge_               | chaque déclencheur a son test                   |
@@ -242,6 +242,30 @@ vert à la fin de chacune.
 couche d'accès écrite avant les politiques ferait passer des tests sur une base
 ouverte, et l'on ne saurait plus, ensuite, si un refus vient de la politique ou
 du client.
+
+### 5.1 La phase 1 est faite — et son contrôle
+
+`supabase/migrations/0001_socle.sql` pose les six tables du socle : `organizations`,
+`schools`, `classes`, `users`, `children`, `device_tokens`, avec leurs types
+énumérés, leurs index et leurs contraintes d'unicité. Aucune politique, par
+construction.
+
+Le contrôle est `npm run schema:check`, et il tourne dans `ci.yml` à côté de
+`workflows:check`. Il fait deux choses :
+
+1. **il applique les migrations**, sur un Postgres en WebAssembly, sans Docker ni
+   projet distant — et nomme le fichier fautif si l'une échoue ;
+2. **il compare chaque énumération Postgres à son homologue TypeScript.**
+
+Le second est celui qui compte. `packages/types/src/enums.ts` et le SQL
+s'ignorent : ajouter une valeur d'un côté sans l'autre produit du code qui
+**compile** et une écriture **refusée à l'exécution**. Aucun compilateur ne peut
+voir cette couture, parce que les deux sources ne se lisent pas.
+
+**Il a été falsifié avant d'être cru** : ajouter `tresorier` à `user_role` seul
+donne « en trop en base : tresorier » et le code 1 ; retirer un point-virgule
+donne « `0001_socle.sql` ne s'applique pas : syntax error at or near "create" ».
+La restauration a été vérifiée par empreinte SHA-256, identique à l'octet près.
 
 ---
 
