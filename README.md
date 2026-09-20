@@ -361,16 +361,24 @@ Le détail complet est dans [`docs/04-security.md`](docs/04-security.md).
 
 ## Documentation
 
-| Document                                                  | Contenu                                      |
-| --------------------------------------------------------- | -------------------------------------------- |
-| [`01-architecture.md`](docs/01-architecture.md)           | Architecture, arborescence, choix techniques |
-| [`02-data-model.md`](docs/02-data-model.md)               | Modèle de données Firestore                  |
-| [`03-roles-permissions.md`](docs/03-roles-permissions.md) | Rôles, permissions, Custom Claims            |
-| [`04-security.md`](docs/04-security.md)                   | Stratégie de sécurité et RGPD                |
-| [`05-notifications.md`](docs/05-notifications.md)         | Notifications et ciblage des audiences       |
-| [`06-couts.md`](docs/06-couts.md)                         | Maîtrise des coûts Firebase                  |
-| [`07-github.md`](docs/07-github.md)                       | Dépôt public, CI/CD, publications            |
-| [`08-roadmap.md`](docs/08-roadmap.md)                     | Feuille de route par phases                  |
+| Document                                                    | Contenu                                      |
+| ----------------------------------------------------------- | -------------------------------------------- |
+| [`01-architecture.md`](docs/01-architecture.md)             | Architecture, arborescence, choix techniques |
+| [`02-data-model.md`](docs/02-data-model.md)                 | Modèle de données Firestore                  |
+| [`03-roles-permissions.md`](docs/03-roles-permissions.md)   | Rôles, permissions, Custom Claims            |
+| [`04-security.md`](docs/04-security.md)                     | Stratégie de sécurité et RGPD                |
+| [`05-notifications.md`](docs/05-notifications.md)           | Notifications et ciblage des audiences       |
+| [`06-couts.md`](docs/06-couts.md)                           | Maîtrise des coûts Firebase                  |
+| [`07-github.md`](docs/07-github.md)                         | Dépôt public, CI/CD, publications            |
+| [`08-roadmap.md`](docs/08-roadmap.md)                       | Feuille de route par phases                  |
+| [`09-mise-en-service.md`](docs/09-mise-en-service.md)       | De zéro à l'application installée            |
+| [`10-migration-supabase.md`](docs/10-migration-supabase.md) | Migration vers Supabase — décision et plan   |
+
+> **Le backend migre vers Supabase**, les notifications restant chez FCM. Ce
+> choix est le seul qui **évite le plan Blaze** : il ne reste à Firebase que FCM,
+> gratuit sur les deux plans. Le plan complet est dans
+> [`docs/10-migration-supabase.md`](docs/10-migration-supabase.md) ; les
+> documents 01 à 09 décrivent l'état **actuel**, en cours de remplacement.
 
 ---
 

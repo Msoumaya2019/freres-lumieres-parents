@@ -16,6 +16,24 @@
 
 ---
 
+## Avertissement — le backend migre vers Supabase
+
+Les phases décrites ci-dessous ont été écrites et réalisées **sur Firebase**.
+Le backend migre désormais vers **Supabase**, les notifications restant chez FCM
+— c'est la seule combinaison qui **évite le plan Blaze**, puisque FCM est gratuit
+sur les deux plans Firebase.
+
+Le plan de migration, phase par phase, est dans
+[`docs/10-migration-supabase.md`](10-migration-supabase.md). Les phases ci-dessous
+restent la référence du **quoi** — les fonctionnalités, leurs critères
+d'acceptation, leur ordre — mais leur **mise en œuvre technique** est remplacée
+par celle du document 10.
+
+Autrement dit : **ce document dit ce qu'il faut livrer ; le document 10 dit
+comment.**
+
+---
+
 ## Phase 1 — Analyse et fondations ✅ _(cette phase)_
 
 **Livrables :**
