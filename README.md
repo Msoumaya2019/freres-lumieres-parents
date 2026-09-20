@@ -80,6 +80,12 @@ conception, pas une coïncidence. La CI les exécute à chaque push.
 
 ### Mise en service d'un projet Firebase
 
+> **Pour un pas-à-pas détaillé, de la création du projet jusqu'à l'application
+> installée sur un iPhone :** `docs/09-mise-en-service.md`. Il dit qui agit à
+> chaque étape, et couvre deux prérequis que ce tableau ne peut pas porter — le
+> **plan Blaze**, exigé par Cloud Functions et Cloud Storage, et l'**emplacement
+> Firestore**, qui doit correspondre à la région des fonctions.
+
 À faire **une fois par environnement**. Les six premières étapes ne se font
 **qu'en console** : aucun script du dépôt ne peut les remplacer, et c'est la
 partie qu'on ne peut pas deviner en lisant le code.
