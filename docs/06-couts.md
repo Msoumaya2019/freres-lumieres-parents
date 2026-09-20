@@ -2,23 +2,66 @@
 
 > Phase 1 · Document de référence
 
-## 1. Le plan gratuit, en ordre de grandeur
+## 1. Le plan Blaze est obligatoire, et la région n'y change rien
 
-| Service                  | Quota gratuit quotidien           | Consommation estimée du projet |
-| ------------------------ | --------------------------------- | ------------------------------ |
-| Firestore — lectures     | 50 000 / jour                     | ~2 000 / jour                  |
-| Firestore — écritures    | 20 000 / jour                     | ~150 / jour                    |
-| Firestore — suppressions | 20 000 / jour                     | négligeable                    |
-| Storage                  | 5 Go stockés, 1 Go/jour transféré | < 200 Mo                       |
-| Functions                | 2 M d'invocations / mois          | ~55 000 / mois                 |
-| Auth                     | illimité (e-mail/mot de passe)    | —                              |
-| Hébergement (admin)      | 10 Go/mois                        | négligeable                    |
+**Le projet ne peut pas rester sur le plan Spark**, pour deux raisons
+indépendantes, toutes deux citées de la documentation officielle :
 
-**Conclusion : le projet doit rester dans le plan gratuit.** Avec 300 familles
-et un usage normal, on est à environ 4 % des quotas de lecture. Les décisions
-ci-dessous visent à garantir que cela reste vrai même en cas de pic
-d'activité — et surtout à éviter les erreurs de conception qui feraient
-exploser la facture.
+1. **Cloud Functions.** « _You can emulate functions in any Firebase project, but
+   to deploy functions, your project must be on the Blaze pricing plan._ » C'est
+   une condition **au niveau du projet**, sans exception géographique. Or
+   l'application ne tient pas sans elles : ce sont elles qui posent les
+   `customClaims`, qui créent chaque compte en `pending`, qui envoient les
+   notifications, qui tiennent les compteurs et qui purgent les jetons morts.
+2. **Cloud Storage.** « _Cloud Storage for Firebase (even default buckets) now
+   requires projects to be on the pay-as-you-go Blaze pricing plan._ » Et la date
+   est passée : « _This requirement went into effect starting
+   February 03, 2026._ »
+
+**Changer de région ne dispense donc de rien.** La région n'intervient qu'à un
+seul endroit : le palier _Always Free_ de Google Cloud Storage n'existe que pour
+`US-CENTRAL1`, `US-EAST1` et `US-WEST1`. C'est un **quota**, pas une condition
+d'accès — et il ne nous servirait à rien : nous n'utilisons pas Storage, et
+héberger les données de familles françaises aux États-Unis serait un choix à
+défendre devant le RGPD, pas une économie.
+
+**Blaze n'est pas un abonnement** : c'est du paiement à l'usage, doublé d'un
+quota gratuit. Sous ce quota, la facture est de **0 €**. Le vrai garde-fou n'est
+pas budgétaire, il est dans le code : `functions/src/index.ts` pose
+`setGlobalOptions({ region: 'europe-west1', maxInstances: 10, concurrency: 40 })`
+— une fonction ne peut donc pas s'emballer à l'infini, même en cas d'abus.
+
+### Le quota, en ordre de grandeur
+
+| Service                  | Quota gratuit                  | Consommation estimée du projet |
+| ------------------------ | ------------------------------ | ------------------------------ |
+| Firestore — lectures     | 50 000 / jour                  | ~20 400 / jour (**41 %**)      |
+| Firestore — écritures    | 20 000 / jour                  | ~150 / jour                    |
+| Firestore — suppressions | 20 000 / jour                  | négligeable                    |
+| Functions                | 2 M d'invocations / mois       | ~55 000 / mois                 |
+| Storage                  | **aucun palier en Europe**     | non utilisé aujourd'hui        |
+| Auth                     | illimité (e-mail/mot de passe) | —                              |
+| Hébergement (admin)      | 10 Go/mois                     | négligeable                    |
+
+Deux chiffres de ce tableau méritent un mot, parce qu'ils ont été faux :
+
+- **La ligne Storage.** Le « 5 Go stockés, 1 Go/jour » est le palier des anciens
+  buckets `*.appspot.com`. Un bucket `*.firebasestorage.app` créé après septembre
+  2024 suit la tarification Google Cloud Storage, dont le palier _Always Free_ ne
+  couvre **que** trois régions américaines. En `europe-west1`, **tout octet est
+  facturé** — c'est le seul poste où notre région coûte quelque chose, et il ne
+  pèse rien tant que les pièces jointes (phase 6) ne sont pas livrées.
+- **La ligne Firestore — lectures.** Elle annonçait « ~2 000 / jour », soit 4 %
+  du quota, alors que l'estimation détaillée de la section 3 conclut à
+  **20 400 / jour**, soit 41 %. Les deux ne pouvaient pas être vrais. C'est le
+  chiffre détaillé qui reste, parce qu'il est décomposé action par action.
+
+**Conclusion : le projet doit rester sous le quota gratuit, dans le plan Blaze.**
+Avec 300 familles et un usage normal, on est à environ 41 % des quotas de lecture
+dans le scénario pessimiste — celui où chaque parent ouvre l'application trois
+fois par jour. Les décisions ci-dessous visent à garantir que cela reste vrai même
+en cas de pic d'activité, et surtout à éviter les erreurs de conception qui
+feraient exploser la facture.
 
 La tâche planifiée qui relit les reçus Expo tourne **une fois par heure**, soit
 720 invocations par mois, presque toujours à vide : la requête ne ramène que les
@@ -206,14 +249,24 @@ chaque parent ouvre l'application trois fois par jour.
 | Les jetons morts qui s'accumulent                         | envois inutiles            | purge sur le ticket à l'envoi, sur le reçu à la relecture ; 180 jours en dernier recours |
 | Une boucle d'erreur qui retente indéfiniment              | invocations × 100          | attente exponentielle plafonnée à 3 tentatives                                           |
 
-### Budget d'alerte
+### Budget d'alerte — qui avertit, mais ne plafonne rien
 
 À configurer dans Google Cloud Console (facturation) :
 
-- **Alerte à 50 %** du quota : information.
+- **Alerte à 50 %** du budget : information.
 - **Alerte à 80 %** : à investiguer.
-- **Budget mensuel plafonné à 5 €** : garde-fou absolu, avec alerte par
-  e-mail. Le projet ne doit jamais dépasser ce montant.
+- **Alerte à 100 %** : à traiter le jour même.
+
+> **Une alerte budgétaire n'arrête pas la dépense.** Ce paragraphe annonçait un
+> « budget mensuel plafonné à 5 € » et un « garde-fou absolu » : c'était faux.
+> Google Cloud n'interrompt rien à l'atteinte d'un budget — il envoie un e-mail.
+> Un plafond réel demanderait de brancher le budget sur un sujet Pub/Sub et une
+> fonction qui coupe la facturation, c'est-à-dire une chaîne de plus à maintenir.
+>
+> Les vrais plafonds sont donc ailleurs, et ils sont **déjà en place** :
+> `maxInstances: 10` et `concurrency: 40` dans `functions/src/index.ts`, et les
+> quotas du plan Blaze, qui se traduisent en refus (`429`) plutôt qu'en facture.
+> Une alerte reste utile — mais elle informe, elle ne protège pas.
 
 ---
 
@@ -232,3 +285,51 @@ chaque parent ouvre l'application trois fois par jour.
 Ce point mérite d'être dit clairement : **la publication sur l'App Store est
 le seul coût incompressible du projet.** Il n'existe pas de moyen légal de
 publier une application iOS sans le programme développeur Apple.
+
+---
+
+## 6. Pourquoi pas Supabase ?
+
+La question se pose, puisque Supabase annonce un plan gratuit. Elle mérite des
+chiffres plutôt qu'une préférence.
+
+|                            | Firebase, plan Blaze, notre usage | Supabase Free           | Supabase Pro       |
+| -------------------------- | --------------------------------- | ----------------------- | ------------------ |
+| Coût mensuel               | **0 €** sous le quota             | 0 €                     | **dès 25 $/mois**  |
+| Mise en veille             | jamais                            | **pause après 7 jours** | jamais             |
+| Sauvegardes                | automatiques, 7 jours             | **aucune**              | 7 jours            |
+| Base de données            | 1 Gio, 50 k lectures/jour         | 500 Mo                  | 8 Go               |
+| Plafond de dépense         | quotas + `maxInstances`           | —                       | plafond par défaut |
+| Utilisateurs actifs inclus | illimité en e-mail/mot de passe   | 50 000                  | 100 000            |
+
+Deux arguments, dans cet ordre.
+
+**1. Le plan gratuit Supabase ne convient pas à cette application.** Un projet
+gratuit est **mis en pause automatiquement après sept jours de faible activité**
+— c'est la documentation Supabase elle-même, « Project Pausing » — et la reprise
+est **manuelle** : il faut ouvrir le tableau de bord et cliquer « Resume
+project ». Pour une association de parents, dont l'usage se fait par pics —
+intense en septembre, quasi nul pendant les vacances d'été — c'est un mode de
+panne particulièrement vicieux : l'application fonctionnait, puis elle ne
+fonctionne plus, et le rétablissement demande un accès à un tableau de bord que
+personne n'a sous la main un 15 août. S'y ajoute que le plan gratuit ne comprend
+**aucune sauvegarde**, ni automatique ni à un instant précis.
+
+Le palier qui tiendrait ces promesses est **Pro, à partir de 25 $/mois**, soit
+environ **276 $/an** — à comparer aux **0 €** de Firebase à notre volume. Le plan
+gratuit Supabase n'est donc pas une alternative moins chère : c'est une
+alternative moins chère **qui ne tient pas ses promesses**, et la version qui les
+tient coûte plus cher que ce que nous avons déjà.
+
+**2. La migration coûterait le délai, pas l'argent.** Tout ce projet repose sur
+Firestore : les règles de sécurité et le banc qui les éprouve, les déclencheurs
+de `functions/`, la couche d'accès de `packages/firebase`, les sous-collections
+de commentaires et de messages, la piste d'audit, les liens profonds, et la suite
+de tests qui couvre l'ensemble. Passer à Supabase signifie réécrire ce socle en
+SQL, en politiques RLS et en fonctions _edge_ — c'est-à-dire précisément la partie
+qui est aujourd'hui **mesurée et prouvée**. Ce n'est pas un changement de
+fournisseur, c'est une réécriture, et elle arriverait au pire moment.
+
+**Conclusion : rester sur Firebase.** Non par attachement, mais parce que le plan
+Blaze coûte 0 € à notre volume, que le garde-fou de dépense est déjà dans le code,
+et que l'alternative gratuite s'arrête toute seule.

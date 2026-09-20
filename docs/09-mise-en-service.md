@@ -63,6 +63,17 @@ Ce n'est pas un choix de confort :
 Le plan Blaze conserve un **niveau gratuit**, et pour une association de parents
 la facture réelle se compte en centimes.
 
+> **Changer de région ne dispense pas du plan Blaze.** C'est la question qui vient
+> naturellement, et la réponse est non : la région n'entre pas dans la condition.
+> La documentation officielle dit « _to deploy functions, your project must be on
+> the Blaze pricing plan_ » — une condition **au niveau du projet**, sans
+> exception géographique. La région n'intervient qu'à un seul endroit : le palier
+> _Always Free_ de Cloud Storage n'existe que pour `US-CENTRAL1`, `US-EAST1` et
+> `US-WEST1`. C'est un **quota**, pas une condition d'accès — et il ne nous
+> servirait à rien : nous n'utilisons pas Storage, et héberger les données de
+> familles françaises aux États-Unis serait un choix à défendre devant le RGPD,
+> pas une économie.
+
 1. ⚙️ → **Utilisation et facturation** → **Modifier le plan** → **Blaze**, en
    liant un moyen de paiement.
 2. **Fixez immédiatement une alerte budgétaire** (Google Cloud → Facturation →
