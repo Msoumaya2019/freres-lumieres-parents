@@ -15,7 +15,7 @@
     "@flp/shared": "workspace:*",
     "@flp/types": "workspace:*",
     "@flp/validation": "workspace:*",
-    "next": "16.3.5",
+    "next": "16.4.1",
     "react": "19.2.3",
     "react-dom": "19.2.3"
   },
